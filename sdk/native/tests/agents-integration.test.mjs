@@ -56,7 +56,7 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
         skipGitRepoCheck: true,
       });
 
-      const model = provider.getModel("claude-sonnet-4.5");
+      const model = provider.getModel("gpt-5");
 
       expect(model).toBeDefined();
       expect(typeof model.getResponse).toBe("function");
@@ -143,7 +143,7 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
       const options = {
         apiKey: "test-key",
         baseUrl: "https://test.example.com",
-        defaultModel: "claude-sonnet-4.5",
+        defaultModel: "gpt-5",
         workingDirectory: "/tmp",
         skipGitRepoCheck: true,
       };

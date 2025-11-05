@@ -244,7 +244,7 @@ Agents automatically have access to the conversation history, enabling seamless 
 
 ```typescript
 interface CodexOptions {
-  apiKey?: string;              // Responses API key (defaults to ANTHROPIC_API_KEY env var)
+  apiKey?: string;              // Responses API key (defaults to OPENAI_API_KEY env var)
   baseUrl?: string;             // API base URL override
   skipGitRepoCheck?: boolean;   // Skip Git repository validation
 }
@@ -254,7 +254,7 @@ interface CodexOptions {
 
 ```typescript
 interface ThreadOptions {
-  model?: string;               // Model to use (e.g., "claude-sonnet-4")
+  model?: string;               // Model to use (e.g., "gpt-5")
   sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
   workingDirectory?: string;    // Directory to run Codex in
   skipGitRepoCheck?: boolean;   // Skip Git repository validation

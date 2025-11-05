@@ -7,17 +7,16 @@
  *
  * Installation:
  * ```bash
- * npm install @openai/codex-native @openai/agents
+ * npm install @codex-native/sdk @openai/agents
  * ```
  *
  * Usage:
  * ```bash
- * export CODEX_API_KEY="your-api-key"
  * npx tsx examples/agents-integration.ts
  * ```
  */
 
-import { CodexProvider } from "@openai/codex-native";
+import { CodexProvider } from "../src/index.js";
 
 // These would come from @openai/agents when installed
 // import { Agent, Runner } from "@openai/agents";
@@ -40,9 +39,7 @@ async function main() {
   // Step 1: Create the CodexProvider
   // ============================================================================
   const provider = new CodexProvider({
-    apiKey: process.env.CODEX_API_KEY,
-    baseUrl: process.env.CODEX_BASE_URL,
-    defaultModel: "claude-sonnet-4.5",
+    defaultModel: "gpt-5",
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true, // For example purposes
   });
@@ -162,7 +159,7 @@ each using Codex as their backend through the provider.
   console.log("\n\nDirect Provider Usage (for testing):");
   console.log("─".repeat(60));
 
-  const model = provider.getModel("claude-sonnet-4.5");
+  const model = provider.getModel("gpt-5");
 
   try {
     const response = await model.getResponse({
@@ -185,7 +182,7 @@ each using Codex as their backend through the provider.
     console.log(`\n  Output items: ${response.output.length}`);
 
     for (const item of response.output) {
-      if (item.type === "assistant_message") {
+      if (!item.type || item.type === "message") {
         console.log(`\n  Message: ${item.content[0]?.type === "output_text" ? item.content[0].text : "(non-text)"}`);
       }
     }

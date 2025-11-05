@@ -17,7 +17,7 @@ import { Agent, Runner } from '@openai/agents';
 // Create the provider
 const provider = new CodexProvider({
   apiKey: process.env.CODEX_API_KEY,
-  defaultModel: 'claude-sonnet-4.5'
+  defaultModel: 'gpt-5'
 });
 
 // Create an agent
@@ -143,7 +143,7 @@ interface CodexProviderOptions {
 const provider = new CodexProvider({
   workingDirectory: process.cwd(),
   skipGitRepoCheck: true,
-  defaultModel: 'claude-sonnet-4.5'
+  defaultModel: 'gpt-5'
 });
 ```
 
@@ -207,7 +207,7 @@ console.log(review.finalOutput);
 ### Streaming Progress
 
 ```typescript
-const model = provider.getModel('claude-sonnet-4.5');
+const model = provider.getModel('gpt-5');
 
 const stream = model.getStreamedResponse({
   systemInstructions: 'You are a coding assistant',

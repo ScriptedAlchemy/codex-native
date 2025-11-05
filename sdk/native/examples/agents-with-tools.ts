@@ -19,9 +19,9 @@
  * ```
  *
  * This example demonstrates using Codex's native NAPI bindings as the model
- * provider. Unlike HTTP-based providers, Codex handles authentication and
- * connection to Claude's Responses API internally via the native binding,
- * so no API key configuration is needed in your code.
+ * provider. Codex handles authentication and connection to OpenAI's GPT-5
+ * Responses API internally via the native binding, so no API key configuration
+ * is needed in your code when running locally with the mock server.
  *
  * Key features demonstrated:
  * - Image input support (base64, URLs, and file paths)
@@ -106,7 +106,7 @@ async function main() {
     tools: [getWeatherTool, convertTemperatureTool],
   });
 
-  console.log('✓ Created WeatherAssistant agent with Codex (Claude Sonnet 4.5)');
+  console.log('✓ Created WeatherAssistant agent with Codex (GPT-5)');
   console.log('✓ Tools automatically registered: get_weather, convert_temperature\n');
 
   // Example 1: Simple text query

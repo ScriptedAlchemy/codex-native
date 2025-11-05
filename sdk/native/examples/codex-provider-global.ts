@@ -1,8 +1,8 @@
 /**
- * Example: Configure Codex as a global model provider
+ * Example: Reuse a shared Codex model across multiple runs
  *
- * This demonstrates how to set up Codex as a globally available provider
- * that can be used across multiple agents and runs.
+ * This demonstrates how to create a CodexProvider once and reuse
+ * the same model instance across multiple agents and queries.
  *
  * CodexProvider features:
  * - Multi-modal input support (text + images)
@@ -16,24 +16,25 @@
  * ```
  */
 
-import { Agent, run, registerProvider } from '@openai/agents';
+import { Agent, run } from '@openai/agents';
 import { CodexProvider } from '../src/index.js';
 
 async function main() {
-  // Register Codex as a global provider (no API key needed)
+  // Create a shared Codex provider (no API key needed)
   const codexProvider = new CodexProvider({
     defaultModel: 'gpt-5',
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });
 
-  registerProvider('codex', codexProvider);
+  // Get the model once and reuse it across multiple agents
+  const model = await codexProvider.getModel();
 
-  // Now you can create agents that use 'codex' as their provider
+  // Create an agent with the Codex model
   const agent = new Agent({
-    name: 'GlobalCodexAgent',
+    name: 'SharedCodexAgent',
+    model: model,
     instructions: 'You are a helpful assistant powered by Codex. You support text and image inputs.',
-    // No model specified - will use the globally registered provider
   });
 
   // Run multiple queries

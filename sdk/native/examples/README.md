@@ -197,7 +197,7 @@ npx tsx --watch examples/<example-name>.ts
 
 The Codex Native SDK provides:
 
-1. **Native NAPI Bindings**: Direct connection to Claude via native code (no HTTP overhead)
+1. **Native NAPI Bindings**: Direct connection to GPT-5 via native code (no HTTP overhead)
 2. **OpenAI Agents Integration**: Full compatibility with the Agents framework
 3. **Automatic Authentication**: No API key configuration needed in your code
 4. **Multi-Modal Support**: Text and image inputs

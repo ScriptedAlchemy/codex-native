@@ -55,7 +55,7 @@ export interface CodexProviderOptions extends CodexOptions {
  *
  * const provider = new CodexProvider({
  *   apiKey: process.env.CODEX_API_KEY,
- *   defaultModel: 'claude-sonnet-4.5'
+  *   defaultModel: 'gpt-5'
  * });
  *
  * const agent = new Agent({
