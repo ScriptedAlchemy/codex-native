@@ -1,0 +1,70 @@
+{
+  "name": "@codex-native/sdk",
+  "version": "0.0.0-dev",
+  "description": "Native NAPI-based Codex SDK - complete standalone implementation.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "npm",
+    "*.node"
+  ],
+  "scripts": {
+    "build": "npm run build:napi && npm run build:ts",
+    "build:napi": "napi build --platform --release",
+    "build:napi:debug": "napi build --platform",
+    "build:ts": "tsup",
+    "create-npm-dirs": "napi create-npm-dirs",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm",
+    "pretest": "npm run build:ts",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
+    "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch",
+    "coverage": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
+    "version": "napi version",
+    "release:patch": "npm version patch && npm run release",
+    "release:minor": "npm version minor && npm run release",
+    "release:major": "npm version major && npm run release",
+    "release": "npm run build && npm run test && npm publish",
+    "release:dry": "npm run build && npm run test && npm publish --dry-run"
+  },
+  "napi": {
+    "binaryName": "codex_native",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-musl",
+      "x86_64-unknown-linux-musl",
+      "aarch64-pc-windows-msvc",
+      "x86_64-pc-windows-msvc"
+    ]
+  },
+  "optionalDependencies": {
+    "@codex-native/darwin-arm64": "0.0.0-dev",
+    "@codex-native/darwin-x64": "0.0.0-dev",
+    "@codex-native/linux-arm64-gnu": "0.0.0-dev",
+    "@codex-native/linux-arm64-musl": "0.0.0-dev",
+    "@codex-native/linux-x64-gnu": "0.0.0-dev",
+    "@codex-native/linux-x64-musl": "0.0.0-dev",
+    "@codex-native/win32-arm64-msvc": "0.0.0-dev",
+    "@codex-native/win32-x64-msvc": "0.0.0-dev"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "@napi-rs/cli": "^3.4.1",
+    "@openai/agents": "^0.2.1",
+    "@types/node": "^22.0.0",
+    "jest": "^29.7.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.2"
+  }
+}
