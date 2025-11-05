@@ -29,6 +29,9 @@
  * - Type-safe tool parameters with Zod schemas
  */
 
+import os from 'node:os';
+import path from 'node:path';
+import { promises as fs } from 'node:fs';
 import { z } from 'zod';
 import { Agent, run, withTrace, tool } from '@openai/agents';
 import { CodexProvider } from '../src/index.js';
@@ -128,19 +131,42 @@ async function main() {
     console.log('  - HTTP(S) URLs (https://example.com/image.png)');
     console.log('  - Local file paths (/path/to/image.png)\n');
 
-    // Use a simple text-based approach instead of an actual image
-    // to avoid image validation issues with the demo
-    console.log('Set CODEX_DEMO_IMAGE_PATH to a local image to run the full multi-modal demo.');
-    console.log('For now, falling back to a textual description of the scene.\n');
+    const imageUrl = 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f4/NOAA_Weather_Radar_Cropped.jpg/320px-NOAA_Weather_Radar_Cropped.jpg';
+    let localImagePath: string | null = null;
 
-    // Run a text-only query for the demo
-    const result = await run(
-      weatherAgent,
-      'Based on these weather conditions - sunny skies, 22°C temperature, and a light breeze - describe the weather in a haiku'
-    );
+    try {
+      console.log(`Downloading sample weather image from: ${imageUrl}`);
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(`Unexpected status ${response.status}`);
+      }
 
-    console.log('\n[Final response]');
-    console.log(result.finalOutput);
+      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-weather-'));
+      localImagePath = path.join(tmpDir, 'radar.jpg');
+      const buffer = Buffer.from(await response.arrayBuffer());
+      await fs.writeFile(localImagePath, buffer);
+      console.log(`Saved image to ${localImagePath}\n`);
+    } catch (downloadError) {
+      console.warn(`Failed to download sample image (${downloadError}). Falling back to text-only demo.\n`);
+    }
+
+    if (localImagePath) {
+      const result = await run(weatherAgent, [
+        { type: 'input_text', text: 'Analyze this weather radar image and describe current conditions in a haiku.' },
+        { type: 'input_image', image: localImagePath },
+      ]);
+
+      console.log('\n[Final response]');
+      console.log(result.finalOutput);
+    } else {
+      const result = await run(
+        weatherAgent,
+        'Based on radar showing scattered thunderstorms with heavy rainfall moving northeast, describe the weather in a haiku.',
+      );
+
+      console.log('\n[Final response]');
+      console.log(result.finalOutput);
+    }
   });
 
   console.log('\n' + '='.repeat(60));
