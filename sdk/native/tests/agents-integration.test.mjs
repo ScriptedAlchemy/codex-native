@@ -209,7 +209,7 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
       }
     }, 15000); // Longer timeout for runner execution
 
-    it.skip("works with real Codex backend", async () => {
+    it("works with real Codex backend", async () => {
       // This test requires a real Codex backend (no API key needed)
 
       const { Agent, Runner } = await import("@openai/agents");

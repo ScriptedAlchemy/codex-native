@@ -47,7 +47,12 @@ async function main() {
   console.log(result2.finalOutput);
 }
 
-main().catch((error) => {
+main()
+  .then(() => {
+    // Force exit after completion to avoid hanging
+    process.exit(0);
+  })
+  .catch((error) => {
   console.error('Error:', error);
   process.exit(1);
 });

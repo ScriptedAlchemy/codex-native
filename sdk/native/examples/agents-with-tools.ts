@@ -100,7 +100,7 @@ async function main() {
   const weatherAgent = new Agent({
     name: 'WeatherAssistant',
     model: codexModel,
-    instructions: 'You are a helpful weather assistant. You respond in haikus when providing weather information. You can also analyze weather-related images.',
+    instructions: 'You are a weather information assistant. When asked about weather, use the available tools to fetch data and provide responses in haiku format. Focus only on answering weather-related questions.',
     tools: [getWeatherTool, convertTemperatureTool],
   });
 
@@ -180,10 +180,15 @@ async function main() {
 
 // Run if executed directly
 if (require.main === module) {
-  main().catch((error) => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-  });
+  main()
+    .then(() => {
+      // Force exit after completion to avoid hanging
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('Fatal error:', error);
+      process.exit(1);
+    });
 }
 
 export { main, getWeatherTool, convertTemperatureTool };

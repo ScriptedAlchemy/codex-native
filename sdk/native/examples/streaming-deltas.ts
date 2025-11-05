@@ -292,7 +292,12 @@ async function main() {
 
 // Run if executed directly
 if (require.main === module) {
-  main().catch((error) => {
+  main()
+  .then(() => {
+    // Force exit after completion to avoid hanging
+    process.exit(0);
+  })
+  .catch((error) => {
     console.error('Fatal error:', error);
     process.exit(1);
   });

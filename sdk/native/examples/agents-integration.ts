@@ -197,7 +197,12 @@ each using Codex as their backend through the provider.
 
 // Run if executed directly
 if (require.main === module) {
-  main().catch((error) => {
+  main()
+  .then(() => {
+    // Force exit after completion to avoid hanging
+    process.exit(0);
+  })
+  .catch((error) => {
     console.error("Fatal error:", error);
     process.exit(1);
   });
