@@ -16,6 +16,12 @@ export async function createOutputSchemaFile(schema: unknown): Promise<OutputSch
     throw new Error("outputSchema must be a plain JSON object");
   }
 
+  // Ensure the schema has additionalProperties: false as required by the API
+  const normalizedSchema = {
+    ...schema,
+    additionalProperties: schema.additionalProperties !== undefined ? schema.additionalProperties : false,
+  };
+
   const schemaDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-output-schema-"));
   const schemaPath = path.join(schemaDir, "schema.json");
   const cleanup = async () => {
@@ -27,7 +33,7 @@ export async function createOutputSchemaFile(schema: unknown): Promise<OutputSch
   };
 
   try {
-    await fs.writeFile(schemaPath, JSON.stringify(schema), "utf8");
+    await fs.writeFile(schemaPath, JSON.stringify(normalizedSchema), "utf8");
     return { schemaPath, cleanup };
   } catch (error) {
     await cleanup();

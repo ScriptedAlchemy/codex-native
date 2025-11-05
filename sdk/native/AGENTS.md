@@ -16,7 +16,6 @@ import { Agent, Runner } from '@openai/agents';
 
 // Create the provider
 const provider = new CodexProvider({
-  apiKey: process.env.CODEX_API_KEY,
   defaultModel: 'gpt-5'
 });
 
@@ -150,10 +149,11 @@ const provider = new CodexProvider({
 **Production:**
 ```typescript
 const provider = new CodexProvider({
-  apiKey: process.env.CODEX_API_KEY,
   baseUrl: 'https://api.codex.example.com',
+  defaultModel: 'gpt-5',
   workingDirectory: '/app',
-  skipGitRepoCheck: false
+  skipGitRepoCheck: false,
+  // apiKey: '...' // Optional: only needed if your deployment enforces explicit credentials
 });
 ```
 

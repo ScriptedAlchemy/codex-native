@@ -18,58 +18,36 @@
 
 import { Agent, run } from '@openai/agents';
 import { CodexProvider } from '../src/index.js';
-import { startMockResponsesServer } from './utils/mock-responses-server.js';
 
 async function main() {
-  const usingRealBackend = Boolean(process.env.CODEX_BASE_URL);
-  const mockServer = usingRealBackend
-    ? null
-    : await startMockResponsesServer([
-        'Hello! This is a mock Codex response powered by GPT-5.',
-      ]);
+  // Create a Codex provider (no API key needed - Codex handles auth internally)
+  const provider = new CodexProvider({
+    defaultModel: 'gpt-5',
+    workingDirectory: process.cwd(),
+    skipGitRepoCheck: true,
+  });
 
-  try {
-    // Create a Codex provider (no API key needed - handled internally)
-    const provider = new CodexProvider({
-      defaultModel: 'gpt-5',
-      baseUrl: process.env.CODEX_BASE_URL ?? mockServer!.url,
-      apiKey: process.env.CODEX_API_KEY ?? 'mock-api-key',
-      workingDirectory: process.cwd(),
-      skipGitRepoCheck: true,
-    });
+  // Get a model instance from the provider
+  const model = await provider.getModel('gpt-5');
 
-    // Get a model instance from the provider
-    const model = await provider.getModel('gpt-5');
+  // Create an agent with the Codex model
+  const agent = new Agent({
+    name: 'CodexAssistant',
+    model,
+    instructions:
+      'You are a helpful coding assistant powered by GPT-5 through Codex. You support both text and image inputs.',
+  });
 
-    // Create an agent with the Codex model
-    const agent = new Agent({
-      name: 'CodexAssistant',
-      model,
-      instructions:
-        'You are a helpful coding assistant powered by GPT-5 through Codex. You support both text and image inputs.',
-    });
+  // Run the agent with text input
+  console.log('Example 1: Text input\n');
+  const result = await run(agent, 'What is the capital of France?');
+  console.log(result.finalOutput);
 
-    // Run the agent with text input
-    console.log('Example 1: Text input\n');
-    const result = await run(agent, 'What is the capital of France?');
-    console.log(result.finalOutput);
-
-    // Example with image input (multi-modal)
-    // CodexProvider automatically handles image conversion
-    console.log('\n\nExample 2: Multi-modal input (text + image)\n');
-    console.log('Note: Images can be provided as URLs, base64 data, or file paths');
-    console.log('      CodexProvider handles the conversion automatically');
-
-    if (!usingRealBackend) {
-      console.log(
-        '\n(Mock server in use — set CODEX_BASE_URL to run against a real Codex deployment.)',
-      );
-    }
-  } finally {
-    if (mockServer) {
-      await mockServer.close();
-    }
-  }
+  // Example with image input (multi-modal)
+  // CodexProvider automatically handles image conversion
+  console.log('\n\nExample 2: Multi-modal input (text + image)\n');
+  console.log('Note: Images can be provided as URLs, base64 data, or file paths');
+  console.log('      CodexProvider handles the conversion automatically');
 }
 
 main().catch((error) => {
