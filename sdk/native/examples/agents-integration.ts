@@ -149,7 +149,9 @@ each using Codex as their backend through the provider.
   - No need for framework-level tool configuration
 
 ✓ Multi-modal Input:
-  - Support for text and images (future)
+  - Support for text and images (available now!)
+  - Images can be URLs, base64 data, or file paths
+  - CodexProvider automatically handles image conversion
   - Codex can analyze screenshots and diagrams
 `);
 

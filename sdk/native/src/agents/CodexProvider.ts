@@ -3,8 +3,12 @@ import type { Thread } from "../thread";
 import type { ThreadEvent, Usage as CodexUsage } from "../events";
 import type { ThreadItem } from "../items";
 import type { Input, UserInput } from "../thread";
-import type { CodexOptions } from "../codexOptions";
+import type { CodexOptions, NativeToolDefinition } from "../codexOptions";
 import type { ThreadOptions } from "../threadOptions";
+import type { NativeToolInvocation, NativeToolResult } from "../nativeBinding";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 import type {
   ModelProvider,
   Model,
@@ -16,6 +20,7 @@ import type {
   Usage,
   AssistantMessageItem,
   OutputText,
+  SerializedTool,
 } from "./types";
 
 /**
@@ -104,6 +109,11 @@ class CodexModel implements Model {
   private modelName?: string;
   private thread: Thread | null = null;
   private options: CodexProviderOptions;
+  private registeredTools: Set<string> = new Set();
+  private pendingToolCalls: Map<string, {
+    resolve: (result: string) => void;
+    reject: (error: Error) => void;
+  }> = new Map();
 
   constructor(codex: Codex, modelName: string | undefined, options: CodexProviderOptions) {
     this.codex = codex;
@@ -115,11 +125,14 @@ class CodexModel implements Model {
    * Get or create the thread for this model instance
    */
   private getThread(conversationId?: string): Thread {
-    if (conversationId && !this.thread) {
-      // Resume existing thread
-      this.thread = this.codex.resumeThread(conversationId, this.getThreadOptions());
+    // If we have a conversation ID and either no thread or a different thread
+    if (conversationId) {
+      if (!this.thread || this.thread.id !== conversationId) {
+        // Resume the specified thread
+        this.thread = this.codex.resumeThread(conversationId, this.getThreadOptions());
+      }
     } else if (!this.thread) {
-      // Create new thread
+      // Create new thread only if we don't have one
       this.thread = this.codex.startThread(this.getThreadOptions());
     }
     return this.thread;
@@ -135,9 +148,18 @@ class CodexModel implements Model {
 
   async getResponse(request: ModelRequest): Promise<ModelResponse> {
     const thread = this.getThread(request.conversationId || request.previousResponseId);
-    const input = this.convertRequestToInput(request);
 
-    // Run Codex (it handles tools internally)
+    // Register any tools provided in the request
+    if (request.tools && request.tools.length > 0) {
+      this.registerRequestTools(request.tools);
+    }
+
+    const input = await this.convertRequestToInput(request);
+
+    // Note: ModelSettings like temperature, maxTokens, topP, etc. are not currently
+    // supported by the Codex native binding. The Rust layer handles model configuration.
+
+    // Run Codex (tools are now registered and will be available)
     const turn = await thread.run(input, {
       outputSchema: request.outputType?.schema,
     });
@@ -152,21 +174,23 @@ class CodexModel implements Model {
 
   async *getStreamedResponse(request: ModelRequest): AsyncIterable<StreamEvent> {
     const thread = this.getThread(request.conversationId || request.previousResponseId);
-    const input = this.convertRequestToInput(request);
+
+    // Register any tools provided in the request
+    if (request.tools && request.tools.length > 0) {
+      this.registerRequestTools(request.tools);
+    }
+
+    const input = await this.convertRequestToInput(request);
 
     const { events } = await thread.runStreamed(input, {
       outputSchema: request.outputType?.schema,
     });
 
-    let accumulatedText = "";
+    // Track text accumulation for delta calculation
+    const textAccumulator = new Map<string, string>();
 
     for await (const event of events) {
-      const streamEvents = this.convertCodexEventToStreamEvent(event, accumulatedText);
-
-      // Update accumulated text for text deltas
-      if (event.type === "item.completed" && event.item.type === "agent_message") {
-        accumulatedText = event.item.text;
-      }
+      const streamEvents = this.convertCodexEventToStreamEvent(event, textAccumulator);
 
       for (const streamEvent of streamEvents) {
         yield streamEvent;
@@ -175,9 +199,238 @@ class CodexModel implements Model {
   }
 
   /**
-   * Convert ModelRequest to Codex Input format
+   * Register tools from ModelRequest with the Codex instance
+   *
+   * Converts SerializedTool format (OpenAI Agents) to NativeToolDefinition format (Codex)
+   * and registers them with the Codex instance for bidirectional tool execution.
    */
-  private convertRequestToInput(request: ModelRequest): Input {
+  private registerRequestTools(tools: SerializedTool[]): void {
+    for (const tool of tools) {
+      if (tool.type !== "function") {
+        continue;
+      }
+
+      // Skip if already registered
+      if (this.registeredTools.has(tool.name)) {
+        continue;
+      }
+
+      try {
+        // Convert SerializedTool to NativeToolDefinition
+        const nativeToolDef: NativeToolDefinition = {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+          // The handler is called when Codex wants to execute this tool
+          handler: async (invocation: NativeToolInvocation): Promise<NativeToolResult> => {
+            return await this.executeToolViaFramework(invocation);
+          },
+        };
+
+        // Register the tool with Codex
+        this.codex.registerTool(nativeToolDef);
+        this.registeredTools.add(tool.name);
+
+        console.log(`Registered tool with Codex: ${tool.name}`);
+      } catch (error) {
+        console.error(`Failed to register tool ${tool.name}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Execute a tool via the OpenAI Agents framework
+   *
+   * This is the bridge between Codex's tool execution and the framework's tool handlers.
+   *
+   * FRAMEWORK INTEGRATION NOTE:
+   * This method currently returns a placeholder result because the actual execution
+   * requires integration with the OpenAI Agents framework's tool execution loop.
+   *
+   * In a full implementation, this would:
+   * 1. Emit a "tool_call_requested" event that the framework can listen to
+   * 2. Wait for the framework to execute the tool and provide the result
+   * 3. Return that result to Codex
+   *
+   * For now, this creates a promise that could be resolved by framework code,
+   * but the framework integration is not yet complete.
+   */
+  private async executeToolViaFramework(
+    invocation: NativeToolInvocation
+  ): Promise<NativeToolResult> {
+    console.log(
+      `Tool execution requested by Codex: ${invocation.toolName} (callId: ${invocation.callId})`
+    );
+
+    // FRAMEWORK INTEGRATION POINT:
+    // The framework would need to:
+    // 1. Listen for tool execution requests (e.g., via an event emitter)
+    // 2. Execute the tool using its own tool handlers
+    // 3. Resolve the pending promise with the result
+    //
+    // Example integration pattern (not implemented):
+    // ```
+    // this.emit('tool_execution_requested', {
+    //   toolName: invocation.toolName,
+    //   callId: invocation.callId,
+    //   arguments: invocation.arguments,
+    //   onResult: (result: string) => resolve({ output: result, success: true }),
+    //   onError: (error: string) => resolve({ error, success: false })
+    // });
+    // ```
+
+    // For now, return a placeholder response indicating the tool was called
+    // but could not be executed without framework integration
+    return {
+      output: JSON.stringify({
+        message: "Tool execution via framework is not yet implemented",
+        toolName: invocation.toolName,
+        callId: invocation.callId,
+        arguments: invocation.arguments,
+        note: "This requires bidirectional communication between Codex and the OpenAI Agents framework. The framework needs to listen for tool execution requests and provide results back to Codex.",
+      }),
+      success: false,
+      error: "Framework integration not complete - tool execution requires the OpenAI Agents framework to handle the tool call and return results",
+    };
+  }
+
+  /**
+   * Handle image input by converting to local file path
+   * Supports: base64 data URLs, HTTP(S) URLs, and file IDs (not yet implemented)
+   */
+  private async handleImageInput(item: any): Promise<string | null> {
+    const imageValue = item.image;
+
+    // Case 1: Already a local file path (less common but possible)
+    if (typeof imageValue === "string") {
+      // Check if it's a base64 data URL
+      if (imageValue.startsWith("data:image/")) {
+        return await this.saveBase64Image(imageValue);
+      }
+      // Check if it's an HTTP(S) URL
+      else if (imageValue.startsWith("http://") || imageValue.startsWith("https://")) {
+        return await this.downloadImage(imageValue);
+      }
+      // Assume it's already a file path
+      else if (fs.existsSync(imageValue)) {
+        return imageValue;
+      }
+      // Invalid format
+      else {
+        throw new Error(`Invalid image format: ${imageValue.substring(0, 50)}...`);
+      }
+    }
+    // Case 2: Object with url property
+    else if (typeof imageValue === "object" && "url" in imageValue) {
+      return await this.downloadImage(imageValue.url);
+    }
+    // Case 3: Object with fileId property (would need API access to download)
+    else if (typeof imageValue === "object" && "fileId" in imageValue) {
+      throw new Error(
+        `Image fileId references are not yet supported. ` +
+        `File IDs would need to be downloaded from the service first.`
+      );
+    }
+
+    return null;
+  }
+
+  /**
+   * Save base64-encoded image to temporary file
+   */
+  private async saveBase64Image(dataUrl: string): Promise<string> {
+    // Extract media type and base64 data
+    const matches = dataUrl.match(/^data:image\/([^;]+);base64,(.+)$/);
+    if (!matches) {
+      throw new Error("Invalid base64 image data URL");
+    }
+
+    const mediaType = matches[1];
+    const base64Data = matches[2];
+    if (!base64Data) {
+      throw new Error("Invalid base64 data in image URL");
+    }
+
+    // Extract extension from media type, handling various formats
+    // Examples: "png", "jpeg", "svg+xml", "vnd.microsoft.icon"
+    const extension = this.getExtensionFromMediaType(mediaType, "png");
+    const buffer = Buffer.from(base64Data, "base64");
+
+    // Create temp file
+    const tempDir = os.tmpdir();
+    const filename = `codex-image-${Date.now()}.${extension}`;
+    const filepath = path.join(tempDir, filename);
+
+    await fs.promises.writeFile(filepath, buffer);
+    return filepath;
+  }
+
+  /**
+   * Download image from URL to temporary file
+   */
+  private async downloadImage(url: string): Promise<string> {
+    // Use fetch to download the image
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to download image from ${url}: ${response.statusText}`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    const contentType = response.headers.get("content-type") || "image/png";
+
+    // Extract media type from content-type (e.g., "image/png; charset=utf-8" -> "png")
+    const mediaTypePart = contentType.split(";")[0]?.trim() || "image/png";
+    const mediaType = mediaTypePart.split("/")[1] || "png";
+    const extension = this.getExtensionFromMediaType(mediaType, "png");
+
+    // Create temp file
+    const tempDir = os.tmpdir();
+    const filename = `codex-image-${Date.now()}.${extension}`;
+    const filepath = path.join(tempDir, filename);
+
+    await fs.promises.writeFile(filepath, Buffer.from(buffer));
+    return filepath;
+  }
+
+  /**
+   * Convert media type to file extension
+   * Handles special cases like "jpeg" -> "jpg", "svg+xml" -> "svg"
+   */
+  private getExtensionFromMediaType(mediaType: string | undefined, defaultExt: string): string {
+    if (!mediaType) {
+      return defaultExt;
+    }
+
+    // Normalize the media type
+    const normalized = mediaType.toLowerCase().trim();
+
+    // Handle special cases
+    const extensionMap: Record<string, string> = {
+      "jpeg": "jpg",
+      "svg+xml": "svg",
+      "vnd.microsoft.icon": "ico",
+      "x-icon": "ico",
+    };
+
+    // Check if we have a mapping for this media type
+    if (extensionMap[normalized]) {
+      return extensionMap[normalized];
+    }
+
+    // For standard types like "png", "gif", "webp", "bmp", "tiff"
+    // Just use the media type as the extension
+    const simpleExtension = normalized.split("+")[0]; // Handle cases like "svg+xml"
+
+    // Validate it's a reasonable extension (alphanumeric only)
+    if (simpleExtension && /^[a-z0-9]+$/.test(simpleExtension)) {
+      return simpleExtension;
+    }
+
+    // Fall back to default if we can't determine a valid extension
+    return defaultExt;
+  }
+
+  private async convertRequestToInput(request: ModelRequest): Promise<Input> {
     const parts: UserInput[] = [];
 
     // Add system instructions as a text preamble if provided
@@ -197,20 +450,39 @@ class CodexModel implements Model {
         if (item.type === "input_text") {
           parts.push({ type: "text", text: item.text });
         } else if (item.type === "input_image") {
-          // Handle image input
-          if (typeof item.image === "string") {
-            // Base64 or URL - we need to save to temp file for Codex
-            // For now, skip images (TODO: implement temp file handling)
-            continue;
-          } else if ("url" in item.image) {
-            // URL images - skip for now
-            continue;
-          } else if ("fileId" in item.image) {
-            // File ID - skip for now
-            continue;
+          // Handle image input - Codex supports local_image with file paths
+          const imagePath = await this.handleImageInput(item as any);
+          if (imagePath) {
+            parts.push({ type: "local_image", path: imagePath });
           }
+        } else if (item.type === "input_file") {
+          // Files could potentially be handled similarly to images
+          // For now, throw an error as we'd need to handle different file types
+          throw new Error(
+            `CodexProvider does not yet support input_file type. ` +
+            `File handling needs to be implemented based on file type and format.`
+          );
+        } else if (item.type === "input_audio") {
+          throw new Error(
+            `CodexProvider does not yet support input_audio type. ` +
+            `Audio handling needs to be implemented.`
+          );
+        } else if (item.type === "function_call_result") {
+          // Tool results - for now, convert to text describing the result
+          // This allows the agentic loop to continue even if we can't pass structured results
+          const result = item as any;
+          parts.push({
+            type: "text",
+            text: `[Tool ${result.name} returned: ${result.result}]`
+          });
+        } else if (item.type === "input_refusal") {
+          // Model refused - treat as text
+          const refusal = item as any;
+          parts.push({
+            type: "text",
+            text: `[Refusal: ${refusal.refusal}]`
+          });
         }
-        // Other input types (audio, files) are not yet supported
       }
     }
 
@@ -263,11 +535,11 @@ class CodexModel implements Model {
           ];
 
           output.push({
-            type: "message",
+            type: "assistant_message",
             role: "assistant",
             status: "completed",
             content,
-          } as any); // Using 'any' because our type definition has 'assistant_message' but the framework expects 'message'
+          });
           break;
         }
 
@@ -296,7 +568,7 @@ class CodexModel implements Model {
     // If no items were converted, add the final response as a message
     if (output.length === 0 && finalResponse) {
       output.push({
-        type: "message",
+        type: "assistant_message",
         role: "assistant",
         status: "completed",
         content: [
@@ -305,7 +577,7 @@ class CodexModel implements Model {
             text: finalResponse,
           },
         ],
-      } as any);
+      });
     }
 
     return output;
@@ -316,7 +588,7 @@ class CodexModel implements Model {
    */
   private convertCodexEventToStreamEvent(
     event: ThreadEvent,
-    previousText: string
+    textAccumulator: Map<string, string>
   ): StreamEvent[] {
     const events: StreamEvent[] = [];
 
@@ -330,21 +602,60 @@ class CodexModel implements Model {
         break;
 
       case "item.started":
-        // Could emit output_text_delta if we had partial text
+        // Initialize accumulator for this item
+        if (event.item.type === "agent_message" || event.item.type === "reasoning") {
+          const itemKey = `${event.item.type}`;
+          textAccumulator.set(itemKey, "");
+        }
+        break;
+
+      case "item.updated":
+        // Emit delta events for incremental text updates
+        if (event.item.type === "agent_message") {
+          const itemKey = "agent_message";
+          const previousText = textAccumulator.get(itemKey) || "";
+          const currentText = event.item.text;
+
+          if (currentText.length > previousText.length) {
+            const delta = currentText.slice(previousText.length);
+            textAccumulator.set(itemKey, currentText);
+
+            events.push({
+              type: "output_text_delta",
+              delta,
+            });
+          }
+        } else if (event.item.type === "reasoning") {
+          const itemKey = "reasoning";
+          const previousText = textAccumulator.get(itemKey) || "";
+          const currentText = event.item.text;
+
+          if (currentText.length > previousText.length) {
+            const delta = currentText.slice(previousText.length);
+            textAccumulator.set(itemKey, currentText);
+
+            events.push({
+              type: "reasoning_delta",
+              delta,
+            });
+          }
+        }
         break;
 
       case "item.completed":
         if (event.item.type === "agent_message") {
-          // Emit text done event
+          // Emit final text done event
           events.push({
             type: "output_text_done",
             text: event.item.text,
           });
+          textAccumulator.delete("agent_message");
         } else if (event.item.type === "reasoning") {
           events.push({
             type: "reasoning_done",
             reasoning: event.item.text,
           });
+          textAccumulator.delete("reasoning");
         }
         break;
 
@@ -354,7 +665,7 @@ class CodexModel implements Model {
           type: "response_done",
           response: {
             usage: this.convertUsage(event.usage),
-            output: [], // Items were already emitted
+            output: [], // Items were already emitted as deltas
             responseId: this.thread?.id || undefined,
           },
         });
@@ -365,6 +676,15 @@ class CodexModel implements Model {
           type: "error",
           error: {
             message: event.error.message,
+          },
+        });
+        break;
+
+      case "error":
+        events.push({
+          type: "error",
+          error: {
+            message: event.message,
           },
         });
         break;

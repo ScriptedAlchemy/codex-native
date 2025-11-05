@@ -4,8 +4,9 @@
  * This example demonstrates how to:
  * - Use zod for type-safe tool parameters
  * - Register custom tools with the agents framework
- * - Use CodexProvider as the model backend
- * - Create a weather assistant agent
+ * - Use CodexProvider as the model backend with image input support
+ * - Create a weather assistant agent that can analyze image inputs
+ * - Tools are automatically registered and available to the agent
  *
  * Installation:
  * ```bash
@@ -14,10 +15,18 @@
  *
  * Usage:
  * ```bash
- * export CODEX_API_KEY="your-api-key"
- * export OPENAI_API_KEY="your-openai-api-key"
  * npx tsx examples/agents-with-tools.ts
  * ```
+ *
+ * This example demonstrates using Codex's native NAPI bindings as the model
+ * provider. Unlike HTTP-based providers, Codex handles authentication and
+ * connection to Claude's Responses API internally via the native binding,
+ * so no API key configuration is needed in your code.
+ *
+ * Key features demonstrated:
+ * - Image input support (base64, URLs, and file paths)
+ * - Automatic tool registration with the CodexProvider
+ * - Multi-modal inputs (text + images)
  */
 
 import { z } from 'zod';
@@ -25,10 +34,8 @@ import {
   Agent,
   run,
   withTrace,
-  OpenAIChatCompletionsModel,
   tool,
 } from '@openai/agents';
-import { OpenAI } from 'openai';
 import { CodexProvider } from '../src/index.js';
 
 // Define a weather tool using zod for type-safe parameters
@@ -78,25 +85,35 @@ const convertTemperatureTool = tool({
 async function main() {
   console.log('🤖 OpenAI Agents with Codex Provider\n');
 
-  // Create OpenAI client for GPT-5
-  const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+  // Create Codex provider
+  // Codex handles authentication internally via native bindings
+  const codexProvider = new CodexProvider({
+    defaultModel: 'claude-sonnet-4-5',
+    workingDirectory: process.cwd(),
+    skipGitRepoCheck: true,
   });
 
-  // Create an agent with GPT-5 and custom tools
+  // Get the Codex model
+  const codexModel = await codexProvider.getModel();
+
+  // Create an agent with Codex model and custom tools
+  // NOTE: Tools are automatically registered with the CodexProvider
+  // when passed to the Agent. No additional configuration needed!
   const weatherAgent = new Agent({
     name: 'WeatherAssistant',
-    model: new OpenAIChatCompletionsModel(client, 'gpt-5'),
-    instructions: 'You are a helpful weather assistant. You respond in haikus when providing weather information.',
+    model: codexModel,
+    instructions: 'You are a helpful weather assistant. You respond in haikus when providing weather information. You can also analyze weather-related images.',
     tools: [getWeatherTool, convertTemperatureTool],
   });
 
-  console.log('✓ Created WeatherAssistant agent with GPT-5\n');
+  console.log('✓ Created WeatherAssistant agent with Codex (Claude Sonnet 4.5)');
+  console.log('✓ Tools automatically registered: get_weather, convert_temperature\n');
 
-  // Run the agent with tracing
-  await withTrace('Weather Assistant Example', async () => {
-    console.log('Running query: "What\'s the weather in Tokyo?"\n');
+  // Example 1: Simple text query
+  await withTrace('Weather Assistant Example - Text', async () => {
+    console.log('Example 1: Text-only query');
     console.log('─'.repeat(60));
+    console.log('Running query: "What\'s the weather in Tokyo?"\n');
 
     const result = await run(weatherAgent, "What's the weather in Tokyo?");
 
@@ -104,8 +121,42 @@ async function main() {
     console.log(result.finalOutput);
   });
 
+  console.log('\n' + '='.repeat(60) + '\n');
+
+  // Example 2: Multi-modal query with image input
+  // Demonstrates CodexProvider's image input support
+  await withTrace('Weather Assistant Example - With Image', async () => {
+    console.log('Example 2: Multi-modal query with image input');
+    console.log('─'.repeat(60));
+    console.log('CodexProvider supports multiple image input formats:');
+    console.log('  - Base64 data URLs (data:image/png;base64,...)');
+    console.log('  - HTTP(S) URLs (https://example.com/image.png)');
+    console.log('  - Local file paths (/path/to/image.png)\n');
+
+    // Example using a publicly available weather radar image URL
+    const imageUrl = 'https://www.noaa.gov/sites/default/files/styles/landscape_width_1275/public/2022-03/PHOTO-Climate-Collage-Diagonal-Design-NOAA-Communications-NO-NOAA-Logo.jpg';
+
+    console.log(`Query with image: "Analyze this weather image and describe what you see"\n`);
+    console.log(`Image URL: ${imageUrl}\n`);
+
+    // The Agents framework automatically converts this to the input format
+    // that CodexProvider expects, including image handling
+    const result = await run(weatherAgent, [
+      { type: 'input_text', text: 'Analyze this weather-related image and describe what you see in a haiku' },
+      { type: 'input_image', image: imageUrl }
+    ]);
+
+    console.log('\n[Final response]');
+    console.log(result.finalOutput);
+  });
+
   console.log('\n' + '='.repeat(60));
   console.log('✓ Example complete!');
+  console.log('\nKey takeaways:');
+  console.log('  • Tools are automatically registered when passed to Agent()');
+  console.log('  • Images can be provided as URLs, base64, or file paths');
+  console.log('  • CodexProvider handles image format conversion automatically');
+  console.log('  • Multi-modal inputs work seamlessly with the Agents framework');
 }
 
 // Run if executed directly
