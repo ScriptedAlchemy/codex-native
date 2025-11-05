@@ -22,13 +22,13 @@ import { CodexProvider } from '../src/index.js';
 async function main() {
   // Create a Codex provider (no API key needed - handled internally)
   const provider = new CodexProvider({
-    defaultModel: 'claude-sonnet-4-5',
+    defaultModel: 'gpt-5',
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });
 
   // Get a model instance from the provider
-  const model = await provider.getModel('claude-sonnet-4-5');
+  const model = await provider.getModel('gpt-5');
 
   // Create an agent with the Codex model
   const agent = new Agent({

@@ -44,7 +44,6 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
   describe("Provider Interface", () => {
     it("implements ModelProvider interface", () => {
       const provider = new CodexProvider({
-        apiKey: "test-key",
         skipGitRepoCheck: true,
       });
 
@@ -54,7 +53,6 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
 
     it("returns a Model instance from getModel()", () => {
       const provider = new CodexProvider({
-        apiKey: "test-key",
         skipGitRepoCheck: true,
       });
 
@@ -83,7 +81,6 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
   describe("Model Interface", () => {
     it("implements getResponse() method", async () => {
       const provider = new CodexProvider({
-        apiKey: "test-key",
         skipGitRepoCheck: true,
       });
 
@@ -99,7 +96,6 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
 
     it("implements getStreamedResponse() method", async () => {
       const provider = new CodexProvider({
-        apiKey: "test-key",
         skipGitRepoCheck: true,
       });
 
@@ -191,7 +187,6 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
       try {
         const provider = new CodexProvider({
           baseUrl: url,
-          apiKey: "test",
           skipGitRepoCheck: true,
         });
 
@@ -214,14 +209,12 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
       }
     }, 15000); // Longer timeout for runner execution
 
-    it.skip("works with real Codex backend (requires CODEX_API_KEY)", async () => {
-      // This test requires a real Codex backend
-      // Run with: CODEX_API_KEY=... npm test -- agents-integration
+    it.skip("works with real Codex backend", async () => {
+      // This test requires a real Codex backend (no API key needed)
 
       const { Agent, Runner } = await import("@openai/agents");
 
       const provider = new CodexProvider({
-        apiKey: process.env.CODEX_API_KEY,
         skipGitRepoCheck: true,
         });
 

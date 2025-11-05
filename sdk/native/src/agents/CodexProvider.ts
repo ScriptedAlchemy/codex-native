@@ -351,10 +351,37 @@ class CodexModel implements Model {
       throw new Error("Invalid base64 data in image URL");
     }
 
+    const sanitizedBase64 = base64Data.replace(/\s/g, "");
+    if (sanitizedBase64.length === 0) {
+      throw new Error("Invalid base64 data in image URL");
+    }
+
+    if (!/^[A-Za-z0-9+/=_-]+$/.test(sanitizedBase64)) {
+      throw new Error("Invalid base64 data in image URL");
+    }
+
+    const normalizedBase64 = sanitizedBase64.replace(/-/g, "+").replace(/_/g, "/");
+
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(normalizedBase64, "base64");
+    } catch {
+      throw new Error("Invalid base64 data in image URL");
+    }
+
+    if (buffer.length === 0) {
+      throw new Error("Invalid base64 data in image URL");
+    }
+
+    const reencoded = buffer.toString("base64").replace(/=+$/, "");
+    const normalizedInput = normalizedBase64.replace(/=+$/, "");
+    if (reencoded !== normalizedInput) {
+      throw new Error("Invalid base64 data in image URL");
+    }
+
     // Extract extension from media type, handling various formats
     // Examples: "png", "jpeg", "svg+xml", "vnd.microsoft.icon"
     const extension = this.getExtensionFromMediaType(mediaType, "png");
-    const buffer = Buffer.from(base64Data, "base64");
 
     // Create temp file
     const tempDir = os.tmpdir();
@@ -499,23 +526,25 @@ class CodexModel implements Model {
    */
   private convertUsage(usage: CodexUsage | null): Usage {
     if (!usage) {
-      return {
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-      };
+      return { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
     const inputTokensDetails = usage.cached_input_tokens
       ? [{ cachedTokens: usage.cached_input_tokens }]
       : undefined;
 
-    return {
+    const converted: Usage = {
+      requests: 1,
       inputTokens: usage.input_tokens,
       outputTokens: usage.output_tokens,
       totalTokens: usage.input_tokens + usage.output_tokens,
-      inputTokensDetails,
     };
+
+    if (inputTokensDetails) {
+      converted.inputTokensDetails = inputTokensDetails;
+    }
+
+    return converted;
   }
 
   /**
@@ -535,7 +564,7 @@ class CodexModel implements Model {
           ];
 
           output.push({
-            type: "assistant_message",
+            type: "message",
             role: "assistant",
             status: "completed",
             content,
@@ -568,7 +597,7 @@ class CodexModel implements Model {
     // If no items were converted, add the final response as a message
     if (output.length === 0 && finalResponse) {
       output.push({
-        type: "assistant_message",
+        type: "message",
         role: "assistant",
         status: "completed",
         content: [

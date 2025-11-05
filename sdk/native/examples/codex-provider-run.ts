@@ -22,7 +22,7 @@ import { CodexProvider } from '../src/index.js';
 async function main() {
   // Create a provider instance for this specific run (no API key needed)
   const provider = new CodexProvider({
-    defaultModel: 'claude-sonnet-4-5',
+    defaultModel: 'gpt-5',
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });

@@ -2,18 +2,77 @@
  * Tests for CodexProvider - OpenAI Agents framework integration
  */
 
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import { CodexProvider } from '../dist/index.mjs';
+
+const createMockThread = () => {
+  const createUsage = () => ({
+    input_tokens: 10,
+    output_tokens: 5,
+    reasoning_tokens: 0,
+  });
+
+  return {
+    id: 'mock-thread',
+    run: jest.fn(async () => ({
+      items: [
+        {
+          type: 'agent_message',
+          text: 'Mock response',
+        },
+      ],
+      finalResponse: 'Mock response',
+      usage: createUsage(),
+    })),
+    runStreamed: jest.fn(async () => ({
+      events: (async function* () {
+        const usage = createUsage();
+        yield { type: 'thread.started', thread_id: 'mock-thread' };
+        yield { type: 'item.started', item: { type: 'agent_message', text: '' } };
+        yield { type: 'item.updated', item: { type: 'agent_message', text: 'Mock response' } };
+        yield { type: 'item.completed', item: { type: 'agent_message', text: 'Mock response' } };
+        yield { type: 'turn.completed', usage };
+      })(),
+    })),
+  };
+};
 
 describe('CodexProvider', () => {
   let provider;
+  let mockCodex;
+  let mockThread;
+  let originalFetch;
+  let mockFetch;
 
   beforeEach(() => {
+    jest.clearAllMocks();
+
+    originalFetch = global.fetch;
+    mockFetch = jest.fn(async () => new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), {
+      status: 200,
+      headers: { 'Content-Type': 'image/png' },
+    }));
+    global.fetch = mockFetch;
+
+    mockThread = createMockThread();
+    mockCodex = {
+      startThread: jest.fn(() => mockThread),
+      resumeThread: jest.fn(() => mockThread),
+      registerTool: jest.fn(),
+    };
+
     provider = new CodexProvider({
-      defaultModel: 'claude-sonnet-4-5',
+      defaultModel: 'gpt-5',
       workingDirectory: process.cwd(),
       skipGitRepoCheck: true,
     });
+
+    // Inject mock Codex instance to avoid network/native binding usage
+    provider.codex = mockCodex;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
 
   describe('ModelProvider Interface', () => {
@@ -30,7 +89,7 @@ describe('CodexProvider', () => {
     });
 
     it('should return a Model with specific model name', () => {
-      const model = provider.getModel('claude-sonnet-4-5');
+      const model = provider.getModel('gpt-5');
       expect(model).toBeDefined();
     });
 
@@ -65,7 +124,7 @@ describe('CodexProvider', () => {
       model = provider.getModel();
     });
 
-    it('should handle string input', () => {
+    it('should handle string input', async () => {
       const request = {
         input: 'Hello, world!',
         modelSettings: {},
@@ -75,13 +134,12 @@ describe('CodexProvider', () => {
         tracing: { enabled: false },
       };
 
-      // Should not throw
-      expect(() => {
-        model.getResponse(request);
-      }).not.toThrow();
+      await expect(model.getResponse(request)).resolves.toMatchObject({
+        output: expect.any(Array),
+      });
     });
 
-    it('should handle text input items', () => {
+    it('should handle text input items', async () => {
       const request = {
         input: [
           { type: 'input_text', text: 'Hello' },
@@ -94,10 +152,9 @@ describe('CodexProvider', () => {
         tracing: { enabled: false },
       };
 
-      // Should not throw
-      expect(() => {
-        model.getResponse(request);
-      }).not.toThrow();
+      await expect(model.getResponse(request)).resolves.toMatchObject({
+        output: expect.any(Array),
+      });
     });
 
     it('should handle base64 image input', async () => {
@@ -115,10 +172,9 @@ describe('CodexProvider', () => {
         tracing: { enabled: false },
       };
 
-      // Should not throw - converts base64 to temp file
-      expect(() => {
-        model.getResponse(request);
-      }).not.toThrow();
+      await expect(model.getResponse(request)).resolves.toMatchObject({
+        output: expect.any(Array),
+      });
     });
 
     it('should handle image URL input', async () => {
@@ -136,10 +192,9 @@ describe('CodexProvider', () => {
         tracing: { enabled: false },
       };
 
-      // Should not throw - downloads URL to temp file
-      expect(() => {
-        model.getResponse(request);
-      }).not.toThrow();
+      await expect(model.getResponse(request)).resolves.toMatchObject({
+        output: expect.any(Array),
+      });
     });
 
     it('should handle image object with URL property', async () => {
@@ -157,10 +212,9 @@ describe('CodexProvider', () => {
         tracing: { enabled: false },
       };
 
-      // Should not throw - downloads URL to temp file
-      expect(() => {
-        model.getResponse(request);
-      }).not.toThrow();
+      await expect(model.getResponse(request)).resolves.toMatchObject({
+        output: expect.any(Array),
+      });
     });
 
     it('should reject invalid base64 image format', async () => {
@@ -236,7 +290,7 @@ describe('CodexProvider', () => {
       );
     });
 
-    it('should handle function_call_result by converting to text', () => {
+    it('should handle function_call_result by converting to text', async () => {
       const request = {
         input: [
           {
@@ -253,13 +307,17 @@ describe('CodexProvider', () => {
         tracing: { enabled: false },
       };
 
-      // Should not throw - converts to text
-      expect(() => {
-        model.getResponse(request);
-      }).not.toThrow();
+      const response = await model.getResponse(request);
+      expect(response.output).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'message',
+          }),
+        ]),
+      );
     });
 
-    it('should handle system instructions', () => {
+    it('should handle system instructions', async () => {
       const request = {
         systemInstructions: 'You are a helpful assistant.',
         input: 'Hello',
@@ -270,10 +328,9 @@ describe('CodexProvider', () => {
         tracing: { enabled: false },
       };
 
-      // Should not throw
-      expect(() => {
-        model.getResponse(request);
-      }).not.toThrow();
+      await expect(model.getResponse(request)).resolves.toMatchObject({
+        output: expect.any(Array),
+      });
     });
   });
 
@@ -281,8 +338,6 @@ describe('CodexProvider', () => {
     it('should return ModelResponse with correct structure', async () => {
       const model = provider.getModel();
 
-      // Note: This will fail without a real Codex backend
-      // but we can test the structure expectations
       const request = {
         input: 'Test',
         modelSettings: {},
@@ -292,24 +347,19 @@ describe('CodexProvider', () => {
         tracing: { enabled: false },
       };
 
-      try {
-        const response = await model.getResponse(request);
+      const response = await model.getResponse(request);
 
-        // Should have usage
-        expect(response.usage).toBeDefined();
-        expect(typeof response.usage.inputTokens).toBe('number');
-        expect(typeof response.usage.outputTokens).toBe('number');
-        expect(typeof response.usage.totalTokens).toBe('number');
+      expect(response.usage).toMatchObject({
+        inputTokens: expect.any(Number),
+        outputTokens: expect.any(Number),
+        totalTokens: expect.any(Number),
+      });
 
-        // Should have output array
-        expect(Array.isArray(response.output)).toBe(true);
+      expect(response.output).toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'message' })]),
+      );
 
-        // Should have responseId (optional)
-        // expect(response.responseId).toBeDefined();
-      } catch (error) {
-        // Expected to fail without real backend
-        console.log('Expected error without backend:', error.message);
-      }
+      expect(response.responseId).toBe('mock-thread');
     }, 30000); // 30 second timeout for backend connection
   });
 
@@ -349,24 +399,14 @@ describe('CodexProvider', () => {
         'response_done',
       ];
 
-      try {
-        const stream = model.getStreamedResponse(request);
-        const events = [];
+      const stream = model.getStreamedResponse(request);
+      const events = [];
 
-        for await (const event of stream) {
-          events.push(event);
-          expect(event.type).toBeDefined();
-        }
-
-        // Check that we got some events (if backend is available)
-        if (events.length > 0) {
-          const eventTypes = events.map(e => e.type);
-          console.log('Received event types:', eventTypes);
-        }
-      } catch (error) {
-        // Expected to fail without real backend
-        console.log('Expected error without backend:', error.message);
+      for await (const event of stream) {
+        events.push(event.type);
       }
+
+      expect(events).toEqual(expectedEventTypes);
     }, 30000); // 30 second timeout for backend connection
   });
 
@@ -383,33 +423,26 @@ describe('CodexProvider', () => {
         tracing: { enabled: false },
       };
 
-      try {
-        const response1 = await model.getResponse(request1);
-        const conversationId = response1.responseId;
+      const response1 = await model.getResponse(request1);
+      expect(response1.responseId).toBe('mock-thread');
 
-        if (conversationId) {
-          const request2 = {
-            input: 'Second message',
-            conversationId,
-            modelSettings: {},
-            tools: [],
-            outputType: { type: 'text' },
-            handoffs: [],
-            tracing: { enabled: false },
-          };
+      const request2 = {
+        input: 'Second message',
+        conversationId: response1.responseId,
+        modelSettings: {},
+        tools: [],
+        outputType: { type: 'text' },
+        handoffs: [],
+        tracing: { enabled: false },
+      };
 
-          // Should reuse the same thread
-          const response2 = await model.getResponse(request2);
-          expect(response2.responseId).toBe(conversationId);
-        }
-      } catch (error) {
-        console.log('Expected error without backend:', error.message);
-      }
+      const response2 = await model.getResponse(request2);
+      expect(response2.responseId).toBe(response1.responseId);
     }, 60000); // 60 second timeout for multi-turn conversation
   });
 
   describe('Error Handling', () => {
-    it('should handle empty input gracefully', () => {
+    it('should handle empty input gracefully', async () => {
       const model = provider.getModel();
       const request = {
         input: '',
@@ -420,13 +453,12 @@ describe('CodexProvider', () => {
         tracing: { enabled: false },
       };
 
-      // Should not throw on empty input
-      expect(() => {
-        model.getResponse(request);
-      }).not.toThrow();
+      await expect(model.getResponse(request)).resolves.toMatchObject({
+        output: expect.any(Array),
+      });
     });
 
-    it('should handle array input items', () => {
+    it('should handle array input items', async () => {
       const model = provider.getModel();
       const request = {
         input: [],
@@ -437,10 +469,9 @@ describe('CodexProvider', () => {
         tracing: { enabled: false },
       };
 
-      // Should not throw on empty array
-      expect(() => {
-        model.getResponse(request);
-      }).not.toThrow();
+      await expect(model.getResponse(request)).resolves.toMatchObject({
+        output: expect.any(Array),
+      });
     });
   });
 });

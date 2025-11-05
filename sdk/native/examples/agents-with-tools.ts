@@ -88,7 +88,7 @@ async function main() {
   // Create Codex provider
   // Codex handles authentication internally via native bindings
   const codexProvider = new CodexProvider({
-    defaultModel: 'claude-sonnet-4-5',
+    defaultModel: 'gpt-5',
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });

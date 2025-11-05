@@ -139,7 +139,7 @@ async function basicToolExample() {
 
   // Create provider and model
   const provider = new CodexProvider({
-    defaultModel: 'claude-sonnet-4-5',
+    defaultModel: 'gpt-5',
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });
@@ -173,7 +173,7 @@ async function multipleToolsExample() {
   console.log('='.repeat(70) + '\n');
 
   const provider = new CodexProvider({
-    defaultModel: 'claude-sonnet-4-5',
+    defaultModel: 'gpt-5',
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });
@@ -210,7 +210,7 @@ async function toolChainExample() {
   console.log('='.repeat(70) + '\n');
 
   const provider = new CodexProvider({
-    defaultModel: 'claude-sonnet-4-5',
+    defaultModel: 'gpt-5',
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });
