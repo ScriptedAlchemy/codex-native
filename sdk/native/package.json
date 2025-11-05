@@ -1,6 +1,6 @@
 {
   "name": "@codex-native/sdk",
-  "version": "0.0.0-dev",
+  "version": "0.0.1",
   "description": "Native NAPI-based Codex SDK - complete standalone implementation.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
