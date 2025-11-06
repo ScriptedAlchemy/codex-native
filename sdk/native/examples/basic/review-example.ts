@@ -14,7 +14,7 @@
  * ```
  */
 
-import { Codex } from "../src/index.ts";
+import { Codex } from "../../src/index.ts";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";

@@ -1,215 +1,190 @@
-# Codex Native SDK - Examples
+# Codex Native SDK Examples
 
-This directory contains examples demonstrating how to use the Codex Native SDK with the OpenAI Agents framework.
+This directory contains example scripts demonstrating various features of the `@codex-native/sdk`.
 
-## Prerequisites
+## Directory Structure
+
+### `/basic` - Core Features
+Basic SDK functionality and common use cases.
+
+- **`streaming-deltas.ts`** — Real-time streaming response examples
+  - Text streaming with incremental updates
+  - Multi-modal input (text + images)
+  - Understanding all stream event types
+  - Token usage tracking
+
+- **`review-example.ts`** — Code review functionality
+  - Creating review sessions
+  - Custom review prompts
+  - Processing review findings
+  - Review output handling
+
+### `/tools` - Tool Management
+Custom tool registration and override capabilities.
+
+- **`automatic-tool-registration.ts`** — Automatic tool registration with agents
+  - Tools registered automatically when passed to Agent
+  - Multiple tools with different capabilities
+  - Tool chaining and validation
+  - Zod schema integration
+
+- **`tool-override-example.ts`** — Built-in tool override
+  - Replacing built-in tools with custom implementations
+  - Mock implementations for testing
+  - Safety wrappers (blocking dangerous commands)
+  - Logging and instrumentation
+  - Multiple tool overrides
+
+### `/provider` - CodexProvider Integration
+OpenAI Agents framework integration examples.
+
+- **`codex-provider-direct.ts`** — Direct provider usage
+  - Basic text input
+  - Multi-modal input (text + images)
+  - Manual provider instantiation
+
+- **`codex-provider-global.ts`** — Global provider configuration
+  - Setting provider as default for all agents
+  - Shared configuration across agents
+
+- **`codex-provider-run.ts`** — Simple provider execution
+  - Minimal example of running with CodexProvider
+  - Quick-start pattern
+
+### `/agents` - OpenAI Agents Framework
+Advanced multi-agent workflows.
+
+- **`agents-integration.ts`** — CodexProvider with OpenAI Agents
+  - Single and multi-agent workflows
+  - Structured output
+  - Streaming support
+  - Conversation continuity
+  - Internal tool execution
+
+- **`agents-with-tools.ts`** — Agents with custom tools
+  - Tool definition with Agents framework
+  - Custom weather and temperature tools
+  - Framework tool execution patterns
+
+## Running Examples
+
+### Prerequisites
+
+Build the SDK first:
 
 ```bash
-npm install @codex-native/sdk @openai/agents zod
+cd sdk/native
+npm install
+npm run build
 ```
 
-## Examples Overview
+### Execute an Example
 
-### Basic CodexProvider Usage
-
-#### 1. **codex-provider-direct.ts**
-The simplest way to use CodexProvider - create a provider, get a model, and pass it directly to an Agent.
+Using `tsx`:
 
 ```bash
-npx tsx examples/codex-provider-direct.ts
+npx tsx examples/basic/streaming-deltas.ts
+npx tsx examples/tools/tool-override-example.ts
+npx tsx examples/agents/agents-integration.ts
 ```
 
-**Demonstrates:**
-- Direct model instantiation
-- Basic agent creation
-- Multi-modal input support (text + images)
-
-#### 2. **codex-provider-global.ts**
-Register CodexProvider globally for use across multiple agents and runs.
+Using `node` (after building):
 
 ```bash
-npx tsx examples/codex-provider-global.ts
+npm run build:ts
+node dist-examples/examples/basic/streaming-deltas.js
 ```
 
-**Demonstrates:**
-- Global provider registration
-- Reusing provider across multiple agents
-- Thread continuity
+## Example Categories by Feature
 
-#### 3. **codex-provider-run.ts**
-Use CodexProvider for specific runs without global registration.
-
-```bash
-npx tsx examples/codex-provider-run.ts
-```
-
-**Demonstrates:**
-- Per-run provider configuration
-- Task-specific agent usage
+### Getting Started
+1. `provider/codex-provider-run.ts` — Simplest example
+2. `basic/streaming-deltas.ts` — Core streaming features
+3. `tools/automatic-tool-registration.ts` — Working with tools
 
 ### Advanced Features
+- **Multi-Agent**: `agents/agents-integration.ts`
+- **Tool Override**: `tools/tool-override-example.ts`
+- **Code Review**: `basic/review-example.ts`
 
-#### 4. **agents-with-tools.ts** ⭐
-Comprehensive example showing custom tools and multi-modal inputs.
+### Integration Patterns
+- **OpenAI Agents**: All files in `/agents` and `/provider`
+- **Direct SDK Usage**: Files in `/basic` and `/tools`
 
-```bash
-npx tsx examples/agents-with-tools.ts
-```
+## Additional Resources
 
-**Demonstrates:**
-- Type-safe tool definitions with Zod schemas
-- Automatic tool registration
-- Text-only queries
-- Multi-modal queries (text + images)
-- Image input formats (URLs, base64, file paths)
-- Weather and temperature conversion tools
+- **Main README**: `../README.md` — Full SDK documentation
+- **Agents Guide**: `../AGENTS.md` — OpenAI Agents integration details
+- **API Docs**: TypeScript definitions in `../dist/index.d.mts`
 
-#### 5. **automatic-tool-registration.ts** 🔧
-Deep dive into how tools are automatically registered and used.
+## Contributing
 
-```bash
-npx tsx examples/automatic-tool-registration.ts
-```
+When adding new examples:
 
-**Demonstrates:**
-- Single tool registration
-- Multiple tools in one agent
-- Tool chaining (using multiple tools sequentially)
-- Automatic parameter validation with Zod
-- Calculator, unit converter, and text analysis tools
+1. Place in the appropriate category directory
+2. Include clear comments explaining key concepts
+3. Use descriptive console output
+4. Handle errors gracefully
+5. Update this README with the new example
 
-#### 6. **streaming-deltas.ts** 🌊
-Real-time streaming responses with incremental updates.
+## Common Patterns
 
-```bash
-npx tsx examples/streaming-deltas.ts
-```
-
-**Demonstrates:**
-- Streaming text deltas (character-by-character)
-- Streaming reasoning deltas (extended thinking)
-- Different stream event types
-- Streaming with image inputs
-- Building responses from deltas
-- Usage statistics tracking
-
-#### 7. **agents-integration.ts**
-Comprehensive overview of CodexProvider capabilities and architecture.
-
-```bash
-npx tsx examples/agents-integration.ts
-```
-
-**Demonstrates:**
-- Full system architecture
-- Multi-agent workflows
-- Structured output support
-- Direct provider usage for testing
-
-## Key Features Demonstrated
-
-### Multi-Modal Input Support
-
-CodexProvider supports three image input formats:
+### Initialize Codex
 
 ```typescript
-// 1. URL
-{ type: 'input_image', image: 'https://example.com/image.png' }
+import { Codex } from "@codex-native/sdk";
 
-// 2. Base64 data URL
-{ type: 'input_image', image: 'data:image/png;base64,iVBOR...' }
-
-// 3. Local file path
-{ type: 'input_image', image: '/path/to/image.png' }
-```
-
-Images are automatically converted to the format Codex expects.
-
-### Automatic Tool Registration
-
-Tools are automatically registered when passed to an Agent:
-
-```typescript
-const agent = new Agent({
-  name: 'MyAgent',
-  model: codexModel,
-  tools: [tool1, tool2, tool3], // Automatically registered!
+const codex = new Codex({
+  model: "gpt-5-codex",
+  workingDirectory: process.cwd(),
 });
 ```
 
-No manual `tool.register()` or `provider.addTool()` calls needed.
-
-### Streaming Deltas
-
-Stream responses in real-time:
+### Stream Responses
 
 ```typescript
-for await (const event of model.getStreamedResponse(request)) {
-  if (event.type === 'output_text_delta') {
-    process.stdout.write(event.delta);
+const thread = codex.startThread();
+const result = await thread.runStreamed("Your prompt here");
+
+for await (const event of result.events) {
+  if (event.type === "item.completed") {
+    console.log(event.item.text);
   }
 }
 ```
 
-Event types:
-- `response_started` - Stream begins
-- `output_text_delta` - Incremental text
-- `output_text_done` - Text complete
-- `reasoning_delta` - Extended thinking updates
-- `reasoning_done` - Reasoning complete
-- `response_done` - Full response with usage stats
-- `error` - Error occurred
-
-### Type-Safe Tools with Zod
-
-Define tools with automatic validation:
+### Register Custom Tools
 
 ```typescript
-const myTool = tool({
-  name: 'my_tool',
-  description: 'Does something useful',
-  parameters: z.object({
-    param1: z.string().describe('First parameter'),
-    param2: z.number().describe('Second parameter'),
-  }),
-  execute: async (input) => {
-    // input is type-safe!
-    return `Result: ${input.param1} - ${input.param2}`;
+codex.registerTool({
+  name: "my_tool",
+  description: "What this tool does",
+  parameters: { /* JSON schema */ },
+  handler: async (args) => {
+    // Tool implementation
+    return JSON.stringify(result);
   },
 });
 ```
 
-## Running Examples
+### Use with OpenAI Agents
 
-All examples can be run with:
+```typescript
+import { CodexProvider } from "@codex-native/sdk";
+import { Agent, Runner } from "@openai/agents";
 
-```bash
-npx tsx examples/<example-name>.ts
+const provider = new CodexProvider();
+const agent = new Agent({
+  name: "MyAgent",
+  instructions: "Agent instructions",
+});
+
+const runner = new Runner({ modelProvider: provider });
+const result = await runner.run(agent, "Task description");
 ```
 
-Or use tsx in watch mode for development:
+## Support
 
-```bash
-npx tsx --watch examples/<example-name>.ts
-```
-
-## Architecture
-
-The Codex Native SDK provides:
-
-1. **Native NAPI Bindings**: Direct connection to GPT-5 via native code (no HTTP overhead)
-2. **OpenAI Agents Integration**: Full compatibility with the Agents framework
-3. **Automatic Authentication**: No API key configuration needed in your code
-4. **Multi-Modal Support**: Text and image inputs
-5. **Streaming**: Real-time response updates
-6. **Tool Integration**: Automatic registration and execution
-
-## Learn More
-
-- See the main SDK documentation for API details
-- Check out the source code in `src/agents/` for implementation details
-- Visit the OpenAI Agents documentation for framework concepts
-
-## Contributing
-
-Found a bug or want to add an example? Please open an issue or PR!
+For issues or questions:
+- GitHub Issues: [codex-native/issues](https://github.com/ScriptedAlchemy/codex-native/issues)
+- Documentation: Check the main README and AGENTS.md
