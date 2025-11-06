@@ -120,13 +120,13 @@ describe('Agents with Tools', () => {
     // Test agent configuration structure
     const agentConfig = {
       name: 'TestAgent',
-      model: 'gpt-5', // Using GPT-5 as specified
+      model: 'gpt-5-codex', // Using Codex default model
       instructions: 'You are a test agent.',
       tools: [],
     };
 
     expect(agentConfig.name).toBe('TestAgent');
-    expect(agentConfig.model).toBe('gpt-5');
+    expect(agentConfig.model).toBe('gpt-5-codex');
     expect(agentConfig.instructions).toBeDefined();
     expect(Array.isArray(agentConfig.tools)).toBe(true);
   });

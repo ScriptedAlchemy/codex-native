@@ -16,7 +16,7 @@ import { Agent, Runner } from '@openai/agents';
 
 // Create the provider
 const provider = new CodexProvider({
-  defaultModel: 'gpt-5'
+  defaultModel: 'gpt-5-codex'
 });
 
 // Create an agent
@@ -142,7 +142,7 @@ interface CodexProviderOptions {
 const provider = new CodexProvider({
   workingDirectory: process.cwd(),
   skipGitRepoCheck: true,
-  defaultModel: 'gpt-5'
+  defaultModel: 'gpt-5-codex'
 });
 ```
 
@@ -150,7 +150,7 @@ const provider = new CodexProvider({
 ```typescript
 const provider = new CodexProvider({
   baseUrl: 'https://api.codex.example.com',
-  defaultModel: 'gpt-5',
+  defaultModel: 'gpt-5-codex',
   workingDirectory: '/app',
   skipGitRepoCheck: false,
   // apiKey: '...' // Optional: only needed if your deployment enforces explicit credentials
@@ -207,7 +207,7 @@ console.log(review.finalOutput);
 ### Streaming Progress
 
 ```typescript
-const model = provider.getModel('gpt-5');
+const model = provider.getModel('gpt-5-codex');
 
 const stream = model.getStreamedResponse({
   systemInstructions: 'You are a coding assistant',

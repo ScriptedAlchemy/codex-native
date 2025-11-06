@@ -53,7 +53,7 @@ export interface CodexProviderOptions extends CodexOptions {
  * import { CodexProvider } from '@openai/codex-native/agents';
  * import { Agent, Runner } from '@openai/agents';
  *
- *   defaultModel: 'gpt-5'
+ *   defaultModel: 'gpt-5-codex'
  * });
  *
  * const agent = new Agent({

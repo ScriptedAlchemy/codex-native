@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use codex_protocol::models::ResponseInputItem;
+use tracing::error;
 use tracing::warn;
 
 use crate::client_common::tools::ToolSpec;
@@ -45,18 +46,33 @@ fn pending_external_tools() -> &'static Mutex<Vec<ExternalToolRegistration>> {
 }
 
 pub fn set_pending_external_tools(tools: Vec<ExternalToolRegistration>) {
-    if let Ok(mut guard) = pending_external_tools().lock() {
-        *guard = tools;
+    match pending_external_tools().lock() {
+        Ok(mut guard) => {
+            *guard = tools;
+        }
+        Err(err) => {
+            error!(
+                error = ?err,
+                "failed to acquire pending external tools mutex; pending tools unchanged"
+            );
+        }
     }
 }
 
 pub fn take_pending_external_tools() -> Vec<ExternalToolRegistration> {
-    if let Ok(mut guard) = pending_external_tools().lock() {
-        let tools = guard.clone();
-        guard.clear();
-        tools
-    } else {
-        Vec::new()
+    match pending_external_tools().lock() {
+        Ok(mut guard) => {
+            let tools = guard.clone();
+            guard.clear();
+            tools
+        }
+        Err(err) => {
+            error!(
+                error = ?err,
+                "failed to acquire pending external tools mutex; returning empty list"
+            );
+            Vec::new()
+        }
     }
 }
 

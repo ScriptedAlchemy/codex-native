@@ -62,7 +62,7 @@ describe('CodexProvider', () => {
     };
 
     provider = new CodexProvider({
-      defaultModel: 'gpt-5',
+      defaultModel: 'gpt-5-codex',
       workingDirectory: process.cwd(),
       skipGitRepoCheck: true,
     });
@@ -89,7 +89,7 @@ describe('CodexProvider', () => {
     });
 
     it('should return a Model with specific model name', () => {
-      const model = provider.getModel('gpt-5');
+      const model = provider.getModel('gpt-5-codex');
       expect(model).toBeDefined();
     });
 

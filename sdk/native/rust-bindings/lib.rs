@@ -1,42 +1,46 @@
 #![deny(clippy::all)]
 
+#[cfg(test)]
+mod test;
+
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use codex_common::CliConfigOverrides;
 use codex_common::SandboxModeCliArg;
-use codex_exec::exec_events::{
-  AgentMessageItem, ExitedReviewModeEvent as ExecExitedReviewModeEvent, ItemCompletedEvent,
-  ReasoningItem, ReviewCodeLocation, ReviewFinding, ReviewLineRange, ReviewOutputEvent as ExecReviewOutputEvent,
-  ThreadErrorEvent as ExecThreadErrorEvent, ThreadEvent as ExecThreadEvent, ThreadItem, ThreadItemDetails,
-  ThreadStartedEvent, TurnCompletedEvent, TurnFailedEvent, TurnStartedEvent, Usage,
-};
-use codex_exec::run_with_thread_event_callback;
-use codex_exec::{Cli, Color, Command, ResumeArgs};
 use codex_core::auth::enforce_login_restrictions;
 use codex_core::config::Config;
 use codex_core::config::ConfigOverrides;
 use codex_core::function_tool::FunctionCallError;
+use codex_core::git_info::get_git_repo_root;
+use codex_core::protocol::AskForApproval;
+use codex_core::protocol::SessionSource;
+use codex_core::protocol::{Event, EventMsg, Op, ReviewOutputEvent, ReviewRequest, TokenUsage};
 use codex_core::tools::context::ToolInvocation;
 use codex_core::tools::context::ToolOutput;
 use codex_core::tools::context::ToolPayload;
-use codex_core::tools::registry::{set_pending_external_tools, ExternalToolRegistration, ToolHandler, ToolKind};
-use codex_core::tools::spec::create_function_tool_spec_from_schema;
-use codex_core::{
-  AuthManager, ConversationManager, NewConversation,
+use codex_core::tools::registry::{
+  ExternalToolRegistration, ToolHandler, ToolKind, set_pending_external_tools,
 };
-use codex_core::git_info::get_git_repo_root;
-use codex_core::protocol::{Event, EventMsg, ReviewOutputEvent, ReviewRequest, TokenUsage, Op};
-use codex_core::protocol::AskForApproval;
-use codex_core::protocol::SessionSource;
+use codex_core::tools::spec::create_function_tool_spec_from_schema;
+use codex_core::{AuthManager, ConversationManager, NewConversation};
+use codex_exec::exec_events::{
+  AgentMessageItem, ExitedReviewModeEvent as ExecExitedReviewModeEvent, ItemCompletedEvent,
+  ReasoningItem, ReviewCodeLocation, ReviewFinding, ReviewLineRange,
+  ReviewOutputEvent as ExecReviewOutputEvent, ThreadErrorEvent as ExecThreadErrorEvent,
+  ThreadEvent as ExecThreadEvent, ThreadItem, ThreadItemDetails, ThreadStartedEvent,
+  TurnCompletedEvent, TurnFailedEvent, TurnStartedEvent, Usage,
+};
+use codex_exec::run_with_thread_event_callback;
+use codex_exec::{Cli, Color, Command, ResumeArgs};
 use codex_protocol::config_types::SandboxMode;
-use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::bindgen_prelude::{Function, Status};
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
-use serde_json::json;
 use serde_json::Value as JsonValue;
+use serde_json::json;
 use tempfile::NamedTempFile;
 
 #[cfg(target_os = "linux")]
@@ -61,7 +65,8 @@ fn ensure_embedded_linux_sandbox() -> napi::Result<PathBuf> {
       let target_path = root.join("codex-linux-sandbox");
 
       let mut tmp = NamedTempFile::new_in(&root).map_err(io_to_napi)?;
-      tmp.write_all(EMBEDDED_LINUX_SANDBOX_BYTES)
+      tmp
+        .write_all(EMBEDDED_LINUX_SANDBOX_BYTES)
         .map_err(io_to_napi)?;
       tmp.flush().map_err(io_to_napi)?;
 
@@ -69,9 +74,13 @@ fn ensure_embedded_linux_sandbox() -> napi::Result<PathBuf> {
       if target_path.exists() {
         fs::remove_file(&target_path).map_err(io_to_napi)?;
       }
-      temp_path.persist(&target_path).map_err(|(_, err)| io_to_napi(err))?;
+      temp_path
+        .persist(&target_path)
+        .map_err(|(_, err)| io_to_napi(err))?;
 
-      let mut perms = fs::metadata(&target_path).map_err(io_to_napi)?.permissions();
+      let mut perms = fs::metadata(&target_path)
+        .map_err(io_to_napi)?
+        .permissions();
       perms.set_mode(0o755);
       fs::set_permissions(&target_path, perms).map_err(io_to_napi)?;
 
@@ -128,10 +137,12 @@ pub fn register_tool(
   info: NativeToolInfo,
   handler: Function<JsToolInvocation, NativeToolResponse>,
 ) -> napi::Result<()> {
-  let schema = info.parameters.unwrap_or_else(|| json!({
-    "type": "object",
-    "properties": {}
-  }));
+  let schema = info.parameters.unwrap_or_else(|| {
+    json!({
+      "type": "object",
+      "properties": {}
+    })
+  });
   let spec = create_function_tool_spec_from_schema(
     info.name.clone(),
     info.description.clone(),
@@ -172,7 +183,8 @@ pub struct JsToolInvocation {
 }
 
 struct JsToolHandler {
-  callback: ThreadsafeFunction<JsToolInvocation, NativeToolResponse, JsToolInvocation, napi::Status, true>,
+  callback:
+    ThreadsafeFunction<JsToolInvocation, NativeToolResponse, JsToolInvocation, napi::Status, true>,
 }
 
 #[async_trait]
@@ -294,7 +306,7 @@ impl RunRequest {
       Some(other) => {
         return Err(napi::Error::from_reason(format!(
           "Unsupported sandbox mode: {other}",
-        )))
+        )));
       }
     };
 
@@ -312,8 +324,7 @@ impl RunRequest {
           "Review mode requires a non-empty prompt".to_string(),
         ));
       }
-      let hint = review_hint
-        .unwrap_or_else(|| "code review".to_string());
+      let hint = review_hint.unwrap_or_else(|| "code review".to_string());
       Some(ReviewRequest {
         prompt: prompt.clone(),
         user_facing_hint: hint,
@@ -352,7 +363,10 @@ fn prepare_schema(schema: Option<JsonValue>) -> napi::Result<Option<TempSchemaFi
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let path = file.path().to_path_buf();
     let temp_path = file.into_temp_path();
-    Ok(Some(TempSchemaFile { path, _guard: temp_path }))
+    Ok(Some(TempSchemaFile {
+      path,
+      _guard: temp_path,
+    }))
   } else {
     Ok(None)
   }
@@ -398,7 +412,9 @@ impl Drop for EnvOverrides {
   }
 }
 
-fn prepare_environment(options: &InternalRunRequest) -> napi::Result<(EnvOverrides, Option<PathBuf>)> {
+fn prepare_environment(
+  options: &InternalRunRequest,
+) -> napi::Result<(EnvOverrides, Option<PathBuf>)> {
   let mut env_pairs: Vec<(&'static str, Option<String>, bool)> = Vec::new();
   if let Some(base_url) = options.base_url.clone() {
     env_pairs.push(("OPENAI_BASE_URL", Some(base_url), true));
@@ -462,11 +478,13 @@ fn build_config_overrides(
 }
 
 fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli {
-  let command = options.thread_id.as_ref().map(|id| Command::Resume(ResumeArgs {
-    session_id: Some(id.clone()),
-    last: false,
-    prompt: Some(options.prompt.clone()),
-  }));
+  let command = options.thread_id.as_ref().map(|id| {
+    Command::Resume(ResumeArgs {
+      session_id: Some(id.clone()),
+      last: false,
+      prompt: Some(options.prompt.clone()),
+    })
+  });
 
   Cli {
     command,
@@ -480,7 +498,9 @@ fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli 
     cwd: options.working_directory.clone(),
     skip_git_repo_check: options.skip_git_repo_check,
     output_schema: schema_path,
-    config_overrides: CliConfigOverrides { raw_overrides: Vec::new() },
+    config_overrides: CliConfigOverrides {
+      raw_overrides: Vec::new(),
+    },
     color: Color::Never,
     json: false,
     last_message_file: None,
@@ -569,9 +589,11 @@ impl ReviewEventCollector {
       EventMsg::ExitedReviewMode(ev) => {
         let converted = self.convert_review_output(&ev.review_output);
         self.emitted_review_exit = true;
-        vec![ExecThreadEvent::ExitedReviewMode(ExecExitedReviewModeEvent {
-          review_output: converted,
-        })]
+        vec![ExecThreadEvent::ExitedReviewMode(
+          ExecExitedReviewModeEvent {
+            review_output: converted,
+          },
+        )]
       }
       EventMsg::TaskComplete(task_complete) => {
         let mut events = Vec::new();
@@ -579,9 +601,11 @@ impl ReviewEventCollector {
           if !self.emitted_review_exit {
             let review_output = self.parse_review_output(text);
             let converted = self.convert_review_output(&Some(review_output));
-            events.push(ExecThreadEvent::ExitedReviewMode(ExecExitedReviewModeEvent {
-              review_output: converted,
-            }));
+            events.push(ExecThreadEvent::ExitedReviewMode(
+              ExecExitedReviewModeEvent {
+                review_output: converted,
+              },
+            ));
             self.emitted_review_exit = true;
           }
           let item = ThreadItem {
@@ -629,7 +653,11 @@ impl ReviewEventCollector {
           confidence_score: finding.confidence_score,
           priority: finding.priority,
           code_location: ReviewCodeLocation {
-            absolute_file_path: finding.code_location.absolute_file_path.to_string_lossy().to_string(),
+            absolute_file_path: finding
+              .code_location
+              .absolute_file_path
+              .to_string_lossy()
+              .to_string(),
             line_range: ReviewLineRange {
               start: finding.code_location.line_range.start as i32,
               end: finding.code_location.line_range.end as i32,
@@ -737,6 +765,7 @@ where
       .await
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
+    let mut shutdown_initiated = false;
     loop {
       let event = conversation
         .next_event()
@@ -748,6 +777,15 @@ where
         if let Ok(mut handler) = handler_for_callback.lock() {
           (*handler)(exec_event);
         }
+      }
+
+      // Initiate shutdown after TaskComplete (review flow doesn't auto-shutdown)
+      if !shutdown_initiated && matches!(event.msg, EventMsg::TaskComplete(_)) {
+        conversation
+          .submit(Op::Shutdown)
+          .await
+          .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        shutdown_initiated = true;
       }
 
       if matches!(event.msg, EventMsg::ShutdownComplete) {
@@ -859,7 +897,9 @@ pub async fn run_thread_stream(
             Ok(JsonValue::String(text)),
             ThreadsafeFunctionCallMode::NonBlocking,
           );
-          if status != Status::Ok && let Ok(mut guard) = error_clone.lock() {
+          if status != Status::Ok
+            && let Ok(mut guard) = error_clone.lock()
+          {
             *guard = Some(napi::Error::from_status(status));
           }
         }
@@ -868,7 +908,7 @@ pub async fn run_thread_stream(
             *guard = Some(napi::Error::from_reason(err.to_string()));
           }
         }
-      }
+      },
       Err(err) => {
         if let Ok(mut guard) = error_clone.lock() {
           *guard = Some(err);

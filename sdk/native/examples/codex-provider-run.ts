@@ -22,7 +22,7 @@ import { CodexProvider } from '../src/index.ts';
 async function main() {
   // Create a provider instance for this specific run (no API key needed)
   const provider = new CodexProvider({
-    defaultModel: 'gpt-5',
+    defaultModel: 'gpt-5-codex',
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });

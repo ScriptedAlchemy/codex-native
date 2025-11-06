@@ -146,7 +146,7 @@ async function basicToolExample() {
   try {
     // Create provider and model
     const provider = new CodexProvider({
-      defaultModel: 'gpt-5',
+      defaultModel: 'gpt-5-codex',
       workingDirectory: tmpDir,
       skipGitRepoCheck: true,
     });
@@ -188,7 +188,7 @@ async function multipleToolsExample() {
 
   try {
     const provider = new CodexProvider({
-      defaultModel: 'gpt-5',
+      defaultModel: 'gpt-5-codex',
       workingDirectory: tmpDir,
       skipGitRepoCheck: true,
     });
@@ -233,7 +233,7 @@ async function toolChainExample() {
 
   try {
     const provider = new CodexProvider({
-      defaultModel: 'gpt-5',
+      defaultModel: 'gpt-5-codex',
       workingDirectory: tmpDir,
       skipGitRepoCheck: true,
     });

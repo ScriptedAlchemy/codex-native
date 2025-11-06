@@ -39,7 +39,7 @@ async function main() {
   // Step 1: Create the CodexProvider
   // ============================================================================
   const provider = new CodexProvider({
-    defaultModel: "gpt-5",
+    defaultModel: "gpt-5-codex",
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true, // For example purposes
   });
@@ -159,7 +159,7 @@ each using Codex as their backend through the provider.
   console.log("\n\nDirect Provider Usage (for testing):");
   console.log("─".repeat(60));
 
-  const model = provider.getModel("gpt-5");
+  const model = provider.getModel("gpt-5-codex");
 
   try {
     const response = await model.getResponse({

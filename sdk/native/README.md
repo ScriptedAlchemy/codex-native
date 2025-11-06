@@ -301,7 +301,7 @@ interface CodexOptions {
 
 ```typescript
 interface ThreadOptions {
-  model?: string;               // Model to use (e.g., "gpt-5")
+  model?: string;               // Model to use (e.g., "gpt-5-codex")
   sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
   workingDirectory?: string;    // Directory to run Codex in
   skipGitRepoCheck?: boolean;   // Skip Git repository validation

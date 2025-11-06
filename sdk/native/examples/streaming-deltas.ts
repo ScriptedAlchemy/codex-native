@@ -37,7 +37,7 @@ async function streamingTextExample() {
 
   // Create provider and model
   const provider = new CodexProvider({
-    defaultModel: 'gpt-5',
+    defaultModel: 'gpt-5-codex',
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });
@@ -131,7 +131,7 @@ async function streamingWithImageExample() {
   console.log('='.repeat(70) + '\n');
 
   const provider = new CodexProvider({
-    defaultModel: 'gpt-5',
+    defaultModel: 'gpt-5-codex',
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });
@@ -207,7 +207,7 @@ async function detailedStreamEventExample() {
   console.log('='.repeat(70) + '\n');
 
   const provider = new CodexProvider({
-    defaultModel: 'gpt-5',
+    defaultModel: 'gpt-5-codex',
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });

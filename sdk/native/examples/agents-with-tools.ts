@@ -100,7 +100,7 @@ async function main() {
   // Create Codex provider with temporary directory
   // This avoids loading workspace-specific configuration files
   const codexProvider = new CodexProvider({
-    defaultModel: 'gpt-5',
+    defaultModel: 'gpt-5-codex',
     workingDirectory: tmpDir,
     skipGitRepoCheck: true,
   });

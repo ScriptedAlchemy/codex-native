@@ -362,9 +362,7 @@ async fn run_internal(
         .into_iter()
         .map(|path| UserInput::LocalImage { path })
         .collect();
-    items.push(UserInput::Text {
-        text: prompt.clone(),
-    });
+    items.push(UserInput::Text { text: prompt });
     let initial_prompt_task_id = conversation
         .submit(Op::UserTurn {
             items,
