@@ -68,7 +68,7 @@ Provide a concise summary of findings with 2-3 key issues.`,
         hint: "JavaScript code review",
       },
       threadOptions: {
-        model: "gpt-5",
+        model: "gpt-5-codex",
         workingDirectory: tmpDir,
         skipGitRepoCheck: true,
         fullAuto: true,

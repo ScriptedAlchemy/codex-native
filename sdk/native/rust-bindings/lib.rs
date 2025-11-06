@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use codex_common::CliConfigOverrides;
 use codex_common::SandboxModeCliArg;
 use codex_exec::exec_events::{
-  AgentMessageItem, ExitedReviewModeEvent as ExecExitedReviewModeEvent, ExecThreadEvent, ItemCompletedEvent,
+  AgentMessageItem, ExitedReviewModeEvent as ExecExitedReviewModeEvent, ItemCompletedEvent,
   ReasoningItem, ReviewCodeLocation, ReviewFinding, ReviewLineRange, ReviewOutputEvent as ExecReviewOutputEvent,
   ThreadErrorEvent as ExecThreadErrorEvent, ThreadEvent as ExecThreadEvent, ThreadItem, ThreadItemDetails,
   ThreadStartedEvent, TurnCompletedEvent, TurnFailedEvent, TurnStartedEvent, Usage,
@@ -18,7 +18,6 @@ use codex_exec::{Cli, Color, Command, ResumeArgs};
 use codex_core::auth::enforce_login_restrictions;
 use codex_core::config::Config;
 use codex_core::config::ConfigOverrides;
-use codex_core::default_client::set_default_originator;
 use codex_core::function_tool::FunctionCallError;
 use codex_core::tools::context::ToolInvocation;
 use codex_core::tools::context::ToolOutput;
@@ -29,12 +28,7 @@ use codex_core::{
   AuthManager, ConversationManager, NewConversation,
 };
 use codex_core::git_info::get_git_repo_root;
-use codex_core::protocol::{
-  AgentMessageEvent, AgentReasoningEvent, Event, EventMsg, ExitedReviewModeEvent,
-  ReviewCodeLocation as CoreReviewCodeLocation, ReviewFinding as CoreReviewFinding,
-  ReviewLineRange as CoreReviewLineRange, ReviewOutputEvent, ReviewRequest, SessionConfiguredEvent,
-  TaskCompleteEvent, TaskStartedEvent, TokenCountEvent, TokenUsage, TokenUsageInfo, Op,
-};
+use codex_core::protocol::{Event, EventMsg, ReviewOutputEvent, ReviewRequest, TokenUsage, Op};
 use codex_core::protocol::AskForApproval;
 use codex_core::protocol::SessionSource;
 use codex_protocol::config_types::SandboxMode;
@@ -98,9 +92,6 @@ fn default_linux_sandbox_path() -> napi::Result<Option<PathBuf>> {
 
 #[cfg(target_os = "linux")]
 const EMBEDDED_LINUX_SANDBOX_BYTES: &[u8] = include_bytes!(env!("CODEX_LINUX_SANDBOX_BIN"));
-
-const ORIGINATOR_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
-const NATIVE_ORIGINATOR: &str = "codex_sdk_native";
 
 fn registered_native_tools() -> &'static Mutex<Vec<ExternalToolRegistration>> {
   static TOOLS: OnceLock<Mutex<Vec<ExternalToolRegistration>>> = OnceLock::new();
@@ -409,9 +400,6 @@ impl Drop for EnvOverrides {
 
 fn prepare_environment(options: &InternalRunRequest) -> napi::Result<(EnvOverrides, Option<PathBuf>)> {
   let mut env_pairs: Vec<(&'static str, Option<String>, bool)> = Vec::new();
-  if std::env::var(ORIGINATOR_ENV).is_err() {
-    env_pairs.push((ORIGINATOR_ENV, Some(NATIVE_ORIGINATOR.to_string()), true));
-  }
   if let Some(base_url) = options.base_url.clone() {
     env_pairs.push(("OPENAI_BASE_URL", Some(base_url), true));
   }
@@ -501,11 +489,6 @@ fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli 
     } else {
       Some(options.prompt.clone())
     },
-    review_prompt: options.review_request.as_ref().map(|r| r.prompt.clone()),
-    review_user_facing_hint: options
-      .review_request
-      .as_ref()
-      .map(|r| r.user_facing_hint.clone()),
   }
 }
 
@@ -646,10 +629,10 @@ impl ReviewEventCollector {
           confidence_score: finding.confidence_score,
           priority: finding.priority,
           code_location: ReviewCodeLocation {
-            absolute_file_path: finding.code_location.absolute_file_path.clone(),
+            absolute_file_path: finding.code_location.absolute_file_path.to_string_lossy().to_string(),
             line_range: ReviewLineRange {
-              start: finding.code_location.line_range.start,
-              end: finding.code_location.line_range.end,
+              start: finding.code_location.line_range.start as i32,
+              end: finding.code_location.line_range.end as i32,
             },
           },
         })
@@ -698,11 +681,7 @@ where
   };
   set_pending_external_tools(pending_tools);
 
-  let (env_guard, linux_sandbox_path) = prepare_environment(&options)?;
-
-  if let Err(err) = set_default_originator(NATIVE_ORIGINATOR.to_string()) {
-    tracing::warn!(?err, "Failed to set codex native originator override");
-  }
+  let (_env_guard, linux_sandbox_path) = prepare_environment(&options)?;
 
   let handler_arc = Arc::new(Mutex::new(handler));
   let handler_for_callback = Arc::clone(&handler_arc);

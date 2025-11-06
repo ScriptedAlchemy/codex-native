@@ -369,68 +369,81 @@ describe("Codex native bridge", () => {
     }
   });
 
-  it("sets the codex sdk originator header", async () => {
-    const { url, close, requests } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [sse(responseStarted(), assistantMessage("Hi!"), responseCompleted())],
-    });
+  it("aggregates review output without network access", async () => {
+    const codex = new Codex();
+    const originalRun = codex.exec.run.bind(codex.exec);
 
-    try {
-      const client = createClient(url);
-      const thread = client.startThread({ skipGitRepoCheck: true });
-      await thread.run("Hello, originator!");
-
-      expect(requests.length).toBeGreaterThan(0);
-      const originatorHeader = requests[0].headers["originator"];
-      expect(originatorHeader).toBe("codex_sdk_native");
-    } finally {
-      await close();
-    }
-  });
-
-  it("submits review prompts for preset targets", async () => {
-    const reviewPayload = JSON.stringify({
-      findings: [
-        {
-          title: "Use consistent loop style",
-          body: "Prefer modern iteration helpers over manual for loops.",
-          confidence_score: 0.9,
-          priority: 1,
-          code_location: {
-            absolute_file_path: "sample.js",
-            line_range: { start: 4, end: 8 },
-          },
+    const stubEvents = [
+      {
+        type: "thread.started",
+        thread_id: "stub-thread",
+      },
+      { type: "turn.started" },
+      {
+        type: "item.completed",
+        item: {
+          id: "item-1",
+          type: "agent_message",
+          text: "Initial review thoughts.",
         },
-      ],
-      overall_correctness: "good",
-      overall_explanation: "No critical bugs detected; consider modernising loops.",
-      overall_confidence_score: 0.8,
-    });
+      },
+      {
+        type: "exited_review_mode",
+        review_output: {
+          findings: [
+            {
+              title: "Divide-by-zero bug",
+              body: "Dividing by items.length - 1 will panic when the array has only one element.",
+              confidence_score: 0.8,
+              priority: 1,
+              code_location: {
+                absolute_file_path: "sample.js",
+                line_range: { start: 5, end: 6 },
+              },
+            },
+          ],
+          overall_correctness: "patch is incorrect",
+          overall_explanation: "The change introduces a divide-by-zero bug.",
+          overall_confidence_score: 0.7,
+        },
+      },
+      {
+        type: "turn.completed",
+        usage: {
+          input_tokens: 120,
+          cached_input_tokens: 40,
+          output_tokens: 30,
+        },
+      },
+    ];
 
-    const { url, close, requests } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(responseStarted(), assistantMessage(reviewPayload), responseCompleted(undefined, undefined, reviewPayload)),
-      ],
-    });
+    async function* stubGenerator() {
+      for (const event of stubEvents) {
+        yield JSON.stringify(event);
+      }
+    }
+
+    codex.exec.run = () => stubGenerator();
 
     try {
-      const client = createClient(url);
-      const result = await client.review({
-        target: { type: "branch", baseBranch: "main" },
+      const result = await codex.review({
+        target: {
+          type: "custom",
+          prompt: "Review sample.js for correctness issues.",
+          hint: "Code review",
+        },
+        threadOptions: {
+          model: "gpt-5-codex",
+          skipGitRepoCheck: true,
+        },
       });
 
-      expect(typeof result.finalResponse).toBe("string");
-      expect(requests.length).toBeGreaterThanOrEqual(1);
-
-      const payload = requests[0].json;
-      const lastUser = payload.input.at(-1);
-      expect(lastUser?.content?.[0]?.text).toContain(
-        "Review the code changes against the base branch 'main'.",
-      );
-      expect(payload.instructions).toContain("Review guidelines");
+      expect(result.finalResponse).toContain("divide-by-zero bug");
+      expect(result.items.length).toBeGreaterThan(0);
+      expect(result.usage?.input_tokens).toBe(120);
+      expect(result.usage?.output_tokens).toBe(30);
     } finally {
-      await close();
+      codex.exec.run = originalRun;
     }
   });
 

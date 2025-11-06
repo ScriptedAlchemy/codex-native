@@ -36,6 +36,9 @@ path = "../../codex-rs/core"
 [dependencies.codex-exec]
 path = "../../codex-rs/exec"
 
+[dependencies.codex-protocol]
+path = "../../codex-rs/protocol"
+
 [build-dependencies]
 napi-build = "2"
 
