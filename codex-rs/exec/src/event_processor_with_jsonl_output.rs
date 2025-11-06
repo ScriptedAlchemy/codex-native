@@ -151,10 +151,10 @@ impl EventProcessorWithJsonOutput {
             _ => Vec::new(),
         };
 
-        if events.is_empty() {
-            if let Ok(raw) = serde_json::to_value(&event.msg) {
-                events.push(ThreadEvent::Raw(RawEvent { raw }));
-            }
+        if events.is_empty()
+            && let Ok(raw) = serde_json::to_value(&event.msg)
+        {
+            events.push(ThreadEvent::Raw(RawEvent { raw }));
         }
 
         events
