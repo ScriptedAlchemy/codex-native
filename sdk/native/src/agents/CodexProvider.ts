@@ -165,6 +165,7 @@ class CodexModel implements Model {
       model: this.modelName,
       workingDirectory: this.options.workingDirectory,
       skipGitRepoCheck: this.options.skipGitRepoCheck,
+      fullAuto: true,
     };
   }
 

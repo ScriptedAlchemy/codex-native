@@ -86,6 +86,7 @@ export class Thread {
       skipGitRepoCheck: options?.skipGitRepoCheck,
       outputSchemaFile: schemaPath,
       outputSchema: turnOptions.outputSchema,
+      fullAuto: options?.fullAuto,
     });
     try {
       for await (const item of generator) {

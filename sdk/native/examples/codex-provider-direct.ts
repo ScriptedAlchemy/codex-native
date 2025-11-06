@@ -41,13 +41,16 @@ async function main() {
   // Run the agent with text input
   console.log('Example 1: Text input\n');
   const result = await run(agent, 'What is the capital of France?');
+  console.log('\nAgent response:');
   console.log(result.finalOutput);
+  console.log('\n✓ Example 1 completed successfully');
 
   // Example with image input (multi-modal)
   // CodexProvider automatically handles image conversion
   console.log('\n\nExample 2: Multi-modal input (text + image)\n');
   console.log('Note: Images can be provided as URLs, base64 data, or file paths');
   console.log('      CodexProvider handles the conversion automatically');
+  console.log('\n✓ Example 2 info displayed (no actual image run in this demo)');
 }
 
 main()
