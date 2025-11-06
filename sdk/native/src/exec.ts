@@ -14,6 +14,11 @@ export type CodexExecArgs = {
   outputSchemaFile?: string;
   outputSchema?: unknown;
   fullAuto?: boolean;
+  review?: ReviewExecOptions | null;
+};
+
+export type ReviewExecOptions = {
+  userFacingHint?: string;
 };
 
 /**
@@ -49,6 +54,8 @@ export class CodexExec {
       baseUrl: args.baseUrl,
       apiKey: args.apiKey,
       fullAuto: args.fullAuto,
+      reviewMode: args.review ? true : undefined,
+      reviewHint: args.review?.userFacingHint,
     };
 
     let runPromise: Promise<void>;
