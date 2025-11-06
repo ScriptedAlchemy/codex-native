@@ -105,6 +105,53 @@ const thread = codex.resumeThread(savedThreadId);
 await thread.run("Implement the fix");
 ```
 
+### Running code reviews
+
+Invoke the native review workflow without crafting prompts manually. The SDK provides presets that mirror the `/review` slash command:
+
+```typescript
+const codex = new Codex();
+
+// Review everything that is staged, unstaged, or untracked
+const review = await codex.review({
+  target: { type: "current_changes" },
+});
+
+for (const finding of review.items) {
+  if (finding.type === "agent_message") {
+    console.log(finding.text);
+  }
+}
+```
+
+Additional presets let you review against another branch or a specific commit:
+
+```typescript
+await codex.review({
+  target: { type: "branch", baseBranch: "main" },
+});
+
+await codex.review({
+  target: {
+    type: "commit",
+    sha: "abc1234def5678",
+    subject: "Tighten input validation",
+  },
+});
+```
+
+For bespoke instructions, pass a custom prompt and optional hint:
+
+```typescript
+await codex.review({
+  target: {
+    type: "custom",
+    prompt: "Review only the data-access layer for regression risks.",
+    hint: "data-access layer",
+  },
+});
+```
+
 ### Working directory controls
 
 Codex runs in the current working directory by default. To avoid unrecoverable errors, Codex requires the working directory to be a Git repository. You can skip the Git repository check by passing the `skipGitRepoCheck` option when creating a thread.

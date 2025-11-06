@@ -28,6 +28,7 @@ use codex_core::protocol::AskForApproval;
 use codex_core::protocol::Event;
 use codex_core::protocol::EventMsg;
 use codex_core::protocol::Op;
+use codex_core::protocol::ReviewRequest;
 use codex_core::protocol::SessionSource;
 use codex_ollama::DEFAULT_OSS_MODEL;
 use codex_protocol::config_types::SandboxMode;
@@ -90,56 +91,73 @@ async fn run_internal(
         last_message_file,
         json: json_mode,
         sandbox_mode: sandbox_mode_cli_arg,
-        prompt,
+        prompt: prompt_cli,
         output_schema: output_schema_path,
         config_overrides,
+        review_prompt,
+        review_user_facing_hint,
     } = cli;
 
     // Determine the prompt source (parent or subcommand) and read from stdin if needed.
-    let prompt_arg = match &command {
-        // Allow prompt before the subcommand by falling back to the parent-level prompt
-        // when the Resume subcommand did not provide its own prompt.
-        Some(ExecCommand::Resume(args)) => args.prompt.clone().or(prompt),
-        None => prompt,
+    let mut review_request = match review_prompt {
+        Some(prompt) => {
+            let hint = review_user_facing_hint.unwrap_or_else(|| "code review".to_string());
+            Some(ReviewRequest {
+                prompt,
+                user_facing_hint: hint,
+            })
+        }
+        None => None,
     };
 
-    let prompt = match prompt_arg {
-        Some(p) if p != "-" => p,
-        // Either `-` was passed or no positional arg.
-        maybe_dash => {
-            // When no arg (None) **and** stdin is a TTY, bail out early – unless the
-            // user explicitly forced reading via `-`.
-            let force_stdin = matches!(maybe_dash.as_deref(), Some("-"));
+    let prompt = if let Some(ref request) = review_request {
+        request.prompt.clone()
+    } else {
+        let prompt_arg = match &command {
+            // Allow prompt before the subcommand by falling back to the parent-level prompt
+            // when the Resume subcommand did not provide its own prompt.
+            Some(ExecCommand::Resume(args)) => args.prompt.clone().or(prompt_cli),
+            None => prompt_cli,
+        };
 
-            if std::io::stdin().is_terminal() && !force_stdin {
-                eprintln!(
-                    "No prompt provided. Either specify one as an argument or pipe the prompt into stdin."
-                );
-                return exit_or_error(
-                    exit_on_error,
-                    "No prompt provided. Either specify one as an argument or pipe the prompt into stdin.",
-                );
-            }
+        match prompt_arg {
+            Some(p) if p != "-" => p,
+            // Either `-` was passed or no positional arg.
+            maybe_dash => {
+                // When no arg (None) **and** stdin is a TTY, bail out early – unless the
+                // user explicitly forced reading via `-`.
+                let force_stdin = matches!(maybe_dash.as_deref(), Some("-"));
 
-            // Ensure the user knows we are waiting on stdin, as they may
-            // have gotten into this state by mistake. If so, and they are not
-            // writing to stdin, Codex will hang indefinitely, so this should
-            // help them debug in that case.
-            if !force_stdin {
-                eprintln!("Reading prompt from stdin...");
+                if std::io::stdin().is_terminal() && !force_stdin {
+                    eprintln!(
+                        "No prompt provided. Either specify one as an argument or pipe the prompt into stdin."
+                    );
+                    return exit_or_error(
+                        exit_on_error,
+                        "No prompt provided. Either specify one as an argument or pipe the prompt into stdin.",
+                    );
+                }
+
+                // Ensure the user knows we are waiting on stdin, as they may
+                // have gotten into this state by mistake. If so, and they are not
+                // writing to stdin, Codex will hang indefinitely, so this should
+                // help them debug in that case.
+                if !force_stdin {
+                    eprintln!("Reading prompt from stdin...");
+                }
+                let mut buffer = String::new();
+                if let Err(e) = std::io::stdin().read_to_string(&mut buffer) {
+                    eprintln!("Failed to read prompt from stdin: {e}");
+                    return exit_or_error(
+                        exit_on_error,
+                        format!("Failed to read prompt from stdin: {e}"),
+                    );
+                } else if buffer.trim().is_empty() {
+                    eprintln!("No prompt provided via stdin.");
+                    return exit_or_error(exit_on_error, "No prompt provided via stdin.");
+                }
+                buffer
             }
-            let mut buffer = String::new();
-            if let Err(e) = std::io::stdin().read_to_string(&mut buffer) {
-                eprintln!("Failed to read prompt from stdin: {e}");
-                return exit_or_error(
-                    exit_on_error,
-                    format!("Failed to read prompt from stdin: {e}"),
-                );
-            } else if buffer.trim().is_empty() {
-                eprintln!("No prompt provided via stdin.");
-                return exit_or_error(exit_on_error, "No prompt provided via stdin.");
-            }
-            buffer
         }
     };
 
@@ -358,24 +376,35 @@ async fn run_internal(
     }
 
     // Package images and prompt into a single user input turn.
-    let mut items: Vec<UserInput> = images
-        .into_iter()
-        .map(|path| UserInput::LocalImage { path })
-        .collect();
-    items.push(UserInput::Text { text: prompt });
-    let initial_prompt_task_id = conversation
-        .submit(Op::UserTurn {
-            items,
-            cwd: default_cwd,
-            approval_policy: default_approval_policy,
-            sandbox_policy: default_sandbox_policy,
-            model: default_model,
-            effort: default_effort,
-            summary: default_summary,
-            final_output_json_schema: output_schema,
-        })
-        .await?;
-    info!("Sent prompt with event ID: {initial_prompt_task_id}");
+    let is_review = review_request.is_some();
+    let initial_task_id = if let Some(review_request) = review_request.take() {
+        conversation.submit(Op::Review { review_request }).await?
+    } else {
+        let mut items: Vec<UserInput> = images
+            .into_iter()
+            .map(|path| UserInput::LocalImage { path })
+            .collect();
+        items.push(UserInput::Text {
+            text: prompt.clone(),
+        });
+        conversation
+            .submit(Op::UserTurn {
+                items,
+                cwd: default_cwd,
+                approval_policy: default_approval_policy,
+                sandbox_policy: default_sandbox_policy,
+                model: default_model,
+                effort: default_effort,
+                summary: default_summary,
+                final_output_json_schema: output_schema,
+            })
+            .await?
+    };
+    if is_review {
+        info!("Sent review request with event ID: {initial_task_id}");
+    } else {
+        info!("Sent prompt with event ID: {initial_task_id}");
+    }
 
     // Run the loop until the task is complete.
     // Track whether a fatal error was reported by the server so we can

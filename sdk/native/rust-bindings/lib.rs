@@ -16,6 +16,7 @@ use codex_core::tools::context::ToolOutput;
 use codex_core::tools::context::ToolPayload;
 use codex_core::tools::registry::{ExternalToolRegistration, ToolHandler, ToolKind, set_pending_external_tools};
 use codex_core::tools::spec::create_function_tool_spec_from_schema;
+use codex_protocol::protocol::ReviewRequest;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::bindgen_prelude::{Function, Status};
 use napi_derive::napi;
@@ -230,6 +231,12 @@ pub struct RunRequest {
   pub api_key: Option<String>,
   #[napi(js_name = "linuxSandboxPath")]
   pub linux_sandbox_path: Option<String>,
+  #[napi(js_name = "fullAuto")]
+  pub full_auto: Option<bool>,
+  #[napi(js_name = "reviewMode")]
+  pub review_mode: Option<bool>,
+  #[napi(js_name = "reviewHint")]
+  pub review_hint: Option<String>,
 }
 
 struct InternalRunRequest {
@@ -244,11 +251,30 @@ struct InternalRunRequest {
   base_url: Option<String>,
   api_key: Option<String>,
   linux_sandbox_path: Option<PathBuf>,
+  full_auto: bool,
+  review_request: Option<ReviewRequest>,
 }
 
 impl RunRequest {
   fn into_internal(self) -> napi::Result<InternalRunRequest> {
-    let sandbox_mode = match self.sandbox_mode.as_deref() {
+    let RunRequest {
+      prompt,
+      thread_id,
+      images,
+      model,
+      sandbox_mode,
+      working_directory,
+      skip_git_repo_check,
+      output_schema,
+      base_url,
+      api_key,
+      linux_sandbox_path,
+      full_auto,
+      review_mode,
+      review_hint,
+    } = self;
+
+    let sandbox_mode = match sandbox_mode.as_deref() {
       None => None,
       Some("read-only") => Some(SandboxModeCliArg::ReadOnly),
       Some("workspace-write") => Some(SandboxModeCliArg::WorkspaceWrite),
@@ -260,27 +286,44 @@ impl RunRequest {
       }
     };
 
-    let images = self
-      .images
+    let images = images
       .unwrap_or_default()
       .into_iter()
       .map(PathBuf::from)
       .collect();
 
-    let working_directory = self.working_directory.map(PathBuf::from);
+    let working_directory = working_directory.map(PathBuf::from);
+    let full_auto = full_auto.unwrap_or(false);
+    let review_request = if review_mode.unwrap_or(false) {
+      if prompt.trim().is_empty() {
+        return Err(napi::Error::from_reason(
+          "Review mode requires a non-empty prompt".to_string(),
+        ));
+      }
+      let hint = review_hint
+        .unwrap_or_else(|| "code review".to_string());
+      Some(ReviewRequest {
+        prompt: prompt.clone(),
+        user_facing_hint: hint,
+      })
+    } else {
+      None
+    };
 
     Ok(InternalRunRequest {
-      prompt: self.prompt,
-      thread_id: self.thread_id,
+      prompt,
+      thread_id,
       images,
-      model: self.model,
+      model,
       sandbox_mode,
       working_directory,
-      skip_git_repo_check: self.skip_git_repo_check.unwrap_or(false),
-      output_schema: self.output_schema,
-      base_url: self.base_url,
-      api_key: self.api_key,
-      linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
+      skip_git_repo_check: skip_git_repo_check.unwrap_or(false),
+      output_schema,
+      base_url,
+      api_key,
+      linux_sandbox_path: linux_sandbox_path.map(PathBuf::from),
+      full_auto,
+      review_request,
     })
   }
 }
@@ -357,7 +400,7 @@ fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli 
     oss: false,
     sandbox_mode: options.sandbox_mode,
     config_profile: None,
-    full_auto: false,
+    full_auto: options.full_auto,
     dangerously_bypass_approvals_and_sandbox: false,
     cwd: options.working_directory.clone(),
     skip_git_repo_check: options.skip_git_repo_check,
@@ -371,6 +414,11 @@ fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli 
     } else {
       Some(options.prompt.clone())
     },
+    review_prompt: options.review_request.as_ref().map(|r| r.prompt.clone()),
+    review_user_facing_hint: options
+      .review_request
+      .as_ref()
+      .map(|r| r.user_facing_hint.clone()),
   }
 }
 

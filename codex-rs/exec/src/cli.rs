@@ -75,6 +75,12 @@ pub struct Cli {
     /// if `-` is used), instructions are read from stdin.
     #[arg(value_name = "PROMPT", value_hint = clap::ValueHint::Other)]
     pub prompt: Option<String>,
+
+    #[clap(skip)]
+    pub review_prompt: Option<String>,
+
+    #[clap(skip)]
+    pub review_user_facing_hint: Option<String>,
 }
 
 #[derive(Debug, clap::Subcommand)]

@@ -388,6 +388,35 @@ describe("Codex native bridge", () => {
     }
   });
 
+  it("submits review prompts for preset targets", async () => {
+    const { url, close, requests } = await startResponsesTestProxy({
+      statusCode: 200,
+      responseBodies: [sse(responseStarted(), assistantMessage("Review complete"), responseCompleted())],
+    });
+
+    try {
+      const client = createClient(url);
+      const result = await client.review({
+        target: { type: "branch", baseBranch: "main" },
+      });
+
+      expect(result.finalResponse).toBe("Review complete");
+      expect(requests.length).toBeGreaterThanOrEqual(1);
+
+      const payload = requests[0].json;
+      const lastUser = payload.input.at(-1);
+      expect(lastUser?.content?.[0]?.text).toContain(
+        "Review the code changes against the base branch 'main'.",
+      );
+      const firstUser = payload.input.at(0);
+      expect(firstUser?.role).toBe("user");
+      expect(firstUser?.type).toBe("message");
+      expect(firstUser?.content?.[0]?.text).toContain("# AGENTS.md instructions");
+    } finally {
+      await close();
+    }
+  });
+
   it("throws ThreadRunError on turn failures", async () => {
     const { url, close } = await startResponsesTestProxy({
       statusCode: 200,
