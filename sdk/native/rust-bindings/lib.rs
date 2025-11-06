@@ -55,35 +55,53 @@ fn ensure_embedded_linux_sandbox() -> napi::Result<PathBuf> {
 
   static SANDBOX_PATH: OnceLock<PathBuf> = OnceLock::new();
 
+  // Use get_or_init with a closure that handles errors manually
   SANDBOX_PATH
-    .get_or_try_init(|| {
+    .get_or_init(|| {
       let root = std::env::temp_dir().join("codex-native");
-      fs::create_dir_all(&root).map_err(io_to_napi)?;
+      if let Err(_) = fs::create_dir_all(&root) {
+        return PathBuf::new();
+      }
       let target_path = root.join("codex-linux-sandbox");
 
-      let mut tmp = NamedTempFile::new_in(&root).map_err(io_to_napi)?;
-      tmp
-        .write_all(EMBEDDED_LINUX_SANDBOX_BYTES)
-        .map_err(io_to_napi)?;
-      tmp.flush().map_err(io_to_napi)?;
+      let mut tmp = match NamedTempFile::new_in(&root) {
+        Ok(t) => t,
+        Err(_) => return PathBuf::new(),
+      };
+      if tmp.write_all(EMBEDDED_LINUX_SANDBOX_BYTES).is_err() {
+        return PathBuf::new();
+      }
+      if tmp.flush().is_err() {
+        return PathBuf::new();
+      }
 
       let temp_path = tmp.into_temp_path();
       if target_path.exists() {
-        fs::remove_file(&target_path).map_err(io_to_napi)?;
+        let _ = fs::remove_file(&target_path);
       }
-      temp_path
-        .persist(&target_path)
-        .map_err(|(_, err)| io_to_napi(err))?;
+      if temp_path.persist(&target_path).is_err() {
+        return PathBuf::new();
+      }
 
-      let mut perms = fs::metadata(&target_path)
-        .map_err(io_to_napi)?
-        .permissions();
+      let mut perms = match fs::metadata(&target_path) {
+        Ok(m) => m.permissions(),
+        Err(_) => return PathBuf::new(),
+      };
       perms.set_mode(0o755);
-      fs::set_permissions(&target_path, perms).map_err(io_to_napi)?;
+      if fs::set_permissions(&target_path, perms).is_err() {
+        return PathBuf::new();
+      }
 
-      Ok(target_path)
-    })
-    .cloned()
+      target_path
+    });
+
+  let path = SANDBOX_PATH.get().unwrap();
+  if path.as_os_str().is_empty() {
+    return Err(napi::Error::from_reason(
+      "Failed to initialize Linux sandbox binary",
+    ));
+  }
+  Ok(path.clone())
 }
 
 #[cfg(target_os = "linux")]
