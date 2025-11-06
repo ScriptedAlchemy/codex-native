@@ -3,6 +3,7 @@
   "private": true,
   "description": "Tools for repo-wide maintenance.",
   "scripts": {
+    "preinstall": "node -e \"if (!/pnpm/.test(process.env.npm_execpath||'') && !/pnpm/.test(process.env.npm_config_user_agent||'')) { console.error('This repository uses PNPM. Please run: pnpm install'); process.exit(1) }\"",
     "format": "prettier --check *.json *.md docs/*.md .github/workflows/*.yml **/*.js",
     "format:fix": "prettier --write *.json *.md docs/*.md .github/workflows/*.yml **/*.js",
     "sdk:build": "node sdk/native/scripts/build-all.mjs",
