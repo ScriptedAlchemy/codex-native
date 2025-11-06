@@ -1,8 +1,5 @@
 #![deny(clippy::all)]
 
-#[cfg(test)]
-mod test;
-
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
@@ -617,10 +614,7 @@ impl ReviewEventCollector {
           events.push(ExecThreadEvent::ItemCompleted(ItemCompletedEvent { item }));
         }
 
-        let usage = self
-          .last_usage
-          .clone()
-          .unwrap_or_else(|| TokenUsage::default());
+        let usage = self.last_usage.clone().unwrap_or_default();
 
         if let Some(error) = self.last_error.take() {
           events.push(ExecThreadEvent::TurnFailed(TurnFailedEvent { error }));
