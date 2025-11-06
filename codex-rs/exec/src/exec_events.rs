@@ -36,6 +36,9 @@ pub enum ThreadEvent {
     /// Signals that Codex exited review mode and optionally provides structured output.
     #[serde(rename = "exited_review_mode")]
     ExitedReviewMode(ExitedReviewModeEvent),
+    /// Raw protocol event payload forwarded for consumers that need full fidelity.
+    #[serde(rename = "raw_event")]
+    Raw(RawEvent),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
@@ -123,6 +126,12 @@ pub struct ReviewOutputEvent {
 pub struct ExitedReviewModeEvent {
     #[serde(default)]
     pub review_output: Option<ReviewOutputEvent>,
+}
+
+/// Raw protocol event payload as emitted by codex-core.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+pub struct RawEvent {
+    pub raw: JsonValue,
 }
 
 /// Canonical representation of a thread item and its domain-specific payload.

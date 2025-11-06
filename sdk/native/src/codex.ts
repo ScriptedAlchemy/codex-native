@@ -7,7 +7,7 @@ import { ThreadOptions } from "./threadOptions";
 import { TurnOptions } from "./turnOptions";
 import { ThreadEvent, ThreadError, Usage } from "./events";
 import { ThreadItem } from "./items";
-import { createOutputSchemaFile } from "./outputSchemaFile";
+import { createOutputSchemaFile, normalizeOutputSchema } from "./outputSchemaFile";
 import { buildReviewPrompt, type ReviewInvocationOptions } from "./reviewOptions";
 
 /**
@@ -38,6 +38,10 @@ export class Codex {
     this.exec = new CodexExec();
   }
 
+  /**
+   * Register a tool for Codex. When `tool.name` matches a built-in Codex tool,
+   * the native implementation is replaced for this Codex instance.
+   */
   registerTool(tool: NativeToolDefinition): void {
     if (!this.nativeBinding) {
       throw new Error("Native tool registration requires the NAPI binding");
@@ -53,6 +57,21 @@ export class Codex {
       this.options.tools = [];
     }
     this.options.tools.push(tool);
+  }
+
+  /**
+   * Clear all registered tools, restoring built-in defaults.
+   */
+  clearTools(): void {
+    if (!this.nativeBinding) {
+      throw new Error("Native tool management requires the NAPI binding");
+    }
+    if (typeof this.nativeBinding.clearRegisteredTools === 'function') {
+      this.nativeBinding.clearRegisteredTools();
+    }
+    if (this.options.tools) {
+      this.options.tools = [];
+    }
   }
 
   /**
@@ -139,7 +158,11 @@ export class Codex {
   ): AsyncGenerator<ThreadEvent> {
     const { target, threadOptions = {}, turnOptions = {} } = options;
     const { prompt, hint } = buildReviewPrompt(target);
-    const { schemaPath, cleanup } = await createOutputSchemaFile(turnOptions.outputSchema);
+    const normalizedSchema = normalizeOutputSchema(turnOptions.outputSchema);
+    const needsSchemaFile = this.exec.requiresOutputSchemaFile();
+    const schemaFile = needsSchemaFile
+      ? await createOutputSchemaFile(normalizedSchema)
+      : { schemaPath: undefined, cleanup: async () => {} };
     const generator = this.exec.run({
       input: prompt,
       baseUrl: this.options.baseUrl,
@@ -148,8 +171,8 @@ export class Codex {
       sandboxMode: threadOptions.sandboxMode,
       workingDirectory: threadOptions.workingDirectory,
       skipGitRepoCheck: threadOptions.skipGitRepoCheck,
-      outputSchemaFile: schemaPath,
-      outputSchema: turnOptions.outputSchema,
+      outputSchemaFile: schemaFile.schemaPath,
+      outputSchema: normalizedSchema,
       fullAuto: threadOptions.fullAuto,
       review: {
         userFacingHint: hint,
@@ -166,7 +189,7 @@ export class Codex {
         yield parsed;
       }
     } finally {
-      await cleanup();
+      await schemaFile.cleanup();
     }
   }
 }

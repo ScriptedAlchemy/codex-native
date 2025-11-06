@@ -60,4 +60,3 @@ fn test_prepare_schema_with_complex_schema() {
   let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
   assert_eq!(parsed, schema);
 }
-

@@ -44,4 +44,3 @@ fn test_event_to_json_error() {
     "Something went wrong"
   );
 }
-

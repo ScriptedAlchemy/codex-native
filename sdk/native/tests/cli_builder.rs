@@ -1,6 +1,6 @@
+use codex_common::SandboxModeCliArg;
 use codex_exec::Command;
 use codex_native::*;
-use codex_common::SandboxModeCliArg;
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
 
@@ -112,4 +112,3 @@ fn test_build_cli_minimal() {
   assert!(!cli.full_auto);
   assert!(!cli.skip_git_repo_check);
 }
-

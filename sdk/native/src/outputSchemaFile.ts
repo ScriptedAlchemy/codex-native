@@ -7,20 +7,32 @@ export type OutputSchemaFile = {
   cleanup: () => Promise<void>;
 };
 
-export async function createOutputSchemaFile(schema: unknown): Promise<OutputSchemaFile> {
+export function normalizeOutputSchema(schema: unknown): Record<string, unknown> | undefined {
   if (schema === undefined) {
-    return { cleanup: async () => {} };
+    return undefined;
   }
 
   if (!isJsonObject(schema)) {
     throw new Error("outputSchema must be a plain JSON object");
   }
 
-  // Ensure the schema has additionalProperties: false as required by the API
-  const normalizedSchema = {
-    ...schema,
-    additionalProperties: schema.additionalProperties !== undefined ? schema.additionalProperties : false,
+  const record = { ...schema } as Record<string, unknown> & {
+    additionalProperties?: unknown;
   };
+  const additionalProperties =
+    typeof record.additionalProperties === "boolean" ? record.additionalProperties : false;
+
+  return {
+    ...record,
+    additionalProperties,
+  };
+}
+
+export async function createOutputSchemaFile(schema: unknown): Promise<OutputSchemaFile> {
+  const normalizedSchema = normalizeOutputSchema(schema);
+  if (!normalizedSchema) {
+    return { cleanup: async () => {} };
+  }
 
   const schemaDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-output-schema-"));
   const schemaPath = path.join(schemaDir, "schema.json");

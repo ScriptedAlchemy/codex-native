@@ -1,7 +1,7 @@
+use codex_common::SandboxModeCliArg;
 use codex_core::protocol::AskForApproval;
 use codex_native::*;
 use codex_protocol::config_types::SandboxMode;
-use codex_common::SandboxModeCliArg;
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
 
@@ -96,4 +96,3 @@ fn test_build_config_overrides_with_sandbox_path() {
   let overrides = build_config_overrides(&options, Some(sandbox_path.clone()));
   assert_eq!(overrides.codex_linux_sandbox_exe, Some(sandbox_path));
 }
-

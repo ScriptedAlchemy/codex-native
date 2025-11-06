@@ -29,10 +29,7 @@ fn test_review_event_collector_task_started() {
 
   let events = collector.handle(&event);
   assert_eq!(events.len(), 1);
-  assert!(matches!(
-    events[0],
-    ThreadEvent::TurnStarted(_)
-  ));
+  assert!(matches!(events[0], ThreadEvent::TurnStarted(_)));
 }
 
 #[test]
@@ -198,4 +195,3 @@ fn test_review_event_collector_parse_review_output_invalid_json() {
   assert_eq!(output.overall_explanation, "This is not JSON at all");
   assert_eq!(output.findings.len(), 0);
 }
-

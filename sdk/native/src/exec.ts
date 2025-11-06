@@ -38,6 +38,10 @@ export class CodexExec {
     this.native = nativeBinding;
   }
 
+  requiresOutputSchemaFile(): boolean {
+    return false;
+  }
+
   async *run(args: CodexExecArgs): AsyncGenerator<string> {
     const binding = this.native;
     const queue = new AsyncQueue<string>();
@@ -58,7 +62,7 @@ export class CodexExec {
       reviewHint: args.review?.userFacingHint,
     };
 
-    let runPromise: Promise<void>;
+    let runPromise: Promise<void> = Promise.resolve();
     try {
       runPromise = binding
         .runThreadStream(request, (err, eventJson) => {

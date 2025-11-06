@@ -239,6 +239,23 @@ impl ToolRegistryBuilder {
             .push(ConfiguredToolSpec::new(spec, supports_parallel_tool_calls));
     }
 
+    pub fn upsert_spec_with_parallel_support(
+        &mut self,
+        spec: ToolSpec,
+        supports_parallel_tool_calls: bool,
+    ) {
+        let spec_name = spec.name().to_string();
+        if let Some(existing) = self
+            .specs
+            .iter_mut()
+            .find(|configured| configured.spec.name() == spec_name)
+        {
+            *existing = ConfiguredToolSpec::new(spec, supports_parallel_tool_calls);
+        } else {
+            self.push_spec_with_parallel_support(spec, supports_parallel_tool_calls);
+        }
+    }
+
     pub fn register_handler(&mut self, name: impl Into<String>, handler: Arc<dyn ToolHandler>) {
         let name = name.into();
         if self

@@ -1,5 +1,5 @@
-use codex_native::*;
 use codex_common::SandboxModeCliArg;
+use codex_native::*;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::path::PathBuf;
@@ -138,7 +138,11 @@ fn test_run_request_review_mode_with_empty_prompt() {
   let result = req.into_internal();
   assert!(result.is_err());
   let err = result.unwrap_err();
-  assert!(err.reason.contains("Review mode requires a non-empty prompt"));
+  assert!(
+    err
+      .reason
+      .contains("Review mode requires a non-empty prompt")
+  );
 }
 
 #[test]
@@ -221,4 +225,3 @@ fn test_run_request_with_output_schema() {
   let internal = req.into_internal().unwrap();
   assert_eq!(internal.output_schema, Some(schema));
 }
-

@@ -171,11 +171,7 @@ fn test_clear_registered_tools() {
 
 #[test]
 fn test_sandbox_mode_values() {
-  let modes = vec![
-    "read-only",
-    "workspace-write",
-    "danger-full-access",
-  ];
+  let modes = vec!["read-only", "workspace-write", "danger-full-access"];
 
   for mode in modes {
     let req = RunRequest {
@@ -198,4 +194,3 @@ fn test_sandbox_mode_values() {
     assert_eq!(req.sandbox_mode, Some(mode.to_string()));
   }
 }
-

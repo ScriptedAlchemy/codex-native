@@ -107,4 +107,11 @@ export type ThreadEvent =
   | ItemUpdatedEvent
   | ItemCompletedEvent
   | ExitedReviewModeEvent
-  | ThreadErrorEvent;
+  | ThreadErrorEvent
+  | RawThreadEvent;
+
+/** Raw protocol event forwarded without transformation. */
+export type RawThreadEvent = {
+  type: "raw_event";
+  raw: unknown;
+};

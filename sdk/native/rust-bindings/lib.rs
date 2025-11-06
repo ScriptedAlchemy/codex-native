@@ -27,8 +27,8 @@ use codex_exec::exec_events::{
   AgentMessageItem, ExitedReviewModeEvent as ExecExitedReviewModeEvent, ItemCompletedEvent,
   ReasoningItem, ReviewCodeLocation, ReviewFinding, ReviewLineRange,
   ReviewOutputEvent as ExecReviewOutputEvent, ThreadErrorEvent as ExecThreadErrorEvent,
-  ThreadEvent, ThreadItem, ThreadItemDetails, ThreadStartedEvent,
-  TurnCompletedEvent, TurnFailedEvent, TurnStartedEvent, Usage,
+  ThreadEvent, ThreadItem, ThreadItemDetails, ThreadStartedEvent, TurnCompletedEvent,
+  TurnFailedEvent, TurnStartedEvent, Usage,
 };
 use codex_exec::run_with_thread_event_callback;
 use codex_exec::{Cli, Color, Command, ResumeArgs};
@@ -518,9 +518,9 @@ pub struct ReviewEventCollector {
 }
 
 impl Default for ReviewEventCollector {
-    fn default() -> Self {
-        Self::new()
-    }
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl ReviewEventCollector {
@@ -593,11 +593,9 @@ impl ReviewEventCollector {
       EventMsg::ExitedReviewMode(ev) => {
         let converted = self.convert_review_output(&ev.review_output);
         self.emitted_review_exit = true;
-        vec![ThreadEvent::ExitedReviewMode(
-          ExecExitedReviewModeEvent {
-            review_output: converted,
-          },
-        )]
+        vec![ThreadEvent::ExitedReviewMode(ExecExitedReviewModeEvent {
+          review_output: converted,
+        })]
       }
       EventMsg::TaskComplete(task_complete) => {
         let mut events = Vec::new();
@@ -605,11 +603,9 @@ impl ReviewEventCollector {
           if !self.emitted_review_exit {
             let review_output = self.parse_review_output(text);
             let converted = self.convert_review_output(&Some(review_output));
-            events.push(ThreadEvent::ExitedReviewMode(
-              ExecExitedReviewModeEvent {
-                review_output: converted,
-              },
-            ));
+            events.push(ThreadEvent::ExitedReviewMode(ExecExitedReviewModeEvent {
+              review_output: converted,
+            }));
             self.emitted_review_exit = true;
           }
           let item = ThreadItem {

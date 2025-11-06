@@ -171,6 +171,134 @@ The Native SDK provides additional capabilities beyond the TypeScript SDK:
 
 Register JavaScript functions as tools that Codex can discover and invoke during execution. Tools are registered globally on the `Codex` instance and become available to all threads and agents.
 
+> **Override built-ins:** If you register a tool whose `name` matches one of Codex's built-in tools (for example `read_file`, `local_shell`, or `apply_patch`), the native implementation is replaced for the lifetime of that `Codex` instance. This lets you customize or disable default behaviors while keeping the same tool interface.
+
+#### Built-in tool override cheat sheet
+
+All snippets assume you already created an instance with `const codex = new Codex();`. Registering any of these names swaps out Codex's default implementation.
+
+- `shell` – sandboxed shell command runner (models without unified exec)
+  ```typescript
+  codex.registerTool({
+    name: "shell",
+    handler: () => ({ error: "Shell disabled by policy", success: false }),
+  });
+  ```
+
+- `exec_command` – streaming command execution (available when unified exec is enabled)
+  ```typescript
+  codex.registerTool({
+    name: "exec_command",
+    handler: (_, invocation) => ({
+      output: `Pretend ran: ${invocation.arguments}`,
+      success: true,
+    }),
+  });
+  ```
+
+- `write_stdin` – feeds additional input into an in-flight `exec_command`
+  ```typescript
+  codex.registerTool({
+    name: "write_stdin",
+    handler: () => ({ output: "stdin blocked", success: false }),
+  });
+  ```
+
+- `local_shell` – simplified shell command helper (models that prefer local shell over unified exec)
+  ```typescript
+  codex.registerTool({
+    name: "local_shell",
+    handler: () => ({ output: "local shell override", success: true }),
+  });
+  ```
+
+- `list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource` – MCP discovery helpers
+  ```typescript
+  for (const name of [
+    "list_mcp_resources",
+    "list_mcp_resource_templates",
+    "read_mcp_resource",
+  ]) {
+    codex.registerTool({
+      name,
+      handler: () => ({ output: JSON.stringify({ notice: `${name} overridden` }) }),
+    });
+  }
+  ```
+
+- `update_plan` – emits high-level plan updates back to the host UI
+  ```typescript
+  codex.registerTool({
+    name: "update_plan",
+    handler: () => ({ output: "Plan updates disabled" }),
+  });
+  ```
+
+- `apply_patch` – applies patches authored by the agent
+  ```typescript
+  codex.registerTool({
+    name: "apply_patch",
+    handler: (_, { arguments }) => ({
+      output: `Custom patch handler received: ${arguments}`,
+      success: true,
+    }),
+  });
+  ```
+
+- `web_search` – performs outbound web searches (only on models with the feature enabled)
+  ```typescript
+  codex.registerTool({
+    name: "web_search",
+    handler: (_, { arguments }) => ({
+      output: `Search stub: ${arguments}`,
+      success: true,
+    }),
+  });
+  ```
+
+- `view_image` – attaches a local image for the model to inspect
+  ```typescript
+  codex.registerTool({
+    name: "view_image",
+    handler: (_, { arguments }) => ({
+      output: `Ignoring image path ${arguments}`,
+      success: true,
+    }),
+  });
+  ```
+
+- `grep_files`, `read_file`, `list_dir` – workspace inspection helpers (enabled via experimental flags)
+  ```typescript
+  for (const name of ["grep_files", "read_file", "list_dir"]) {
+    codex.registerTool({
+      name,
+      handler: (_, { arguments }) => ({
+        output: JSON.stringify({ name, arguments, overridden: true }),
+        success: true,
+      }),
+    });
+  }
+  ```
+
+- `test_sync_tool` – synchronization helper used in concurrency tests
+  ```typescript
+  codex.registerTool({
+    name: "test_sync_tool",
+    handler: () => ({ output: "Barrier skipped" }),
+  });
+  ```
+
+- MCP server tools – any name of the form `server::tool`
+  ```typescript
+  codex.registerTool({
+    name: "jira::create_issue",
+    handler: (_, { arguments }) => ({
+      output: `Custom Jira integration received ${arguments}`,
+      success: true,
+    }),
+  });
+  ```
+
 ```typescript
 const codex = new Codex();
 

@@ -8,10 +8,7 @@ fn test_env_overrides_sets_and_restores_vars() {
 
   {
     let _guard = EnvOverrides::apply(vec![(test_key, Some("test_value".to_string()), true)]);
-    assert_eq!(
-      std::env::var(test_key).ok(),
-      Some("test_value".to_string())
-    );
+    assert_eq!(std::env::var(test_key).ok(), Some("test_value".to_string()));
   }
 
   assert_eq!(std::env::var(test_key).ok(), None);
@@ -83,4 +80,3 @@ fn test_env_overrides_skip_when_not_forced_and_none() {
   assert_eq!(std::env::var(test_key).ok(), Some("original".to_string()));
   unsafe { std::env::remove_var(test_key) };
 }
-
