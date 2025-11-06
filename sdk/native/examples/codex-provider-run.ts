@@ -34,11 +34,11 @@ async function main() {
     name: 'TaskSpecificAgent',
     model: codexModel,
     instructions:
-      'You are a helpful assistant that answers questions concisely using GPT-5 via Codex. You support both text and image inputs.',
+      'You are a helpful assistant. Answer questions directly and concisely in 1-2 sentences.',
   });
 
   // Run the agent once with the model obtained from the provider
-  const result = await run(agent, 'Explain what Codex Native SDK does');
+  const result = await run(agent, 'What is 2+2? Answer with just the number.');
 
   console.log('Result:');
   console.log(result.finalOutput);
@@ -46,10 +46,12 @@ async function main() {
 
 main()
   .then(() => {
-    // Force exit after completion to avoid hanging
-    process.exit(0);
+    console.log('\nMain completed successfully.');
+    // Force exit after completion - native bindings may keep handles open
+    // Using setTimeout to ensure output is flushed before exit
+    setTimeout(() => process.exit(0), 100);
   })
   .catch((error) => {
-  console.error('Error:', error);
-  process.exit(1);
-});
+    console.error('Error:', error);
+    process.exit(1);
+  });

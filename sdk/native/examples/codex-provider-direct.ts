@@ -55,10 +55,11 @@ async function main() {
 
 main()
   .then(() => {
-    // Force exit after completion to avoid hanging
-    process.exit(0);
+    console.log('\nExamples completed successfully.');
+    // Force exit after completion - native bindings may keep handles open
+    setTimeout(() => process.exit(0), 100);
   })
   .catch((error) => {
-  console.error('Error:', error);
-  process.exit(1);
-});
+    console.error('Error:', error);
+    process.exit(1);
+  });
