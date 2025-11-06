@@ -46,6 +46,31 @@ importers:
       zod:
         specifier: ^3.25.76
         version: 3.25.76
+    optionalDependencies:
+      '@codex-native/sdk-darwin-arm64':
+        specifier: 0.0.1
+        version: 0.0.1
+      '@codex-native/sdk-darwin-x64':
+        specifier: 0.0.1
+        version: 0.0.1
+      '@codex-native/sdk-linux-arm64-gnu':
+        specifier: 0.0.1
+        version: 0.0.1
+      '@codex-native/sdk-linux-arm64-musl':
+        specifier: 0.0.1
+        version: 0.0.1
+      '@codex-native/sdk-linux-x64-gnu':
+        specifier: 0.0.1
+        version: 0.0.1
+      '@codex-native/sdk-linux-x64-musl':
+        specifier: 0.0.1
+        version: 0.0.1
+      '@codex-native/sdk-win32-arm64-msvc':
+        specifier: 0.0.1
+        version: 0.0.1
+      '@codex-native/sdk-win32-x64-msvc':
+        specifier: 0.0.1
+        version: 0.0.1
 
   sdk/typescript:
     devDependencies:
@@ -267,6 +292,58 @@ packages:
 
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
+
+  '@codex-native/sdk-darwin-arm64@file:sdk/native/npm/darwin-arm64':
+    resolution: {directory: sdk/native/npm/darwin-arm64, type: directory}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@codex-native/sdk-darwin-x64@file:sdk/native/npm/darwin-x64':
+    resolution: {directory: sdk/native/npm/darwin-x64, type: directory}
+    engines: {node: '>=18'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@codex-native/sdk-linux-arm64-gnu@file:sdk/native/npm/linux-arm64-gnu':
+    resolution: {directory: sdk/native/npm/linux-arm64-gnu, type: directory}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@codex-native/sdk-linux-arm64-musl@file:sdk/native/npm/linux-arm64-musl':
+    resolution: {directory: sdk/native/npm/linux-arm64-musl, type: directory}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@codex-native/sdk-linux-x64-gnu@file:sdk/native/npm/linux-x64-gnu':
+    resolution: {directory: sdk/native/npm/linux-x64-gnu, type: directory}
+    engines: {node: '>=18'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@codex-native/sdk-linux-x64-musl@file:sdk/native/npm/linux-x64-musl':
+    resolution: {directory: sdk/native/npm/linux-x64-musl, type: directory}
+    engines: {node: '>=18'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@codex-native/sdk-win32-arm64-msvc@file:sdk/native/npm/win32-arm64-msvc':
+    resolution: {directory: sdk/native/npm/win32-arm64-msvc, type: directory}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@codex-native/sdk-win32-x64-msvc@file:sdk/native/npm/win32-x64-msvc':
+    resolution: {directory: sdk/native/npm/win32-x64-msvc, type: directory}
+    engines: {node: '>=18'}
+    cpu: [x64]
+    os: [win32]
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -3312,6 +3389,30 @@ snapshots:
       '@babel/helper-validator-identifier': 7.27.1
 
   '@bcoe/v8-coverage@0.2.3': {}
+
+  '@codex-native/sdk-darwin-arm64@file:sdk/native/npm/darwin-arm64':
+    optional: true
+
+  '@codex-native/sdk-darwin-x64@file:sdk/native/npm/darwin-x64':
+    optional: true
+
+  '@codex-native/sdk-linux-arm64-gnu@file:sdk/native/npm/linux-arm64-gnu':
+    optional: true
+
+  '@codex-native/sdk-linux-arm64-musl@file:sdk/native/npm/linux-arm64-musl':
+    optional: true
+
+  '@codex-native/sdk-linux-x64-gnu@file:sdk/native/npm/linux-x64-gnu':
+    optional: true
+
+  '@codex-native/sdk-linux-x64-musl@file:sdk/native/npm/linux-x64-musl':
+    optional: true
+
+  '@codex-native/sdk-win32-arm64-msvc@file:sdk/native/npm/win32-arm64-msvc':
+    optional: true
+
+  '@codex-native/sdk-win32-x64-msvc@file:sdk/native/npm/win32-x64-msvc':
+    optional: true
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
