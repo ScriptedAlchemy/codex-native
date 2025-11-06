@@ -1,8 +1,14 @@
 import { CodexOptions, NativeToolDefinition } from "./codexOptions";
 import { CodexExec } from "./exec";
 import { NativeBinding, getNativeBinding } from "./nativeBinding";
+import type { StreamedTurn, Turn } from "./thread";
 import { Thread } from "./thread";
 import { ThreadOptions } from "./threadOptions";
+import { TurnOptions } from "./turnOptions";
+import { ThreadEvent, ThreadError, Usage } from "./events";
+import { ThreadItem } from "./items";
+import { createOutputSchemaFile } from "./outputSchemaFile";
+import { buildReviewPrompt, type ReviewInvocationOptions } from "./reviewOptions";
 
 /**
  * Codex is the main class for interacting with the Codex agent.
@@ -66,5 +72,76 @@ export class Codex {
    */
   resumeThread(id: string, options: ThreadOptions = {}): Thread {
     return new Thread(this.exec, this.options, options, id);
+  }
+
+  /**
+   * Starts a review task using the built-in Codex review flow.
+   */
+  async review(options: ReviewInvocationOptions): Promise<Turn> {
+    const generator = this.reviewStreamedInternal(options);
+    const items: ThreadItem[] = [];
+    let finalResponse = "";
+    let usage: Usage | null = null;
+    let turnFailure: ThreadError | null = null;
+    for await (const event of generator) {
+      if (event.type === "item.completed") {
+        if (event.item.type === "agent_message") {
+          finalResponse = event.item.text;
+        }
+        items.push(event.item);
+      } else if (event.type === "turn.completed") {
+        usage = event.usage;
+      } else if (event.type === "turn.failed") {
+        turnFailure = event.error;
+        break;
+      }
+    }
+    if (turnFailure) {
+      throw new Error(turnFailure.message);
+    }
+    return { items, finalResponse, usage };
+  }
+
+  /**
+   * Starts a review task and returns the event stream.
+   */
+  async reviewStreamed(options: ReviewInvocationOptions): Promise<StreamedTurn> {
+    return { events: this.reviewStreamedInternal(options) };
+  }
+
+  private async *reviewStreamedInternal(
+    options: ReviewInvocationOptions,
+  ): AsyncGenerator<ThreadEvent> {
+    const { target, threadOptions = {}, turnOptions = {} } = options;
+    const { prompt, hint } = buildReviewPrompt(target);
+    const { schemaPath, cleanup } = await createOutputSchemaFile(turnOptions.outputSchema);
+    const generator = this.exec.run({
+      input: prompt,
+      baseUrl: this.options.baseUrl,
+      apiKey: this.options.apiKey,
+      model: threadOptions.model,
+      sandboxMode: threadOptions.sandboxMode,
+      workingDirectory: threadOptions.workingDirectory,
+      skipGitRepoCheck: threadOptions.skipGitRepoCheck,
+      outputSchemaFile: schemaPath,
+      outputSchema: turnOptions.outputSchema,
+      fullAuto: threadOptions.fullAuto,
+      review: {
+        userFacingHint: hint,
+      },
+    });
+    try {
+      for await (const item of generator) {
+        let parsed: ThreadEvent;
+        try {
+          parsed = JSON.parse(item) as ThreadEvent;
+        } catch (error) {
+          throw new Error(`Failed to parse item: ${item}`, { cause: error });
+        }
+        yield parsed;
+      }
+    } finally {
+      await cleanup();
+    }
   }
 }
