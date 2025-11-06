@@ -26,7 +26,8 @@
     "release:patch": "npm version patch && npm run release",
     "release:minor": "npm version minor && npm run release",
     "release:major": "npm version major && npm run release",
-    "release": "npm run build && npm run test && npm publish",
+    "publish:platforms": "npm run create-npm-dirs && node scripts/publish-platform-packages.mjs",
+    "release": "npm run build && npm run test && npm run publish:platforms && node scripts/publish-sdk.mjs",
     "release:dry": "npm run build && npm run test && npm publish --dry-run"
   },
   "napi": {
@@ -46,8 +47,8 @@
     "@codex-native/sdk-darwin-arm64": "0.0.1",
     "@codex-native/sdk-darwin-x64": "0.0.1",
     "@codex-native/sdk-linux-arm64-gnu": "0.0.1",
-    "@codex-native/sdk-linux-arm64-musl": "0.0.1",
     "@codex-native/sdk-linux-x64-gnu": "0.0.1",
+    "@codex-native/sdk-linux-arm64-musl": "0.0.1",
     "@codex-native/sdk-linux-x64-musl": "0.0.1",
     "@codex-native/sdk-win32-arm64-msvc": "0.0.1",
     "@codex-native/sdk-win32-x64-msvc": "0.0.1"

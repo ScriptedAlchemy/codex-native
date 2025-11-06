@@ -4,7 +4,15 @@
   "description": "Tools for repo-wide maintenance.",
   "scripts": {
     "format": "prettier --check *.json *.md docs/*.md .github/workflows/*.yml **/*.js",
-    "format:fix": "prettier --write *.json *.md docs/*.md .github/workflows/*.yml **/*.js"
+    "format:fix": "prettier --write *.json *.md docs/*.md .github/workflows/*.yml **/*.js",
+    "sdk:build": "pnpm --filter @codex-native/sdk run build",
+    "sdk:test": "pnpm --filter @codex-native/sdk run test",
+    "sdk:publish-platforms": "pnpm --filter @codex-native/sdk run publish:platforms",
+    "sdk:release": "pnpm --filter @codex-native/sdk run release",
+    "sdk:release:dry": "pnpm --filter @codex-native/sdk run release:dry",
+    "sdk:release:patch": "pnpm --filter @codex-native/sdk run release:patch",
+    "sdk:release:minor": "pnpm --filter @codex-native/sdk run release:minor",
+    "sdk:release:major": "pnpm --filter @codex-native/sdk run release:major"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.4.1",
