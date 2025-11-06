@@ -14,6 +14,9 @@ export type NativeRunRequest = {
   baseUrl?: string;
   apiKey?: string;
   linuxSandboxPath?: string;
+  fullAuto?: boolean;
+  reviewMode?: boolean;
+  reviewHint?: string;
 };
 
 export type NativeBinding = {
