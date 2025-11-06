@@ -29,6 +29,8 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@1.90
+        with:
+          components: rustfmt, clippy
 
       - name: build codex
         run: cargo build --bin codex
@@ -37,11 +39,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build SDK packages
+      - name: Build TypeScript SDK packages
         run: pnpm -r --filter ./sdk/typescript run build
 
-      - name: Lint SDK packages
+      - name: Build native SDK package
+        run: pnpm -r --filter ./sdk/native run build
+
+      - name: Lint TypeScript SDK packages
         run: pnpm -r --filter ./sdk/typescript run lint
 
-      - name: Test SDK packages
+      - name: Lint native SDK package
+        run: pnpm -r --filter ./sdk/native run lint
+
+      - name: Test TypeScript SDK packages
         run: pnpm -r --filter ./sdk/typescript run test
+
+      - name: Test native SDK package
+        run: pnpm -r --filter ./sdk/native run test
