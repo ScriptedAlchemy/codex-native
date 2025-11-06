@@ -343,7 +343,7 @@ describe("Codex native bridge", () => {
     }
   });
 
-  it("throws if working directory is not git and skipGitRepoCheck is not provided", async () => {
+it("throws if working directory is not git and skipGitRepoCheck is not provided", async () => {
     const { url, close } = await startResponsesTestProxy({
       statusCode: 200,
       responseBodies: [
@@ -367,8 +367,26 @@ describe("Codex native bridge", () => {
       fs.rmSync(workingDirectory, { recursive: true, force: true });
       await close();
     }
-  });
+});
 
+  it("sets the codex sdk originator header", async () => {
+    const { url, close, requests } = await startResponsesTestProxy({
+      statusCode: 200,
+      responseBodies: [sse(responseStarted(), assistantMessage("Hi!"), responseCompleted())],
+    });
+
+    try {
+      const client = createClient(url);
+      const thread = client.startThread({ skipGitRepoCheck: true });
+      await thread.run("Hello, originator!");
+
+      expect(requests.length).toBeGreaterThan(0);
+      const originatorHeader = requests[0].headers["originator"];
+      expect(["codex_sdk_native", "codex_exec"]).toContain(originatorHeader);
+    } finally {
+      await close();
+    }
+  });
   it("throws ThreadRunError on turn failures", async () => {
     const { url, close } = await startResponsesTestProxy({
       statusCode: 200,
