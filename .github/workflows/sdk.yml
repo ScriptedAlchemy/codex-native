@@ -31,7 +31,7 @@ jobs:
         working-directory: codex-rs
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-optional
 
       - name: Build SDK packages
         run: pnpm -r --filter ./sdk/typescript run build
