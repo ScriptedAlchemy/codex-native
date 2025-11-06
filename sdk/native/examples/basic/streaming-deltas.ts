@@ -28,7 +28,7 @@
  */
 
 import { Agent, run } from '@openai/agents';
-import { CodexProvider } from '../src/index.ts';
+import { CodexProvider } from '../../src/index';
 
 async function streamingTextExample() {
   console.log('\n' + '='.repeat(70));

@@ -16,7 +16,7 @@
  * ```
  */
 
-import { CodexProvider } from "../../src/index.ts";
+import { CodexProvider } from "../../src/index";
 
 // These would come from @openai/agents when installed
 // import { Agent, Runner } from "@openai/agents";

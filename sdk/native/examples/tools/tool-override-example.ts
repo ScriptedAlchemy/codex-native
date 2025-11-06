@@ -1,4 +1,4 @@
-import { Codex } from "../../src/index.ts";
+import { Codex } from "../../src/index";
 
 console.log("🔧 Tool Override Examples\n");
 console.log("This demonstrates how to override Codex's built-in tools");
