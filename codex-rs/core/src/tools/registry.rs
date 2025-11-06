@@ -45,19 +45,19 @@ fn pending_external_tools() -> &'static Mutex<Vec<ExternalToolRegistration>> {
 }
 
 pub fn set_pending_external_tools(tools: Vec<ExternalToolRegistration>) {
-    let mut guard = pending_external_tools()
-        .lock()
-        .expect("pending external tools mutex poisoned");
-    *guard = tools;
+    if let Ok(mut guard) = pending_external_tools().lock() {
+        *guard = tools;
+    }
 }
 
 pub fn take_pending_external_tools() -> Vec<ExternalToolRegistration> {
-    let mut guard = pending_external_tools()
-        .lock()
-        .expect("pending external tools mutex poisoned");
-    let tools = guard.clone();
-    guard.clear();
-    tools
+    if let Ok(mut guard) = pending_external_tools().lock() {
+        let tools = guard.clone();
+        guard.clear();
+        tools
+    } else {
+        Vec::new()
+    }
 }
 
 #[async_trait]
@@ -194,6 +194,12 @@ impl ConfiguredToolSpec {
 pub struct ToolRegistryBuilder {
     handlers: HashMap<String, Arc<dyn ToolHandler>>,
     specs: Vec<ConfiguredToolSpec>,
+}
+
+impl Default for ToolRegistryBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ToolRegistryBuilder {
