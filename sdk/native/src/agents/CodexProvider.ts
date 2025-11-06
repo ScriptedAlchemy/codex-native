@@ -82,13 +82,22 @@ export class CodexProvider implements ModelProvider {
    */
   private getCodex(): Codex {
     if (!this.codex) {
-      // Dynamic import to avoid circular dependencies
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { Codex: CodexClass } = require("../codex");
-      this.codex = new CodexClass({
-        apiKey: this.options.apiKey,
-        baseUrl: this.options.baseUrl,
-      }) as Codex;
+      try {
+        // Dynamic import to avoid circular dependencies
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { Codex: CodexClass } = require("../codex");
+        if (!CodexClass) {
+          throw new Error("Codex class not found in module");
+        }
+        this.codex = new CodexClass({
+          apiKey: this.options.apiKey,
+          baseUrl: this.options.baseUrl,
+        }) as Codex;
+      } catch (error) {
+        throw new Error(
+          `Failed to initialize Codex: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     }
     return this.codex;
   }
@@ -112,11 +121,26 @@ class CodexModel implements Model {
     resolve: (result: string) => void;
     reject: (error: Error) => void;
   }> = new Map();
+  private tempImageFiles: Set<string> = new Set();
 
   constructor(codex: Codex, modelName: string | undefined, options: CodexProviderOptions) {
     this.codex = codex;
     this.modelName = modelName;
     this.options = options;
+  }
+
+  /**
+   * Cleanup temporary image files created during request processing
+   */
+  private async cleanupTempFiles(): Promise<void> {
+    for (const filepath of this.tempImageFiles) {
+      try {
+        await fs.promises.unlink(filepath);
+      } catch (error) {
+        // Silently ignore cleanup errors (file may already be deleted)
+      }
+    }
+    this.tempImageFiles.clear();
   }
 
   /**
@@ -145,54 +169,75 @@ class CodexModel implements Model {
   }
 
   async getResponse(request: ModelRequest): Promise<ModelResponse> {
-    const thread = this.getThread(request.conversationId || request.previousResponseId);
+    try {
+      const thread = this.getThread(request.conversationId || request.previousResponseId);
 
-    // Register any tools provided in the request
-    if (request.tools && request.tools.length > 0) {
-      this.registerRequestTools(request.tools);
+      // Register any tools provided in the request
+      if (request.tools && request.tools.length > 0) {
+        this.registerRequestTools(request.tools);
+      }
+
+      const input = await this.convertRequestToInput(request);
+
+      // Note: ModelSettings like temperature, maxTokens, topP, etc. are not currently
+      // supported by the Codex native binding. The Rust layer handles model configuration.
+
+      // Run Codex (tools are now registered and will be available)
+      const turn = await thread.run(input, {
+        outputSchema: request.outputType?.schema,
+      });
+
+      // Convert Codex response to ModelResponse format
+      return {
+        usage: this.convertUsage(turn.usage),
+        output: this.convertItemsToOutput(turn.items, turn.finalResponse),
+        responseId: thread.id || undefined,
+      };
+    } finally {
+      // Clean up temporary image files
+      await this.cleanupTempFiles();
     }
-
-    const input = await this.convertRequestToInput(request);
-
-    // Note: ModelSettings like temperature, maxTokens, topP, etc. are not currently
-    // supported by the Codex native binding. The Rust layer handles model configuration.
-
-    // Run Codex (tools are now registered and will be available)
-    const turn = await thread.run(input, {
-      outputSchema: request.outputType?.schema,
-    });
-
-    // Convert Codex response to ModelResponse format
-    return {
-      usage: this.convertUsage(turn.usage),
-      output: this.convertItemsToOutput(turn.items, turn.finalResponse),
-      responseId: thread.id || undefined,
-    };
   }
 
   async *getStreamedResponse(request: ModelRequest): AsyncIterable<StreamEvent> {
-    const thread = this.getThread(request.conversationId || request.previousResponseId);
+    const MAX_ACCUMULATED_SIZE = 10_000_000; // 10MB limit
 
-    // Register any tools provided in the request
-    if (request.tools && request.tools.length > 0) {
-      this.registerRequestTools(request.tools);
-    }
+    try {
+      const thread = this.getThread(request.conversationId || request.previousResponseId);
 
-    const input = await this.convertRequestToInput(request);
-
-    const { events } = await thread.runStreamed(input, {
-      outputSchema: request.outputType?.schema,
-    });
-
-    // Track text accumulation for delta calculation
-    const textAccumulator = new Map<string, string>();
-
-    for await (const event of events) {
-      const streamEvents = this.convertCodexEventToStreamEvent(event, textAccumulator);
-
-      for (const streamEvent of streamEvents) {
-        yield streamEvent;
+      // Register any tools provided in the request
+      if (request.tools && request.tools.length > 0) {
+        this.registerRequestTools(request.tools);
       }
+
+      const input = await this.convertRequestToInput(request);
+
+      const { events } = await thread.runStreamed(input, {
+        outputSchema: request.outputType?.schema,
+      });
+
+      // Track text accumulation for delta calculation
+      const textAccumulator = new Map<string, string>();
+
+      for await (const event of events) {
+        // Check accumulated text size to prevent memory issues
+        let totalSize = 0;
+        for (const text of textAccumulator.values()) {
+          totalSize += text.length;
+        }
+        if (totalSize > MAX_ACCUMULATED_SIZE) {
+          throw new Error(`Accumulated text exceeded maximum size limit (${MAX_ACCUMULATED_SIZE} bytes)`);
+        }
+
+        const streamEvents = this.convertCodexEventToStreamEvent(event, textAccumulator);
+
+        for (const streamEvent of streamEvents) {
+          yield streamEvent;
+        }
+      }
+    } finally {
+      // Clean up temporary image files
+      await this.cleanupTempFiles();
     }
   }
 
@@ -231,7 +276,10 @@ class CodexModel implements Model {
 
         console.log(`Registered tool with Codex: ${tool.name}`);
       } catch (error) {
-        console.error(`Failed to register tool ${tool.name}:`, error);
+        const errorMessage = `Failed to register tool ${tool.name}: ${error instanceof Error ? error.message : String(error)}`;
+        console.error(errorMessage);
+        // Don't throw - allow other tools to register even if one fails
+        // Individual tool failures shouldn't block the entire request
       }
     }
   }
@@ -387,6 +435,7 @@ class CodexModel implements Model {
     const filepath = path.join(tempDir, filename);
 
     await fs.promises.writeFile(filepath, buffer);
+    this.tempImageFiles.add(filepath);
     return filepath;
   }
 
@@ -414,6 +463,7 @@ class CodexModel implements Model {
     const filepath = path.join(tempDir, filename);
 
     await fs.promises.writeFile(filepath, Buffer.from(buffer));
+    this.tempImageFiles.add(filepath);
     return filepath;
   }
 
@@ -642,6 +692,12 @@ class CodexModel implements Model {
           const itemKey = "agent_message";
           const previousText = textAccumulator.get(itemKey) || "";
           const currentText = event.item.text;
+
+          // Validate: current text should be longer than previous (no backwards updates)
+          if (currentText.length < previousText.length) {
+            console.warn("Received backwards update for text - ignoring delta");
+            break;
+          }
 
           if (currentText.length > previousText.length) {
             const delta = currentText.slice(previousText.length);

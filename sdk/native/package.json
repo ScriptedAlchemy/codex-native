@@ -2,8 +2,15 @@
   "name": "@codex-native/sdk",
   "version": "0.0.1",
   "description": "Native NAPI-based Codex SDK - complete standalone implementation.",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/index.mjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
   "files": [
     "dist",
     "README.md",
@@ -22,6 +29,7 @@
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch",
     "coverage": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
+    "typecheck": "tsc --noEmit",
     "version": "napi version",
     "release:patch": "npm version patch && npm run release",
     "release:minor": "npm version minor && npm run release",
