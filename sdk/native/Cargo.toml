@@ -6,7 +6,7 @@ edition = "2024"
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 path = "rust-bindings/lib.rs"
 
 [dependencies]
@@ -41,6 +41,10 @@ path = "../../codex-rs/protocol"
 
 [build-dependencies]
 napi-build = "2"
+
+[dev-dependencies]
+pretty_assertions = "1"
+uuid = { version = "1", features = ["v4"] }
 
 [profile.release]
 lto = true

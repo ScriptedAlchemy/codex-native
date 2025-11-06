@@ -27,7 +27,7 @@ use codex_exec::exec_events::{
   AgentMessageItem, ExitedReviewModeEvent as ExecExitedReviewModeEvent, ItemCompletedEvent,
   ReasoningItem, ReviewCodeLocation, ReviewFinding, ReviewLineRange,
   ReviewOutputEvent as ExecReviewOutputEvent, ThreadErrorEvent as ExecThreadErrorEvent,
-  ThreadEvent as ExecThreadEvent, ThreadItem, ThreadItemDetails, ThreadStartedEvent,
+  ThreadEvent, ThreadItem, ThreadItemDetails, ThreadStartedEvent,
   TurnCompletedEvent, TurnFailedEvent, TurnStartedEvent, Usage,
 };
 use codex_exec::run_with_thread_event_callback;
@@ -260,20 +260,21 @@ pub struct RunRequest {
   pub review_hint: Option<String>,
 }
 
-struct InternalRunRequest {
-  prompt: String,
-  thread_id: Option<String>,
-  images: Vec<PathBuf>,
-  model: Option<String>,
-  sandbox_mode: Option<SandboxModeCliArg>,
-  working_directory: Option<PathBuf>,
-  skip_git_repo_check: bool,
-  output_schema: Option<JsonValue>,
-  base_url: Option<String>,
-  api_key: Option<String>,
-  linux_sandbox_path: Option<PathBuf>,
-  full_auto: bool,
-  review_request: Option<ReviewRequest>,
+#[cfg_attr(test, derive(Debug))]
+pub struct InternalRunRequest {
+  pub prompt: String,
+  pub thread_id: Option<String>,
+  pub images: Vec<PathBuf>,
+  pub model: Option<String>,
+  pub sandbox_mode: Option<SandboxModeCliArg>,
+  pub working_directory: Option<PathBuf>,
+  pub skip_git_repo_check: bool,
+  pub output_schema: Option<JsonValue>,
+  pub base_url: Option<String>,
+  pub api_key: Option<String>,
+  pub linux_sandbox_path: Option<PathBuf>,
+  pub full_auto: bool,
+  pub review_request: Option<ReviewRequest>,
 }
 
 impl RunRequest {
@@ -348,12 +349,12 @@ impl RunRequest {
   }
 }
 
-struct TempSchemaFile {
-  path: PathBuf,
-  _guard: tempfile::TempPath,
+pub struct TempSchemaFile {
+  pub path: PathBuf,
+  pub _guard: tempfile::TempPath,
 }
 
-fn prepare_schema(schema: Option<JsonValue>) -> napi::Result<Option<TempSchemaFile>> {
+pub fn prepare_schema(schema: Option<JsonValue>) -> napi::Result<Option<TempSchemaFile>> {
   if let Some(schema_value) = schema {
     let mut file = NamedTempFile::new().map_err(|e| napi::Error::from_reason(e.to_string()))?;
     serde_json::to_writer(&mut file, &schema_value)
@@ -369,17 +370,17 @@ fn prepare_schema(schema: Option<JsonValue>) -> napi::Result<Option<TempSchemaFi
   }
 }
 
-struct EnvOverride {
-  key: &'static str,
-  previous: Option<String>,
+pub struct EnvOverride {
+  pub key: &'static str,
+  pub previous: Option<String>,
 }
 
-struct EnvOverrides {
-  entries: Vec<EnvOverride>,
+pub struct EnvOverrides {
+  pub entries: Vec<EnvOverride>,
 }
 
 impl EnvOverrides {
-  fn apply(pairs: Vec<(&'static str, Option<String>, bool)>) -> Self {
+  pub fn apply(pairs: Vec<(&'static str, Option<String>, bool)>) -> Self {
     let mut entries = Vec::new();
     for (key, value, force) in pairs {
       if !force && value.is_none() {
@@ -440,7 +441,7 @@ fn prepare_environment(
   Ok((guard, linux_sandbox_path))
 }
 
-fn build_config_overrides(
+pub fn build_config_overrides(
   options: &InternalRunRequest,
   sandbox_path: Option<PathBuf>,
 ) -> ConfigOverrides {
@@ -474,7 +475,7 @@ fn build_config_overrides(
   }
 }
 
-fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli {
+pub fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli {
   let command = options.thread_id.as_ref().map(|id| {
     Command::Resume(ResumeArgs {
       session_id: Some(id.clone()),
@@ -509,15 +510,21 @@ fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli 
   }
 }
 
-struct ReviewEventCollector {
-  next_item_id: u64,
-  last_usage: Option<TokenUsage>,
-  last_error: Option<ExecThreadErrorEvent>,
-  emitted_review_exit: bool,
+pub struct ReviewEventCollector {
+  pub next_item_id: u64,
+  pub last_usage: Option<TokenUsage>,
+  pub last_error: Option<ExecThreadErrorEvent>,
+  pub emitted_review_exit: bool,
+}
+
+impl Default for ReviewEventCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReviewEventCollector {
-  fn new() -> Self {
+  pub fn new() -> Self {
     Self {
       next_item_id: 0,
       last_usage: None,
@@ -526,22 +533,22 @@ impl ReviewEventCollector {
     }
   }
 
-  fn next_item_id(&mut self) -> String {
+  pub fn next_item_id(&mut self) -> String {
     let id = self.next_item_id;
     self.next_item_id += 1;
     format!("item_{id}")
   }
 
-  fn handle(&mut self, event: &Event) -> Vec<ExecThreadEvent> {
+  pub fn handle(&mut self, event: &Event) -> Vec<ThreadEvent> {
     match &event.msg {
       EventMsg::SessionConfigured(ev) => {
-        vec![ExecThreadEvent::ThreadStarted(ThreadStartedEvent {
+        vec![ThreadEvent::ThreadStarted(ThreadStartedEvent {
           thread_id: ev.session_id.to_string(),
         })]
       }
       EventMsg::TaskStarted(_) => {
         self.last_error = None;
-        vec![ExecThreadEvent::TurnStarted(TurnStartedEvent {})]
+        vec![ThreadEvent::TurnStarted(TurnStartedEvent {})]
       }
       EventMsg::AgentReasoning(ev) => {
         let item = ThreadItem {
@@ -550,7 +557,7 @@ impl ReviewEventCollector {
             text: ev.text.clone(),
           }),
         };
-        vec![ExecThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
+        vec![ThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
       }
       EventMsg::AgentMessage(ev) => {
         let item = ThreadItem {
@@ -559,7 +566,7 @@ impl ReviewEventCollector {
             text: ev.message.clone(),
           }),
         };
-        vec![ExecThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
+        vec![ThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
       }
       EventMsg::TokenCount(ev) => {
         if let Some(info) = &ev.info {
@@ -574,19 +581,19 @@ impl ReviewEventCollector {
             message: ev.message.clone(),
           }),
         };
-        vec![ExecThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
+        vec![ThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
       }
       EventMsg::Error(ev) => {
         let error = ExecThreadErrorEvent {
           message: ev.message.clone(),
         };
         self.last_error = Some(error.clone());
-        vec![ExecThreadEvent::Error(error)]
+        vec![ThreadEvent::Error(error)]
       }
       EventMsg::ExitedReviewMode(ev) => {
         let converted = self.convert_review_output(&ev.review_output);
         self.emitted_review_exit = true;
-        vec![ExecThreadEvent::ExitedReviewMode(
+        vec![ThreadEvent::ExitedReviewMode(
           ExecExitedReviewModeEvent {
             review_output: converted,
           },
@@ -598,7 +605,7 @@ impl ReviewEventCollector {
           if !self.emitted_review_exit {
             let review_output = self.parse_review_output(text);
             let converted = self.convert_review_output(&Some(review_output));
-            events.push(ExecThreadEvent::ExitedReviewMode(
+            events.push(ThreadEvent::ExitedReviewMode(
               ExecExitedReviewModeEvent {
                 review_output: converted,
               },
@@ -611,15 +618,15 @@ impl ReviewEventCollector {
               text: text.to_string(),
             }),
           };
-          events.push(ExecThreadEvent::ItemCompleted(ItemCompletedEvent { item }));
+          events.push(ThreadEvent::ItemCompleted(ItemCompletedEvent { item }));
         }
 
         let usage = self.last_usage.clone().unwrap_or_default();
 
         if let Some(error) = self.last_error.take() {
-          events.push(ExecThreadEvent::TurnFailed(TurnFailedEvent { error }));
+          events.push(ThreadEvent::TurnFailed(TurnFailedEvent { error }));
         } else {
-          events.push(ExecThreadEvent::TurnCompleted(TurnCompletedEvent {
+          events.push(ThreadEvent::TurnCompleted(TurnCompletedEvent {
             usage: Usage {
               input_tokens: usage.input_tokens,
               cached_input_tokens: usage.cached_input_tokens,
@@ -633,7 +640,7 @@ impl ReviewEventCollector {
     }
   }
 
-  fn convert_review_output(
+  pub fn convert_review_output(
     &self,
     review_output: &Option<ReviewOutputEvent>,
   ) -> Option<ExecReviewOutputEvent> {
@@ -665,7 +672,7 @@ impl ReviewEventCollector {
     })
   }
 
-  fn parse_review_output(&self, text: &str) -> ReviewOutputEvent {
+  pub fn parse_review_output(&self, text: &str) -> ReviewOutputEvent {
     if let Ok(ev) = serde_json::from_str::<ReviewOutputEvent>(text) {
       return ev;
     }
@@ -683,7 +690,7 @@ impl ReviewEventCollector {
   }
 }
 
-fn event_to_json(event: &ExecThreadEvent) -> napi::Result<JsonValue> {
+pub fn event_to_json(event: &ThreadEvent) -> napi::Result<JsonValue> {
   serde_json::to_value(event).map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
@@ -693,7 +700,7 @@ fn run_review_sync<F>(
   handler: F,
 ) -> napi::Result<()>
 where
-  F: FnMut(ExecThreadEvent) + Send + 'static,
+  F: FnMut(ThreadEvent) + Send + 'static,
 {
   let pending_tools = {
     let guard = registered_native_tools()
@@ -793,7 +800,7 @@ where
 
 fn run_internal_sync<F>(options: InternalRunRequest, handler: F) -> napi::Result<()>
 where
-  F: FnMut(ExecThreadEvent) + Send + 'static,
+  F: FnMut(ThreadEvent) + Send + 'static,
 {
   if let Some(review_request) = options.review_request.clone() {
     return run_review_sync(options, review_request, handler);
