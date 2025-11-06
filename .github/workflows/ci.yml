@@ -25,7 +25,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-optional
+        run: npm_config_optional=false pnpm install --frozen-lockfile
 
       # stage_npm_packages.py requires DotSlash when staging releases.
       - uses: facebook/install-dotslash@v2
