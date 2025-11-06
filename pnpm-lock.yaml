@@ -293,54 +293,50 @@ packages:
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
 
-  '@codex-native/sdk-darwin-arm64@file:sdk/native/npm/darwin-arm64':
-    resolution: {directory: sdk/native/npm/darwin-arm64, type: directory}
+  '@codex-native/sdk-darwin-arm64@0.0.1':
+    resolution: {integrity: sha512-xf8pE6WMX1WNn5V9F84GLruVH9trHvZpfVZ+7/dpKbX75jysOwDZ5UGORRvE0n3GKXEub6tuTjB0THtwtn6Jmw==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [darwin]
 
-  '@codex-native/sdk-darwin-x64@file:sdk/native/npm/darwin-x64':
-    resolution: {directory: sdk/native/npm/darwin-x64, type: directory}
+  '@codex-native/sdk-darwin-x64@0.0.1':
+    resolution: {integrity: sha512-TsPO8qjihmHoG+0ZARjowlgO/8Zl8cFxwwGyuhriPs5jQffaz3xJwJn43sBhaTHLHyu0UD/KDN259rw3XUxXfw==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [darwin]
 
-  '@codex-native/sdk-linux-arm64-gnu@file:sdk/native/npm/linux-arm64-gnu':
-    resolution: {directory: sdk/native/npm/linux-arm64-gnu, type: directory}
+  '@codex-native/sdk-linux-arm64-gnu@0.0.1':
+    resolution: {integrity: sha512-0zgkVC0M2LqLRQh+RUyk80Aj3s8j8vNt88hEVZGm7Ev2zJXuT+J7qLbXK1DVITrWLYHXgiCl83hh+W74Cw3OKQ==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [linux]
-    libc: [glibc]
 
-  '@codex-native/sdk-linux-arm64-musl@file:sdk/native/npm/linux-arm64-musl':
-    resolution: {directory: sdk/native/npm/linux-arm64-musl, type: directory}
+  '@codex-native/sdk-linux-arm64-musl@0.0.1':
+    resolution: {integrity: sha512-HAkoUNsMSLFi+pRqmrVDh6J8o24ZVf5rXoic5G+Xjwju/4oNpzFdGjLGP+ic1Cfd+mfkLPRWvsyVSrzfmqKCVw==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [linux]
-    libc: [musl]
 
-  '@codex-native/sdk-linux-x64-gnu@file:sdk/native/npm/linux-x64-gnu':
-    resolution: {directory: sdk/native/npm/linux-x64-gnu, type: directory}
+  '@codex-native/sdk-linux-x64-gnu@0.0.1':
+    resolution: {integrity: sha512-E6RvsoMnSCoVxHONhpjlXOxvz4Cs/IDJGhoZ82Dl+zSOp3I4xIlnJJFqriI39HWX3spnByVq0+6XjCL+WJvFjQ==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [linux]
-    libc: [glibc]
 
-  '@codex-native/sdk-linux-x64-musl@file:sdk/native/npm/linux-x64-musl':
-    resolution: {directory: sdk/native/npm/linux-x64-musl, type: directory}
+  '@codex-native/sdk-linux-x64-musl@0.0.1':
+    resolution: {integrity: sha512-cjInCZMXVBasmXacZ3NAN5iRtn2DZVYVfZovDsedRe9YT613AJFks10UFduVvIejrZS8QaUgtJmD3D7LON0ghA==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [linux]
-    libc: [musl]
 
-  '@codex-native/sdk-win32-arm64-msvc@file:sdk/native/npm/win32-arm64-msvc':
-    resolution: {directory: sdk/native/npm/win32-arm64-msvc, type: directory}
+  '@codex-native/sdk-win32-arm64-msvc@0.0.1':
+    resolution: {integrity: sha512-dS96V/usXsA56bilHvCf6KI9HcMLsQXsqaEjgNP2RFHOOqBeDdBfu8tcnMihBnz+ghHLST5k8QzaJ9oDuGZUWg==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [win32]
 
-  '@codex-native/sdk-win32-x64-msvc@file:sdk/native/npm/win32-x64-msvc':
-    resolution: {directory: sdk/native/npm/win32-x64-msvc, type: directory}
+  '@codex-native/sdk-win32-x64-msvc@0.0.1':
+    resolution: {integrity: sha512-yCp1J6j1hsGYkwg9wQ9ZPV5Zg27Xy1TOtZH+zfbE8OSkJIx+1t+LZMH80hCV6IeEsjt0FnG8P312oEpwvmtWZw==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
@@ -3390,28 +3386,28 @@ snapshots:
 
   '@bcoe/v8-coverage@0.2.3': {}
 
-  '@codex-native/sdk-darwin-arm64@file:sdk/native/npm/darwin-arm64':
+  '@codex-native/sdk-darwin-arm64@0.0.1':
     optional: true
 
-  '@codex-native/sdk-darwin-x64@file:sdk/native/npm/darwin-x64':
+  '@codex-native/sdk-darwin-x64@0.0.1':
     optional: true
 
-  '@codex-native/sdk-linux-arm64-gnu@file:sdk/native/npm/linux-arm64-gnu':
+  '@codex-native/sdk-linux-arm64-gnu@0.0.1':
     optional: true
 
-  '@codex-native/sdk-linux-arm64-musl@file:sdk/native/npm/linux-arm64-musl':
+  '@codex-native/sdk-linux-arm64-musl@0.0.1':
     optional: true
 
-  '@codex-native/sdk-linux-x64-gnu@file:sdk/native/npm/linux-x64-gnu':
+  '@codex-native/sdk-linux-x64-gnu@0.0.1':
     optional: true
 
-  '@codex-native/sdk-linux-x64-musl@file:sdk/native/npm/linux-x64-musl':
+  '@codex-native/sdk-linux-x64-musl@0.0.1':
     optional: true
 
-  '@codex-native/sdk-win32-arm64-msvc@file:sdk/native/npm/win32-arm64-msvc':
+  '@codex-native/sdk-win32-arm64-msvc@0.0.1':
     optional: true
 
-  '@codex-native/sdk-win32-x64-msvc@file:sdk/native/npm/win32-x64-msvc':
+  '@codex-native/sdk-win32-x64-msvc@0.0.1':
     optional: true
 
   '@cspotcode/source-map-support@0.8.1':

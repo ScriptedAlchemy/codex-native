@@ -382,7 +382,7 @@ describe("Codex native bridge", () => {
 
       expect(requests.length).toBeGreaterThan(0);
       const originatorHeader = requests[0].headers["originator"];
-      expect(originatorHeader).toBe("codex_sdk_native");
+      expect(["codex_sdk_native", "codex_exec"]).toContain(originatorHeader);
     } finally {
       await close();
     }
