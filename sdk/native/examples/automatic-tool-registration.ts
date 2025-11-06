@@ -25,6 +25,9 @@
 import { z } from 'zod';
 import { Agent, run, tool } from '@openai/agents';
 import { CodexProvider } from '../src/index.js';
+import fs from 'fs/promises';
+import path from 'path';
+import os from 'os';
 
 // Define a calculator tool
 const calculatorTool = tool({
@@ -137,40 +140,42 @@ async function basicToolExample() {
   console.log('Example 1: Basic Automatic Tool Registration');
   console.log('='.repeat(70) + '\n');
 
-  // Create provider and model
-  const provider = new CodexProvider({
-    defaultModel: 'gpt-5',
-    workingDirectory: process.cwd(),
-    skipGitRepoCheck: true,
-  });
+  // Create temporary working directory to avoid loading workspace config
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-tool-example-'));
 
-  const model = await provider.getModel();
+  try {
+    // Create provider and model
+    const provider = new CodexProvider({
+      defaultModel: 'gpt-5',
+      workingDirectory: tmpDir,
+      skipGitRepoCheck: true,
+    });
 
-  // Create agent with a single tool
-  // The tool is automatically registered - no manual configuration needed!
-  const calculatorAgent = new Agent({
-    name: 'CalculatorAgent',
-    model: model,
-    instructions: 'You are a helpful calculator assistant. Use the calculator tool to perform operations.',
-    tools: [calculatorTool],
-  });
+    const model = await provider.getModel();
 
-  console.log('✓ Created CalculatorAgent');
-  console.log('✓ Tool "calculator" automatically registered\n');
+    // Create agent with a single tool
+    // The tool is automatically registered - no manual configuration needed!
+    const calculatorAgent = new Agent({
+      name: 'CalculatorAgent',
+      model: model,
+      instructions: 'You are a helpful calculator assistant. Use the calculator tool to perform operations. Answer directly with just the calculation result.',
+      tools: [calculatorTool],
+    });
 
-  console.log('─'.repeat(70));
-  console.log('Query: "What is 123 multiplied by 456?"\n');
+    console.log('✓ Created CalculatorAgent');
+    console.log('✓ Tool "calculator" automatically registered\n');
 
-  // Add timeout wrapper
-  const runPromise = run(calculatorAgent, 'What is 123 multiplied by 456?');
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Example 1 timed out after 30 seconds')), 30000)
-  );
+    console.log('─'.repeat(70));
+    console.log('Query: "What is 123 multiplied by 456?"\n');
 
-  const result = await Promise.race([runPromise, timeoutPromise]) as any;
+    const result = await run(calculatorAgent, 'What is 123 multiplied by 456?');
 
-  console.log('\n[Final response]');
-  console.log(result.finalOutput);
+    console.log('\n[Final response]');
+    console.log(result.finalOutput);
+  } finally {
+    // Cleanup temp directory
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 async function multipleToolsExample() {
@@ -178,42 +183,44 @@ async function multipleToolsExample() {
   console.log('Example 2: Multiple Tools Automatically Registered');
   console.log('='.repeat(70) + '\n');
 
-  const provider = new CodexProvider({
-    defaultModel: 'gpt-5',
-    workingDirectory: process.cwd(),
-    skipGitRepoCheck: true,
-  });
+  // Create temporary working directory to avoid loading workspace config
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-tool-example-'));
 
-  const model = await provider.getModel();
+  try {
+    const provider = new CodexProvider({
+      defaultModel: 'gpt-5',
+      workingDirectory: tmpDir,
+      skipGitRepoCheck: true,
+    });
 
-  // Create agent with multiple tools
-  // ALL tools are automatically registered when passed to the Agent
-  const multiToolAgent = new Agent({
-    name: 'MultiToolAgent',
-    model: model,
-    instructions: 'You are a helpful assistant with access to calculator, unit converter, and text analysis tools.',
-    tools: [calculatorTool, unitConverterTool, textAnalysisTool],
-  });
+    const model = await provider.getModel();
 
-  console.log('✓ Created MultiToolAgent');
-  console.log('✓ Tools automatically registered:');
-  console.log('  - calculator');
-  console.log('  - convert_units');
-  console.log('  - analyze_text\n');
+    // Create agent with multiple tools
+    // ALL tools are automatically registered when passed to the Agent
+    const multiToolAgent = new Agent({
+      name: 'MultiToolAgent',
+      model: model,
+      instructions: 'You are a helpful assistant with access to calculator, unit converter, and text analysis tools. Use the tools to answer questions directly.',
+      tools: [calculatorTool, unitConverterTool, textAnalysisTool],
+    });
 
-  console.log('─'.repeat(70));
-  console.log('Query: "Convert 100 pounds to kilograms, then multiply by 2"\n');
+    console.log('✓ Created MultiToolAgent');
+    console.log('✓ Tools automatically registered:');
+    console.log('  - calculator');
+    console.log('  - convert_units');
+    console.log('  - analyze_text\n');
 
-  // Add timeout wrapper
-  const runPromise = run(multiToolAgent, 'Convert 100 pounds to kilograms, then multiply by 2');
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Example 2 timed out after 30 seconds')), 30000)
-  );
+    console.log('─'.repeat(70));
+    console.log('Query: "Convert 100 pounds to kilograms, then multiply by 2"\n');
 
-  const result = await Promise.race([runPromise, timeoutPromise]) as any;
+    const result = await run(multiToolAgent, 'Convert 100 pounds to kilograms, then multiply by 2');
 
-  console.log('\n[Final response]');
-  console.log(result.finalOutput);
+    console.log('\n[Final response]');
+    console.log(result.finalOutput);
+  } finally {
+    // Cleanup temp directory
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 async function toolChainExample() {
@@ -221,42 +228,44 @@ async function toolChainExample() {
   console.log('Example 3: Chaining Multiple Tool Calls');
   console.log('='.repeat(70) + '\n');
 
-  const provider = new CodexProvider({
-    defaultModel: 'gpt-5',
-    workingDirectory: process.cwd(),
-    skipGitRepoCheck: true,
-  });
+  // Create temporary working directory to avoid loading workspace config
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-tool-example-'));
 
-  const model = await provider.getModel();
+  try {
+    const provider = new CodexProvider({
+      defaultModel: 'gpt-5',
+      workingDirectory: tmpDir,
+      skipGitRepoCheck: true,
+    });
 
-  const agent = new Agent({
-    name: 'ToolChainAgent',
-    model: model,
-    instructions: 'You are a helpful assistant. Use multiple tools in sequence when needed to answer complex questions.',
-    tools: [calculatorTool, unitConverterTool, textAnalysisTool],
-  });
+    const model = await provider.getModel();
 
-  console.log('✓ Created ToolChainAgent with 3 tools\n');
+    const agent = new Agent({
+      name: 'ToolChainAgent',
+      model: model,
+      instructions: 'You are a helpful assistant. Use multiple tools in sequence when needed to answer complex questions. Answer directly with the results.',
+      tools: [calculatorTool, unitConverterTool, textAnalysisTool],
+    });
 
-  console.log('─'.repeat(70));
-  console.log('Complex query requiring multiple tool calls:\n');
-  console.log('Query: "I weigh 150 pounds. Convert that to kilograms, then calculate');
-  console.log('        what 20% of my weight would be. Also analyze this sentence:');
-  console.log('        \'The quick brown fox jumps over the lazy dog.\'"\n');
+    console.log('✓ Created ToolChainAgent with 3 tools\n');
 
-  // Add timeout wrapper
-  const runPromise = run(
-    agent,
-    'I weigh 150 pounds. Convert that to kilograms, then calculate what 20% of my weight would be. Also analyze this sentence: "The quick brown fox jumps over the lazy dog."'
-  );
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Example 3 timed out after 30 seconds')), 30000)
-  );
+    console.log('─'.repeat(70));
+    console.log('Complex query requiring multiple tool calls:\n');
+    console.log('Query: "I weigh 150 pounds. Convert that to kilograms, then calculate');
+    console.log('        what 20% of my weight would be. Also analyze this sentence:');
+    console.log('        \'The quick brown fox jumps over the lazy dog.\'"\n');
 
-  const result = await Promise.race([runPromise, timeoutPromise]) as any;
+    const result = await run(
+      agent,
+      'I weigh 150 pounds. Convert that to kilograms, then calculate what 20% of my weight would be. Also analyze this sentence: "The quick brown fox jumps over the lazy dog."'
+    );
 
-  console.log('\n[Final response]');
-  console.log(result.finalOutput);
+    console.log('\n[Final response]');
+    console.log(result.finalOutput);
+  } finally {
+    // Cleanup temp directory
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 async function toolValidationExample() {
@@ -293,37 +302,13 @@ async function toolValidationExample() {
 async function main() {
   console.log('🔧 Automatic Tool Registration Examples\n');
   console.log('This demonstrates how CodexProvider automatically registers');
-  console.log('tools when they are passed to an Agent - no manual configuration!');
-
-  // Set an overall timeout for the entire example suite
-  const overallTimeout = setTimeout(() => {
-    console.error('\n✗ Overall timeout: Examples did not complete in time');
-    process.exit(1);
-  }, 85000); // 85 seconds to stay under the 90s limit
+  console.log('tools when they are passed to an Agent - no manual configuration!\n');
 
   try {
-    // Run interactive examples with timeout protection
-    console.log('\nNOTE: These examples may timeout if the Codex agent does not respond');
-    console.log('as expected. This is a known limitation when running in non-interactive mode.\n');
-
-    try {
-      await basicToolExample();
-    } catch (error) {
-      console.log('\n[Skipped due to timeout or error]');
-    }
-
-    try {
-      await multipleToolsExample();
-    } catch (error) {
-      console.log('\n[Skipped due to timeout or error]');
-    }
-
-    try {
-      await toolChainExample();
-    } catch (error) {
-      console.log('\n[Skipped due to timeout or error]');
-    }
-
+    // Run all examples
+    await basicToolExample();
+    await multipleToolsExample();
+    await toolChainExample();
     await toolValidationExample();
 
     console.log('\n\n' + '='.repeat(70));
@@ -336,10 +321,7 @@ async function main() {
     console.log('  • Tools defined with Zod have automatic validation');
     console.log('  • Tool execution results flow back to the model automatically');
     console.log('  • The agent can chain multiple tool calls to complete tasks');
-
-    clearTimeout(overallTimeout);
   } catch (error) {
-    clearTimeout(overallTimeout);
     console.error('\n✗ Error:', error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
