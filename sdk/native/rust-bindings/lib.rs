@@ -16,7 +16,7 @@ use codex_core::tools::context::ToolOutput;
 use codex_core::tools::context::ToolPayload;
 use codex_core::tools::registry::{ExternalToolRegistration, ToolHandler, ToolKind, set_pending_external_tools};
 use codex_core::tools::spec::create_function_tool_spec_from_schema;
-use codex_protocol::protocol::ReviewRequest;
+use codex_core::protocol::ReviewRequest;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::bindgen_prelude::{Function, Status};
 use napi_derive::napi;
