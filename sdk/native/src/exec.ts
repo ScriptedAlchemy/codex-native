@@ -13,6 +13,7 @@ export type CodexExecArgs = {
   skipGitRepoCheck?: boolean;
   outputSchemaFile?: string;
   outputSchema?: unknown;
+  fullAuto?: boolean;
 };
 
 /**
@@ -47,6 +48,7 @@ export class CodexExec {
       outputSchema: args.outputSchema,
       baseUrl: args.baseUrl,
       apiKey: args.apiKey,
+      fullAuto: args.fullAuto,
     };
 
     let runPromise: Promise<void>;
