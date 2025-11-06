@@ -170,7 +170,20 @@ each using Codex as their backend through the provider.
         maxTokens: 1000,
       },
       tools: [],
-      outputType: { type: "json_schema", schema: {} },
+      outputType: {
+        type: "json_schema",
+        schema: {
+          type: "object",
+          properties: {
+            answer: {
+              type: "string",
+              description: "The answer to the question",
+            },
+          },
+          required: ["answer"],
+          additionalProperties: false,
+        },
+      },
       handoffs: [],
       tracing: { enabled: false },
     });

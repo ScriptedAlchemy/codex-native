@@ -1,12 +1,16 @@
 /**
- * Example: Using CodexProvider with OpenAI Agents framework and custom tools
+ * Example: Using CodexProvider with OpenAI Agents framework
  *
  * This example demonstrates how to:
- * - Use zod for type-safe tool parameters
- * - Register custom tools with the agents framework
- * - Use CodexProvider as the model backend
- * - Create a weather assistant agent with multiple tools
- * - Tools are automatically registered and available to the agent
+ * - Use CodexProvider as a ModelProvider for the OpenAI Agents framework
+ * - Create simple agents that interact via Codex
+ * - Handle basic conversational queries
+ *
+ * Note: Custom tool execution (like weather tools defined in this file) is not
+ * yet fully supported. The CodexProvider can execute Codex's built-in tools
+ * (bash, file operations, web search, etc.) but bidirectional tool execution
+ * with the OpenAI Agents framework requires additional integration work.
+ * See CodexProvider.ts executeToolViaFramework() for details.
  *
  * Installation:
  * ```bash
@@ -24,9 +28,9 @@
  * is needed in your code.
  *
  * Key features demonstrated:
- * - Automatic tool registration with the CodexProvider
- * - Multiple tools working together (weather lookup + temperature conversion)
- * - Type-safe tool parameters with Zod schemas
+ * - CodexProvider integration with OpenAI Agents framework
+ * - Basic conversational agents
+ * - Automatic cleanup of temporary directories
  */
 
 import os from 'node:os';
@@ -82,100 +86,67 @@ const convertTemperatureTool = tool({
 
 async function main() {
   console.log('🤖 OpenAI Agents with Codex Provider\n');
+  console.log('NOTE: This example demonstrates the CodexProvider integration,');
+  console.log('but custom tools (get_weather, convert_temperature) are not yet');
+  console.log('fully supported due to limitations in the current implementation.\n');
+  console.log('The CodexProvider can execute its built-in tools (bash, file operations,');
+  console.log('web search, etc.) but bidirectional tool execution with the OpenAI Agents');
+  console.log('framework requires additional integration work.\n');
 
-  // Create Codex provider
-  // Codex handles authentication internally via native bindings
+  // Create a temporary directory to avoid loading workspace AGENTS.md
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-agents-example-'));
+  console.log(`Using temporary directory: ${tmpDir}\n`);
+
+  // Create Codex provider with temporary directory
+  // This avoids loading workspace-specific configuration files
   const codexProvider = new CodexProvider({
     defaultModel: 'gpt-5',
-    workingDirectory: process.cwd(),
+    workingDirectory: tmpDir,
     skipGitRepoCheck: true,
   });
 
   // Get the Codex model
   const codexModel = await codexProvider.getModel();
 
-  // Create an agent with Codex model and custom tools
-  // NOTE: Tools are automatically registered with the CodexProvider
-  // when passed to the Agent. No additional configuration needed!
-  const weatherAgent = new Agent({
-    name: 'WeatherAssistant',
+  // Example 1: Simple text query
+  console.log('Example 1: Basic conversational query');
+  console.log('─'.repeat(60));
+
+  // Create a simple agent
+  const simpleAgent = new Agent({
+    name: 'Assistant',
     model: codexModel,
-    instructions: 'You are a weather information assistant. When asked about weather, use the available tools to fetch data and provide responses in haiku format. Focus only on answering weather-related questions.',
-    tools: [getWeatherTool, convertTemperatureTool],
+    instructions: 'You are a helpful assistant.',
   });
 
-  console.log('✓ Created WeatherAssistant agent with Codex (GPT-5)');
-  console.log('✓ Tools automatically registered: get_weather, convert_temperature\n');
-
-  // Example 1: Simple text query
-  await withTrace('Weather Assistant Example - Text', async () => {
-    console.log('Example 1: Text-only query');
-    console.log('─'.repeat(60));
-    console.log('Running query: "What\'s the weather in Tokyo?"\n');
-
-    const result = await run(weatherAgent, "What's the weather in Tokyo?");
+  await withTrace('Conversation Example', async () => {
+    const question = "Hello! Please respond with a brief greeting and confirm you can help.";
+    console.log(`Query: "${question}"\n`);
+    const result = await run(simpleAgent, question);
 
     console.log('\n[Final response]');
     console.log(result.finalOutput);
-  });
 
-  console.log('\n' + '='.repeat(60) + '\n');
-
-  // Example 2: Multi-modal query with image input
-  // Demonstrates CodexProvider's image input support
-  await withTrace('Weather Assistant Example - With Image', async () => {
-    console.log('Example 2: Multi-modal query with image input');
-    console.log('─'.repeat(60));
-    console.log('CodexProvider supports multiple image input formats:');
-    console.log('  - Base64 data URLs (data:image/png;base64,...)');
-    console.log('  - HTTP(S) URLs (https://example.com/image.png)');
-    console.log('  - Local file paths (/path/to/image.png)\n');
-
-    const imageUrl = 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f4/NOAA_Weather_Radar_Cropped.jpg/320px-NOAA_Weather_Radar_Cropped.jpg';
-    let localImagePath: string | null = null;
-
-    try {
-      console.log(`Downloading sample weather image from: ${imageUrl}`);
-      const response = await fetch(imageUrl);
-      if (!response.ok) {
-        throw new Error(`Unexpected status ${response.status}`);
-      }
-
-      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-weather-'));
-      localImagePath = path.join(tmpDir, 'radar.jpg');
-      const buffer = Buffer.from(await response.arrayBuffer());
-      await fs.writeFile(localImagePath, buffer);
-      console.log(`Saved image to ${localImagePath}\n`);
-    } catch (downloadError) {
-      console.warn(`Failed to download sample image (${downloadError}). Falling back to text-only demo.\n`);
-    }
-
-    if (localImagePath) {
-      const result = await run(weatherAgent, [
-        { type: 'input_text', text: 'Analyze this weather radar image and describe current conditions in a haiku.' },
-        { type: 'input_image', image: localImagePath },
-      ]);
-
-      console.log('\n[Final response]');
-      console.log(result.finalOutput);
-    } else {
-      const result = await run(
-        weatherAgent,
-        'Based on radar showing scattered thunderstorms with heavy rainfall moving northeast, describe the weather in a haiku.',
-      );
-
-      console.log('\n[Final response]');
-      console.log(result.finalOutput);
+    // Verify we got a response
+    if (!result.finalOutput || result.finalOutput.length === 0) {
+      throw new Error('No response received from agent');
     }
   });
 
   console.log('\n' + '='.repeat(60));
   console.log('✓ Example complete!');
   console.log('\nKey takeaways:');
-  console.log('  • Tools are automatically registered when passed to Agent()');
-  console.log('  • Images can be provided as URLs, base64, or file paths');
-  console.log('  • CodexProvider handles image format conversion automatically');
-  console.log('  • Multi-modal inputs work seamlessly with the Agents framework');
+  console.log('  • CodexProvider successfully integrates with OpenAI Agents framework');
+  console.log('  • Basic queries work without custom tools');
+  console.log('  • Custom tool execution requires bidirectional framework integration');
+  console.log('  • See CodexProvider.ts executeToolViaFramework() for details');
+
+  // Cleanup
+  try {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  } catch (e) {
+    // Ignore cleanup errors
+  }
 }
 
 // Run if executed directly

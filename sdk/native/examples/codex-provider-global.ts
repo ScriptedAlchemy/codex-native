@@ -1,14 +1,14 @@
 /**
- * Example: Reuse a shared Codex model across multiple runs
+ * Example: Using CodexProvider with OpenAI Agents framework
  *
- * This demonstrates how to create a CodexProvider once and reuse
- * the same model instance across multiple agents and queries.
+ * This demonstrates how to create a CodexProvider and use it
+ * with the OpenAI Agents framework to run queries.
  *
  * CodexProvider features:
  * - Multi-modal input support (text + images)
  * - Streaming response deltas for real-time updates
  * - Automatic tool registration when passed to agents
- * - Thread continuity across multiple agent runs
+ * - No API key required (uses local Codex instance)
  *
  * Usage:
  * ```bash
@@ -28,31 +28,37 @@ async function main() {
   });
 
   // Get the model once and reuse it across multiple agents
-  const model = await codexProvider.getModel();
+  const model = codexProvider.getModel();
 
   // Create an agent with the Codex model
   const agent = new Agent({
     name: 'SharedCodexAgent',
     model: model,
-    instructions: 'You are a helpful assistant powered by Codex. You support text and image inputs.',
+    instructions: 'You are a helpful assistant powered by Codex. Answer concisely in one sentence.',
   });
 
-  // Run multiple queries
-  console.log('Query 1:');
-  const result1 = await run(agent, 'What is 2+2?');
-  console.log(result1.finalOutput);
+  // Run a single query to demonstrate the integration
+  console.log('Query:');
+  const result = await run(agent, 'What is 2+2?');
+  console.log(result.finalOutput);
 
-  console.log('\nQuery 2:');
-  const result2 = await run(agent, 'What is the largest planet in our solar system?');
-  console.log(result2.finalOutput);
+  console.log('\nQuery completed successfully!');
 }
 
 main()
   .then(() => {
-    // Force exit after completion to avoid hanging
-    process.exit(0);
+    console.log('\nExiting...');
+    // Force exit after completion to avoid hanging from native binding
+    // Use a small delay to ensure stdout flushes
+    setTimeout(() => process.exit(0), 100);
   })
   .catch((error) => {
-  console.error('Error:', error);
-  process.exit(1);
-});
+    console.error('Error:', error);
+    setTimeout(() => process.exit(1), 100);
+  });
+
+// Fallback timeout in case the native binding hangs
+setTimeout(() => {
+  console.error('\nERROR: Script timed out after 30 seconds');
+  process.exit(124);
+}, 30000);
