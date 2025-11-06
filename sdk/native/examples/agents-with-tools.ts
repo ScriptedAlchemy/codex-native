@@ -38,7 +38,7 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { z } from 'zod';
 import { Agent, run, withTrace, tool } from '@openai/agents';
-import { CodexProvider } from '../src/index.js';
+import { CodexProvider } from '../src/index.ts';
 
 // Define a weather tool using zod for type-safe parameters
 const getWeatherTool = tool({

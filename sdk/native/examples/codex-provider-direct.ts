@@ -17,7 +17,7 @@
  */
 
 import { Agent, run } from '@openai/agents';
-import { CodexProvider } from '../src/index.js';
+import { CodexProvider } from '../src/index.ts';
 
 async function main() {
   // Create a Codex provider (no API key needed - Codex handles auth internally)

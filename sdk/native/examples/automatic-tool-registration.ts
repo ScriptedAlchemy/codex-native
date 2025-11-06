@@ -24,7 +24,7 @@
 
 import { z } from 'zod';
 import { Agent, run, tool } from '@openai/agents';
-import { CodexProvider } from '../src/index.js';
+import { CodexProvider } from '../src/index.ts';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
