@@ -44,11 +44,6 @@ use tempfile::NamedTempFile;
 use std::io::Write;
 
 #[cfg(target_os = "linux")]
-fn io_to_napi(err: std::io::Error) -> napi::Error {
-  napi::Error::from_reason(err.to_string())
-}
-
-#[cfg(target_os = "linux")]
 fn ensure_embedded_linux_sandbox() -> napi::Result<PathBuf> {
   use std::fs;
   use std::os::unix::fs::PermissionsExt;
@@ -58,7 +53,7 @@ fn ensure_embedded_linux_sandbox() -> napi::Result<PathBuf> {
   // Use get_or_init with a closure that handles errors manually
   SANDBOX_PATH.get_or_init(|| {
     let root = std::env::temp_dir().join("codex-native");
-    if let Err(_) = fs::create_dir_all(&root) {
+    if fs::create_dir_all(&root).is_err() {
       return PathBuf::new();
     }
     let target_path = root.join("codex-linux-sandbox");
