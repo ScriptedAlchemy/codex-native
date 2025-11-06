@@ -16,7 +16,7 @@
     "sdk:release:major": "pnpm --filter @codex-native/sdk run release:major"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.4.1",
+    "@napi-rs/cli": "^2.18.4",
     "prettier": "^3.5.3"
   },
   "resolutions": {

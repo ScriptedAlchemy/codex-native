@@ -14,8 +14,8 @@ importers:
   .:
     devDependencies:
       '@napi-rs/cli':
-        specifier: ^3.4.1
-        version: 3.4.1(@emnapi/runtime@1.7.0)(@types/node@22.19.0)
+        specifier: ^2.18.4
+        version: 2.18.4
       prettier:
         specifier: ^3.5.3
         version: 3.5.3
@@ -798,6 +798,11 @@ packages:
   '@modelcontextprotocol/sdk@1.20.2':
     resolution: {integrity: sha512-6rqTdFt67AAAzln3NOKsXRmv5ZzPkgbfaebKBqUbts7vK1GZudqnrun5a8d3M/h955cam9RHZ6Jb4Y1XhnmFPg==}
     engines: {node: '>=18'}
+
+  '@napi-rs/cli@2.18.4':
+    resolution: {integrity: sha512-SgJeA4df9DE2iAEpr3M2H0OKl/yjtg1BnRI5/JyowS71tUWhrfSu2LT0V3vlHET+g1hBVlrO60PmEXwUEKp8Mg==}
+    engines: {node: '>= 10'}
+    hasBin: true
 
   '@napi-rs/cli@3.4.1':
     resolution: {integrity: sha512-ayhm+NfrP5Hmh7vy5pfyYm/ktYtLh2PrgdLuqHTAubO7RoO2JkUE4F991AtgYxNewwXI8+guZLxU8itV7QnDrQ==}
@@ -3944,6 +3949,8 @@ snapshots:
       zod-to-json-schema: 3.24.6(zod@3.25.76)
     transitivePeerDependencies:
       - supports-color
+
+  '@napi-rs/cli@2.18.4': {}
 
   '@napi-rs/cli@3.4.1(@emnapi/runtime@1.7.0)(@types/node@22.19.0)':
     dependencies:

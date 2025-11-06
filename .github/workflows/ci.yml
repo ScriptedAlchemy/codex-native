@@ -29,12 +29,13 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm_config_optional=false pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       # stage_npm_packages.py requires DotSlash when staging releases.
       - uses: facebook/install-dotslash@v2
 
       - name: Stage npm package
+        if: github.repository == 'openai/codex-native'
         id: stage_npm_package
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,6 +51,7 @@ jobs:
           echo "pack_output=$PACK_OUTPUT" >> "$GITHUB_OUTPUT"
 
       - name: Upload staged npm package artifact
+        if: github.repository == 'openai/codex-native'
         uses: actions/upload-artifact@v5
         with:
           name: codex-npm-staging
