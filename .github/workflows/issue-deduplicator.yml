@@ -6,6 +6,10 @@ on:
       - opened
       - labeled
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
 jobs:
   gather-duplicates:
     name: Identify potential duplicates
