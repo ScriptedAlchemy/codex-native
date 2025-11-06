@@ -43,6 +43,9 @@ importers:
       typescript:
         specifier: ^5.7.2
         version: 5.9.2
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
 
   sdk/typescript:
     devDependencies:
