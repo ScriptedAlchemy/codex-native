@@ -7,16 +7,37 @@ use std::sync::OnceLock;
 use async_trait::async_trait;
 use codex_common::CliConfigOverrides;
 use codex_common::SandboxModeCliArg;
-use codex_exec::exec_events::ThreadEvent as ExecThreadEvent;
+use codex_exec::exec_events::{
+  AgentMessageItem, ExitedReviewModeEvent as ExecExitedReviewModeEvent, ExecThreadEvent, ItemCompletedEvent,
+  ReasoningItem, ReviewCodeLocation, ReviewFinding, ReviewLineRange, ReviewOutputEvent as ExecReviewOutputEvent,
+  ThreadErrorEvent as ExecThreadErrorEvent, ThreadEvent as ExecThreadEvent, ThreadItem, ThreadItemDetails,
+  ThreadStartedEvent, TurnCompletedEvent, TurnFailedEvent, TurnStartedEvent, Usage,
+};
 use codex_exec::run_with_thread_event_callback;
 use codex_exec::{Cli, Color, Command, ResumeArgs};
+use codex_core::auth::enforce_login_restrictions;
+use codex_core::config::Config;
+use codex_core::config::ConfigOverrides;
+use codex_core::default_client::set_default_originator;
 use codex_core::function_tool::FunctionCallError;
 use codex_core::tools::context::ToolInvocation;
 use codex_core::tools::context::ToolOutput;
 use codex_core::tools::context::ToolPayload;
-use codex_core::tools::registry::{ExternalToolRegistration, ToolHandler, ToolKind, set_pending_external_tools};
+use codex_core::tools::registry::{set_pending_external_tools, ExternalToolRegistration, ToolHandler, ToolKind};
 use codex_core::tools::spec::create_function_tool_spec_from_schema;
-use codex_core::protocol::ReviewRequest;
+use codex_core::{
+  AuthManager, ConversationManager, NewConversation,
+};
+use codex_core::git_info::get_git_repo_root;
+use codex_core::protocol::{
+  AgentMessageEvent, AgentReasoningEvent, Event, EventMsg, ExitedReviewModeEvent,
+  ReviewCodeLocation as CoreReviewCodeLocation, ReviewFinding as CoreReviewFinding,
+  ReviewLineRange as CoreReviewLineRange, ReviewOutputEvent, ReviewRequest, SessionConfiguredEvent,
+  TaskCompleteEvent, TaskStartedEvent, TokenCountEvent, TokenUsage, TokenUsageInfo, Op,
+};
+use codex_core::protocol::AskForApproval;
+use codex_core::protocol::SessionSource;
+use codex_protocol::config_types::SandboxMode;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::bindgen_prelude::{Function, Status};
 use napi_derive::napi;
@@ -386,6 +407,72 @@ impl Drop for EnvOverrides {
   }
 }
 
+fn prepare_environment(options: &InternalRunRequest) -> napi::Result<(EnvOverrides, Option<PathBuf>)> {
+  let mut env_pairs: Vec<(&'static str, Option<String>, bool)> = Vec::new();
+  if std::env::var(ORIGINATOR_ENV).is_err() {
+    env_pairs.push((ORIGINATOR_ENV, Some(NATIVE_ORIGINATOR.to_string()), true));
+  }
+  if let Some(base_url) = options.base_url.clone() {
+    env_pairs.push(("OPENAI_BASE_URL", Some(base_url), true));
+  }
+  if let Some(api_key) = options.api_key.clone() {
+    env_pairs.push(("CODEX_API_KEY", Some(api_key), true));
+  }
+
+  let linux_sandbox_path = if let Some(path) = options.linux_sandbox_path.clone() {
+    Some(path)
+  } else if let Ok(path) = std::env::var("CODEX_LINUX_SANDBOX_EXE") {
+    Some(PathBuf::from(path))
+  } else {
+    default_linux_sandbox_path()?
+  };
+
+  if let Some(path) = linux_sandbox_path.as_ref() {
+    env_pairs.push((
+      "CODEX_LINUX_SANDBOX_EXE",
+      Some(path.to_string_lossy().to_string()),
+      false,
+    ));
+  }
+
+  let guard = EnvOverrides::apply(env_pairs);
+  Ok((guard, linux_sandbox_path))
+}
+
+fn build_config_overrides(
+  options: &InternalRunRequest,
+  sandbox_path: Option<PathBuf>,
+) -> ConfigOverrides {
+  let sandbox_mode = if options.full_auto {
+    Some(SandboxMode::WorkspaceWrite)
+  } else {
+    options.sandbox_mode.map(Into::<SandboxMode>::into)
+  };
+  let cwd = options
+    .working_directory
+    .as_ref()
+    .map(|path| path.canonicalize().unwrap_or(path.clone()));
+
+  ConfigOverrides {
+    model: options.model.clone(),
+    review_model: None,
+    cwd,
+    approval_policy: Some(AskForApproval::Never),
+    sandbox_mode,
+    model_provider: None,
+    config_profile: None,
+    codex_linux_sandbox_exe: sandbox_path,
+    base_instructions: None,
+    developer_instructions: None,
+    compact_prompt: None,
+    include_apply_patch_tool: None,
+    show_raw_agent_reasoning: Some(false),
+    tools_web_search_request: None,
+    experimental_sandbox_command_assessment: None,
+    additional_writable_roots: Vec::new(),
+  }
+}
+
 fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli {
   let command = options.thread_id.as_ref().map(|id| Command::Resume(ResumeArgs {
     session_id: Some(id.clone()),
@@ -422,14 +509,285 @@ fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli 
   }
 }
 
+struct ReviewEventCollector {
+  next_item_id: u64,
+  last_usage: Option<TokenUsage>,
+  last_error: Option<ExecThreadErrorEvent>,
+  emitted_review_exit: bool,
+}
+
+impl ReviewEventCollector {
+  fn new() -> Self {
+    Self {
+      next_item_id: 0,
+      last_usage: None,
+      last_error: None,
+      emitted_review_exit: false,
+    }
+  }
+
+  fn next_item_id(&mut self) -> String {
+    let id = self.next_item_id;
+    self.next_item_id += 1;
+    format!("item_{id}")
+  }
+
+  fn handle(&mut self, event: &Event) -> Vec<ExecThreadEvent> {
+    match &event.msg {
+      EventMsg::SessionConfigured(ev) => {
+        vec![ExecThreadEvent::ThreadStarted(ThreadStartedEvent {
+          thread_id: ev.session_id.to_string(),
+        })]
+      }
+      EventMsg::TaskStarted(_) => {
+        self.last_error = None;
+        vec![ExecThreadEvent::TurnStarted(TurnStartedEvent {})]
+      }
+      EventMsg::AgentReasoning(ev) => {
+        let item = ThreadItem {
+          id: self.next_item_id(),
+          details: ThreadItemDetails::Reasoning(ReasoningItem {
+            text: ev.text.clone(),
+          }),
+        };
+        vec![ExecThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
+      }
+      EventMsg::AgentMessage(ev) => {
+        let item = ThreadItem {
+          id: self.next_item_id(),
+          details: ThreadItemDetails::AgentMessage(AgentMessageItem {
+            text: ev.message.clone(),
+          }),
+        };
+        vec![ExecThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
+      }
+      EventMsg::TokenCount(ev) => {
+        if let Some(info) = &ev.info {
+          self.last_usage = Some(info.total_token_usage.clone());
+        }
+        Vec::new()
+      }
+      EventMsg::Warning(ev) => {
+        let item = ThreadItem {
+          id: self.next_item_id(),
+          details: ThreadItemDetails::Error(codex_exec::exec_events::ErrorItem {
+            message: ev.message.clone(),
+          }),
+        };
+        vec![ExecThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
+      }
+      EventMsg::Error(ev) => {
+        let error = ExecThreadErrorEvent {
+          message: ev.message.clone(),
+        };
+        self.last_error = Some(error.clone());
+        vec![ExecThreadEvent::Error(error)]
+      }
+      EventMsg::ExitedReviewMode(ev) => {
+        let converted = self.convert_review_output(&ev.review_output);
+        self.emitted_review_exit = true;
+        vec![ExecThreadEvent::ExitedReviewMode(ExecExitedReviewModeEvent {
+          review_output: converted,
+        })]
+      }
+      EventMsg::TaskComplete(task_complete) => {
+        let mut events = Vec::new();
+        if let Some(text) = task_complete.last_agent_message.as_deref() {
+          if !self.emitted_review_exit {
+            let review_output = self.parse_review_output(text);
+            let converted = self.convert_review_output(&Some(review_output));
+            events.push(ExecThreadEvent::ExitedReviewMode(ExecExitedReviewModeEvent {
+              review_output: converted,
+            }));
+            self.emitted_review_exit = true;
+          }
+          let item = ThreadItem {
+            id: self.next_item_id(),
+            details: ThreadItemDetails::AgentMessage(AgentMessageItem {
+              text: text.to_string(),
+            }),
+          };
+          events.push(ExecThreadEvent::ItemCompleted(ItemCompletedEvent { item }));
+        }
+
+        let usage = self
+          .last_usage
+          .clone()
+          .unwrap_or_else(|| TokenUsage::default());
+
+        if let Some(error) = self.last_error.take() {
+          events.push(ExecThreadEvent::TurnFailed(TurnFailedEvent { error }));
+        } else {
+          events.push(ExecThreadEvent::TurnCompleted(TurnCompletedEvent {
+            usage: Usage {
+              input_tokens: usage.input_tokens,
+              cached_input_tokens: usage.cached_input_tokens,
+              output_tokens: usage.output_tokens,
+            },
+          }));
+        }
+        events
+      }
+      _ => Vec::new(),
+    }
+  }
+
+  fn convert_review_output(
+    &self,
+    review_output: &Option<ReviewOutputEvent>,
+  ) -> Option<ExecReviewOutputEvent> {
+    review_output.as_ref().map(|output| ExecReviewOutputEvent {
+      findings: output
+        .findings
+        .iter()
+        .map(|finding| ReviewFinding {
+          title: finding.title.clone(),
+          body: finding.body.clone(),
+          confidence_score: finding.confidence_score,
+          priority: finding.priority,
+          code_location: ReviewCodeLocation {
+            absolute_file_path: finding.code_location.absolute_file_path.clone(),
+            line_range: ReviewLineRange {
+              start: finding.code_location.line_range.start,
+              end: finding.code_location.line_range.end,
+            },
+          },
+        })
+        .collect(),
+      overall_correctness: output.overall_correctness.clone(),
+      overall_explanation: output.overall_explanation.clone(),
+      overall_confidence_score: output.overall_confidence_score,
+    })
+  }
+
+  fn parse_review_output(&self, text: &str) -> ReviewOutputEvent {
+    if let Ok(ev) = serde_json::from_str::<ReviewOutputEvent>(text) {
+      return ev;
+    }
+    if let (Some(start), Some(end)) = (text.find('{'), text.rfind('}'))
+      && start < end
+      && let Some(slice) = text.get(start..=end)
+      && let Ok(ev) = serde_json::from_str::<ReviewOutputEvent>(slice)
+    {
+      return ev;
+    }
+    ReviewOutputEvent {
+      overall_explanation: text.to_string(),
+      ..Default::default()
+    }
+  }
+}
+
 fn event_to_json(event: &ExecThreadEvent) -> napi::Result<JsonValue> {
   serde_json::to_value(event).map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
+fn run_review_sync<F>(
+  options: InternalRunRequest,
+  review_request: ReviewRequest,
+  handler: F,
+) -> napi::Result<()>
+where
+  F: FnMut(ExecThreadEvent) + Send + 'static,
+{
+  let pending_tools = {
+    let guard = registered_native_tools()
+      .lock()
+      .map_err(|e| napi::Error::from_reason(format!("tools mutex poisoned: {e}")))?;
+    guard.clone()
+  };
+  set_pending_external_tools(pending_tools);
+
+  let (env_guard, linux_sandbox_path) = prepare_environment(&options)?;
+
+  if let Err(err) = set_default_originator(NATIVE_ORIGINATOR.to_string()) {
+    tracing::warn!(?err, "Failed to set codex native originator override");
+  }
+
+  let handler_arc = Arc::new(Mutex::new(handler));
+  let handler_for_callback = Arc::clone(&handler_arc);
+
+  let runtime = tokio::runtime::Runtime::new()
+    .map_err(|e| napi::Error::from_reason(format!("Failed to create runtime: {}", e)))?;
+
+  runtime.block_on(async {
+    let config_overrides = build_config_overrides(&options, linux_sandbox_path.clone());
+    let config = Config::load_with_cli_overrides(Vec::new(), config_overrides)
+      .await
+      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    if let Err(err) = enforce_login_restrictions(&config).await {
+      return Err(napi::Error::from_reason(err.to_string()));
+    }
+
+    if !options.skip_git_repo_check && get_git_repo_root(&config.cwd).is_none() {
+      return Err(napi::Error::from_reason(
+        "Not inside a trusted directory and --skip-git-repo-check was not specified.".to_string(),
+      ));
+    }
+
+    let auth_manager = AuthManager::shared(
+      config.codex_home.clone(),
+      true,
+      config.cli_auth_credentials_store_mode,
+    );
+    let conversation_manager = ConversationManager::new(auth_manager.clone(), SessionSource::Exec);
+    let NewConversation {
+      conversation,
+      session_configured,
+      ..
+    } = conversation_manager
+      .new_conversation(config.clone())
+      .await
+      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    let mut collector = ReviewEventCollector::new();
+
+    let session_event = Event {
+      id: String::new(),
+      msg: EventMsg::SessionConfigured(session_configured.clone()),
+    };
+    for exec_event in collector.handle(&session_event) {
+      if let Ok(mut handler) = handler_for_callback.lock() {
+        (*handler)(exec_event);
+      }
+    }
+
+    conversation
+      .submit(Op::Review { review_request })
+      .await
+      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    loop {
+      let event = conversation
+        .next_event()
+        .await
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+      let events = collector.handle(&event);
+      for exec_event in events {
+        if let Ok(mut handler) = handler_for_callback.lock() {
+          (*handler)(exec_event);
+        }
+      }
+
+      if matches!(event.msg, EventMsg::ShutdownComplete) {
+        break;
+      }
+    }
+
+    Ok(())
+  })
 }
 
 fn run_internal_sync<F>(options: InternalRunRequest, handler: F) -> napi::Result<()>
 where
   F: FnMut(ExecThreadEvent) + Send + 'static,
 {
+  if let Some(review_request) = options.review_request.clone() {
+    return run_review_sync(options, review_request, handler);
+  }
+
   let schema_file = prepare_schema(options.output_schema.clone())?;
   let schema_path = schema_file.as_ref().map(|file| file.path.clone());
   let cli = build_cli(&options, schema_path);
@@ -442,34 +800,7 @@ where
   };
   set_pending_external_tools(pending_tools);
 
-  let mut env_pairs: Vec<(&'static str, Option<String>, bool)> = Vec::new();
-  if std::env::var(ORIGINATOR_ENV).is_err() {
-    env_pairs.push((ORIGINATOR_ENV, Some(NATIVE_ORIGINATOR.to_string()), true));
-  }
-  if let Some(base_url) = options.base_url.clone() {
-    env_pairs.push(("OPENAI_BASE_URL", Some(base_url), true));
-  }
-  if let Some(api_key) = options.api_key.clone() {
-    env_pairs.push(("CODEX_API_KEY", Some(api_key), true));
-  }
-
-  let linux_sandbox_path = if let Some(path) = options.linux_sandbox_path.clone() {
-    Some(path)
-  } else if let Ok(path) = std::env::var("CODEX_LINUX_SANDBOX_EXE") {
-    Some(PathBuf::from(path))
-  } else {
-    default_linux_sandbox_path()?
-  };
-
-  if let Some(path) = linux_sandbox_path.as_ref() {
-    env_pairs.push((
-      "CODEX_LINUX_SANDBOX_EXE",
-      Some(path.to_string_lossy().to_string()),
-      false,
-    ));
-  }
-
-  let _env_guard = EnvOverrides::apply(env_pairs);
+  let (_env_guard, linux_sandbox_path) = prepare_environment(&options)?;
 
   let handler_arc = Arc::new(Mutex::new(handler));
   let handler_for_callback = Arc::clone(&handler_arc);

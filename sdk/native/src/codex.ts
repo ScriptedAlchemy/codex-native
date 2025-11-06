@@ -89,6 +89,31 @@ export class Codex {
           finalResponse = event.item.text;
         }
         items.push(event.item);
+      } else if (event.type === "exited_review_mode") {
+        // Capture the structured review output
+        if (event.review_output) {
+          const reviewOutput = event.review_output;
+          let reviewText = "";
+
+          // Add overall explanation
+          if (reviewOutput.overall_explanation) {
+            reviewText += reviewOutput.overall_explanation;
+          }
+
+          // Add findings if present
+          if (reviewOutput.findings && reviewOutput.findings.length > 0) {
+            if (reviewText) reviewText += "\n\n";
+            reviewText += "## Review Findings\n\n";
+            reviewOutput.findings.forEach((finding, index) => {
+              reviewText += `### ${index + 1}. ${finding.title}\n`;
+              reviewText += `${finding.body}\n`;
+              reviewText += `**Priority:** ${finding.priority} | **Confidence:** ${finding.confidence_score}\n`;
+              reviewText += `**Location:** ${finding.code_location.absolute_file_path}:${finding.code_location.line_range.start}-${finding.code_location.line_range.end}\n\n`;
+            });
+          }
+
+          finalResponse = reviewText;
+        }
       } else if (event.type === "turn.completed") {
         usage = event.usage;
       } else if (event.type === "turn.failed") {

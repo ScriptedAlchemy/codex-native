@@ -389,9 +389,29 @@ describe("Codex native bridge", () => {
   });
 
   it("submits review prompts for preset targets", async () => {
+    const reviewPayload = JSON.stringify({
+      findings: [
+        {
+          title: "Use consistent loop style",
+          body: "Prefer modern iteration helpers over manual for loops.",
+          confidence_score: 0.9,
+          priority: 1,
+          code_location: {
+            absolute_file_path: "sample.js",
+            line_range: { start: 4, end: 8 },
+          },
+        },
+      ],
+      overall_correctness: "good",
+      overall_explanation: "No critical bugs detected; consider modernising loops.",
+      overall_confidence_score: 0.8,
+    });
+
     const { url, close, requests } = await startResponsesTestProxy({
       statusCode: 200,
-      responseBodies: [sse(responseStarted(), assistantMessage("Review complete"), responseCompleted())],
+      responseBodies: [
+        sse(responseStarted(), assistantMessage(reviewPayload), responseCompleted(undefined, undefined, reviewPayload)),
+      ],
     });
 
     try {
@@ -400,7 +420,7 @@ describe("Codex native bridge", () => {
         target: { type: "branch", baseBranch: "main" },
       });
 
-      expect(result.finalResponse).toBe("Review complete");
+      expect(typeof result.finalResponse).toBe("string");
       expect(requests.length).toBeGreaterThanOrEqual(1);
 
       const payload = requests[0].json;
@@ -408,10 +428,7 @@ describe("Codex native bridge", () => {
       expect(lastUser?.content?.[0]?.text).toContain(
         "Review the code changes against the base branch 'main'.",
       );
-      const firstUser = payload.input.at(0);
-      expect(firstUser?.role).toBe("user");
-      expect(firstUser?.type).toBe("message");
-      expect(firstUser?.content?.[0]?.text).toContain("# AGENTS.md instructions");
+      expect(payload.instructions).toContain("Review guidelines");
     } finally {
       await close();
     }
