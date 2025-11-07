@@ -264,7 +264,7 @@ pub fn create_client() -> CodexHttpClient {
     default_headers.insert("originator", originator().header_value.clone());
     let ua = get_codex_user_agent();
 
-    let mut build_client = || {
+    let build_client = || {
         let mut builder = reqwest::Client::builder()
             .use_rustls_tls()
             // Set UA via dedicated helper to avoid header validation pitfalls
@@ -276,10 +276,18 @@ pub fn create_client() -> CodexHttpClient {
         builder.build()
     };
 
-    let inner = build_client().unwrap_or_else(|error| {
-        tracing::error!(?error, "Failed to build reqwest client with rustls");
-        build_client().expect("failed to build reqwest client with rustls")
-    });
+    let inner = match build_client() {
+        Ok(client) => client,
+        Err(error) => {
+            tracing::error!(?error, "Failed to build reqwest client with rustls");
+            match build_client() {
+                Ok(client) => client,
+                Err(error) => {
+                    panic!("failed to build reqwest client with rustls: {error}");
+                }
+            }
+        }
+    };
     CodexHttpClient::new(inner)
 }
 
