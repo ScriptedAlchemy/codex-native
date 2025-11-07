@@ -12,7 +12,7 @@ concurrency:
 jobs:
   sdks:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -31,6 +31,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90
         with:
           components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            codex-rs
+            sdk/native
 
       - name: build codex
         run: cargo build --bin codex
