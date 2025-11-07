@@ -2,13 +2,14 @@
   "name": "@codex-native/sdk",
   "version": "0.0.1",
   "description": "Native NAPI-based Codex SDK - complete standalone implementation.",
-  "main": "dist/index.mjs",
+  "main": "dist/index.cjs",
   "module": "dist/index.mjs",
   "types": "dist/index.d.mts",
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
-      "import": "./dist/index.mjs"
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
     }
   },
   "files": [
