@@ -47,10 +47,7 @@ fn build_linux_sandbox() -> Result<(), Box<dyn std::error::Error>> {
     "codex-linux-sandbox"
   };
 
-  let built_path = target_dir
-    .join(&target)
-    .join("release")
-    .join(binary_name);
+  let built_path = target_dir.join(&target).join("release").join(binary_name);
 
   if !built_path.exists() {
     return Err(format!("expected sandbox binary at {built_path:?}").into());

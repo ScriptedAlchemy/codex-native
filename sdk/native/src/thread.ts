@@ -4,7 +4,7 @@ import { CodexExec } from "./exec";
 import { ThreadItem } from "./items";
 import { ThreadOptions } from "./threadOptions";
 import { TurnOptions } from "./turnOptions";
-import { createOutputSchemaFile } from "./outputSchemaFile";
+import { createOutputSchemaFile, normalizeOutputSchema } from "./outputSchemaFile";
 
 /** Completed turn. */
 export type Turn = {
@@ -71,7 +71,11 @@ export class Thread {
     input: Input,
     turnOptions: TurnOptions = {},
   ): AsyncGenerator<ThreadEvent> {
-    const { schemaPath, cleanup } = await createOutputSchemaFile(turnOptions.outputSchema);
+    const normalizedSchema = normalizeOutputSchema(turnOptions.outputSchema);
+    const needsSchemaFile = this._exec.requiresOutputSchemaFile();
+    const schemaFile = needsSchemaFile
+      ? await createOutputSchemaFile(normalizedSchema)
+      : { schemaPath: undefined, cleanup: async () => {} };
     const options = this._threadOptions;
     const { prompt, images } = normalizeInput(input);
     const generator = this._exec.run({
@@ -84,8 +88,9 @@ export class Thread {
       sandboxMode: options?.sandboxMode,
       workingDirectory: options?.workingDirectory,
       skipGitRepoCheck: options?.skipGitRepoCheck,
-      outputSchemaFile: schemaPath,
-      outputSchema: turnOptions.outputSchema,
+      outputSchemaFile: schemaFile.schemaPath,
+      outputSchema: normalizedSchema,
+      fullAuto: options?.fullAuto,
     });
     try {
       for await (const item of generator) {
@@ -101,7 +106,7 @@ export class Thread {
         yield parsed;
       }
     } finally {
-      await cleanup();
+      await schemaFile.cleanup();
     }
   }
 
