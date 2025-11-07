@@ -724,7 +724,7 @@ async function main() {
     }
 
     try {
-      const localBranch = result.localBranch ?? `codex/pr-${result.pr.number}`;
+      const localBranch = result.localBranch ?? result.pr.headRefName;
       await ensurePushed(result.pr, result.worktreePath, config.remote, localBranch);
       pushOutcomes.push({ pr: result.pr, success: true, skipped: false, reason: "post-run", source: "post" });
     } catch (error) {
