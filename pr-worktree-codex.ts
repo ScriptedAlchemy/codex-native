@@ -65,8 +65,6 @@ interface PullRequestInfo {
 const DEFAULT_REMOTE = "origin";
 const DEFAULT_CONCURRENCY = 2;
 const DEFAULT_MAX_FIX_ATTEMPTS = 3;
-const FULL_ACCESS_NOTICE = "You are running with sandbox mode `danger-full-access` and full-auto permissions. You may write to the repository, run destructive commands, and escalate without asking for approval.";
-
 const activeProcesses = new Set<ChildProcess>();
 
 function registerProcess(child: ChildProcess) {
@@ -246,6 +244,7 @@ async function main() {
         sandboxMode,
         fullAuto: true,
         skipGitRepoCheck: true,
+        dangerouslyBypassApprovalsAndSandbox: true,
       });
       const buildPrefix = `${basePrefix} [build#${buildAttempts}]`;
       const buildThread = codex.startThread(makeThreadOptions());
@@ -291,6 +290,7 @@ async function main() {
         sandboxMode,
         fullAuto: true,
         skipGitRepoCheck: true,
+        dangerouslyBypassApprovalsAndSandbox: true,
       });
 
       const mergeThread = codex.startThread(makeThreadOptions());
@@ -678,7 +678,6 @@ function slugifyRef(ref: string): string {
 function buildMergePrompt(pr: PullRequestInfo, worktreePath: string): string {
   return [
     `You are a Codex automation agent working inside ${worktreePath}.`,
-    FULL_ACCESS_NOTICE,
     "First, ensure the branch is fully up to date with the latest main branch.",
     "Steps:",
     "1. Run 'git status' to confirm the working tree is clean (resolve or stash anything unexpected).",
@@ -702,7 +701,6 @@ function buildFixPrompt(
   const instructions = [
     `You are an automated Codex maintainer responsible for validating pull request #${pr.number}.`,
     `The worktree directory is ${worktreePath}.`,
-    FULL_ACCESS_NOTICE,
     `Tasks:`,
     `Remediation attempt #${attemptNumber}: address any failing CI checks thoroughly.`,
     "1. Run 'gh pr checks --watch " + pr.number + "' from the repository root to monitor CI failures until they are resolved.",
@@ -748,7 +746,6 @@ function buildBuildFailurePrompt(
   const sections = [
     `You are an automated Codex maintainer addressing a build failure for pull request #${pr.number}.`,
     `Working directory: ${worktreePath}.`,
-    FULL_ACCESS_NOTICE,
     `Command failing: pnpm run sdk:build`,
     `Attempt #: ${attemptNumber}.`,
     "Tasks:",
@@ -782,7 +779,6 @@ function buildPrMergePrompt(pr: PullRequestInfo, worktreePath: string): string {
   return [
     `You are an automated Codex maintainer finalizing pull request #${pr.number}.`,
     `The worktree directory is ${worktreePath}.`,
-    FULL_ACCESS_NOTICE,
     "All required checks have passed. Merge this pull request into the main branch using the GitHub CLI.",
     "Steps:",
     "1. Run 'git status -sb' to ensure there are no uncommitted changes left over from earlier automation.",
@@ -828,18 +824,19 @@ function formatPrefix(pr: PullRequestInfo): string {
 }
 
 function logWithPrefix(prefix: string, message: string) {
-  for (const line of message.split("\n")) {
-    console.log(`${prefix} ${line}`);
+  if (message.length === 0) {
+    return;
   }
+  console.log(`${prefix} ${message}`);
 }
 
 function logStream(prefix: string, data: Buffer | string) {
   const text = typeof data === "string" ? data : data.toString();
-  for (const line of text.split(/\r?\n/)) {
-    if (line.length > 0) {
-      console.log(`${prefix} ${line}`);
-    }
+  if (text.length === 0) {
+    return;
   }
+  const trimmed = text.endsWith("\n") ? text.slice(0, -1) : text;
+  console.log(`${prefix} ${trimmed}`);
 }
 
 function logTurnHighlights(prefix: string, items: ThreadItem[]) {

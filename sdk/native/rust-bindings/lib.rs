@@ -230,6 +230,10 @@ pub struct RunRequest {
   pub api_key: Option<String>,
   #[napi(js_name = "linuxSandboxPath")]
   pub linux_sandbox_path: Option<String>,
+  #[napi(js_name = "fullAuto")]
+  pub full_auto: Option<bool>,
+  #[napi(js_name = "dangerouslyBypassApprovalsAndSandbox")]
+  pub dangerously_bypass_approvals_and_sandbox: Option<bool>,
 }
 
 struct InternalRunRequest {
@@ -244,6 +248,8 @@ struct InternalRunRequest {
   base_url: Option<String>,
   api_key: Option<String>,
   linux_sandbox_path: Option<PathBuf>,
+  full_auto: bool,
+  dangerously_bypass_approvals_and_sandbox: bool,
 }
 
 impl RunRequest {
@@ -281,6 +287,10 @@ impl RunRequest {
       base_url: self.base_url,
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
+      full_auto: self.full_auto.unwrap_or(false),
+      dangerously_bypass_approvals_and_sandbox: self
+        .dangerously_bypass_approvals_and_sandbox
+        .unwrap_or(false),
     })
   }
 }
@@ -357,8 +367,8 @@ fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli 
     oss: false,
     sandbox_mode: options.sandbox_mode,
     config_profile: None,
-    full_auto: false,
-    dangerously_bypass_approvals_and_sandbox: false,
+    full_auto: options.full_auto,
+    dangerously_bypass_approvals_and_sandbox: options.dangerously_bypass_approvals_and_sandbox,
     cwd: options.working_directory.clone(),
     skip_git_repo_check: options.skip_git_repo_check,
     output_schema: schema_path,

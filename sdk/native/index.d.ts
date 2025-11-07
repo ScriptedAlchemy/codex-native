@@ -38,8 +38,7 @@ export interface RunRequest {
   apiKey?: string
   linuxSandboxPath?: string
   fullAuto?: boolean
-  reviewMode?: boolean
-  reviewHint?: string
+  dangerouslyBypassApprovalsAndSandbox?: boolean
 }
 
 export declare function runThread(req: RunRequest): Promise<Array<string>>
