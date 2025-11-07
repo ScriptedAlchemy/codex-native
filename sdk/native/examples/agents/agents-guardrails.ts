@@ -119,7 +119,7 @@ async function main() {
       'This is a valid question that meets the length requirements.'
     );
     console.log('✓ Guardrail passed');
-    console.log('Response:', result1.finalOutput.substring(0, 100) + '...\n');
+    console.log('Response:', (result1.finalOutput ?? '').substring(0, 100) + '...\n');
   } catch (error) {
     console.log('✗ Guardrail failed:', error instanceof Error ? error.message : String(error));
   }
@@ -129,7 +129,7 @@ async function main() {
 
   try {
     const result2 = await run(agentWithValidation, 'Short');
-    console.log('Response:', result2.finalOutput);
+    console.log('Response:', result2.finalOutput ?? '(no output)');
   } catch (error) {
     console.log('✗ Guardrail blocked:', error instanceof Error ? error.message : String(error));
   }
@@ -172,7 +172,7 @@ async function main() {
   try {
     const result1 = await run(filteredAgent, 'What is the weather today?');
     console.log('✓ Guardrail passed');
-    console.log('Response:', result1.finalOutput.substring(0, 100) + '...\n');
+    console.log('Response:', (result1.finalOutput ?? '').substring(0, 100) + '...\n');
   } catch (error) {
     console.log('✗ Guardrail failed:', error instanceof Error ? error.message : String(error));
   }
@@ -182,7 +182,7 @@ async function main() {
 
   try {
     const result2 = await run(filteredAgent, 'This is spam content');
-    console.log('Response:', result2.finalOutput);
+    console.log('Response:', result2.finalOutput ?? '(no output)');
   } catch (error) {
     console.log('✗ Guardrail blocked:', error instanceof Error ? error.message : String(error));
   }
@@ -229,7 +229,7 @@ async function main() {
   try {
     const result1 = await run(secureAgent, 'List all files in the current directory');
     console.log('✓ Guardrail passed');
-    console.log('Response:', result1.finalOutput.substring(0, 100) + '...\n');
+    console.log('Response:', (result1.finalOutput ?? '').substring(0, 100) + '...\n');
   } catch (error) {
     console.log('✗ Guardrail failed:', error instanceof Error ? error.message : String(error));
   }
@@ -239,7 +239,7 @@ async function main() {
 
   try {
     const result2 = await run(secureAgent, 'rm -rf /tmp');
-    console.log('Response:', result2.finalOutput);
+    console.log('Response:', result2.finalOutput ?? '(no output)');
   } catch (error) {
     console.log('✗ Guardrail blocked:', error instanceof Error ? error.message : String(error));
   }
@@ -269,7 +269,7 @@ async function main() {
       'Can you help me understand how to write better code?'
     );
     console.log('✓ All guardrails passed');
-    console.log('Response:', result.finalOutput.substring(0, 150) + '...\n');
+    console.log('Response:', (result.finalOutput ?? '').substring(0, 150) + '...\n');
   } catch (error) {
     console.log('✗ Guardrail blocked:', error instanceof Error ? error.message : String(error));
   }
