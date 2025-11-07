@@ -9,6 +9,9 @@
  */
 
 import { describe, expect, it, beforeAll } from "@jest/globals";
+const RUN_REAL_BACKEND = process.env.CODEX_NATIVE_RUN_REAL_BACKEND === "1";
+const realBackendTest = RUN_REAL_BACKEND ? it : it.skip;
+
 import { fileURLToPath } from "node:url";
 
 function resolveNativeBindingPath() {
@@ -209,14 +212,14 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
       }
     }, 15000); // Longer timeout for runner execution
 
-    it("works with real Codex backend", async () => {
+    realBackendTest("works with real Codex backend", async () => {
       // This test requires a real Codex backend (no API key needed)
 
       const { Agent, Runner } = await import("@openai/agents");
 
       const provider = new CodexProvider({
         skipGitRepoCheck: true,
-        });
+      });
 
       const agent = new Agent({
         name: "TestAgent",
