@@ -15,7 +15,6 @@ export type NativeRunRequest = {
   apiKey?: string;
   linuxSandboxPath?: string;
   fullAuto?: boolean;
-  dangerouslyBypassApprovalsAndSandbox?: boolean;
   reviewMode?: boolean;
   reviewHint?: string;
 };

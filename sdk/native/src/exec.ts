@@ -14,7 +14,6 @@ export type CodexExecArgs = {
   outputSchemaFile?: string;
   outputSchema?: unknown;
   fullAuto?: boolean;
-  dangerouslyBypassApprovalsAndSandbox?: boolean;
   review?: ReviewExecOptions | null;
 };
 
@@ -59,7 +58,6 @@ export class CodexExec {
       baseUrl: args.baseUrl,
       apiKey: args.apiKey,
       fullAuto: args.fullAuto,
-      dangerouslyBypassApprovalsAndSandbox: args.dangerouslyBypassApprovalsAndSandbox,
       reviewMode: args.review ? true : undefined,
       reviewHint: args.review?.userFacingHint,
     };

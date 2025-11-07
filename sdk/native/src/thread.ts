@@ -91,7 +91,6 @@ export class Thread {
       outputSchemaFile: schemaFile.schemaPath,
       outputSchema: normalizedSchema,
       fullAuto: options?.fullAuto,
-      dangerouslyBypassApprovalsAndSandbox: options?.dangerouslyBypassApprovalsAndSandbox,
     });
     try {
       for await (const item of generator) {

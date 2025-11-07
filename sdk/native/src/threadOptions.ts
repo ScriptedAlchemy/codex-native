@@ -8,5 +8,4 @@ export type ThreadOptions = {
   workingDirectory?: string;
   skipGitRepoCheck?: boolean;
   fullAuto?: boolean;
-  dangerouslyBypassApprovalsAndSandbox?: boolean;
 };

@@ -46,6 +46,42 @@ interface RunConfig {
   maxFixAttempts: number;
 }
 
+type CodexTurnSummary = {
+  finalResponse: string;
+  items: ThreadItem[];
+  usage: Usage | null;
+};
+
+type MergeVerification = {
+  state?: string;
+  error?: unknown;
+};
+
+type RunResult = {
+  pr: PullRequestInfo;
+  worktreePath: string;
+  localBranch?: string;
+  mergeTurn?: CodexTurnSummary;
+  fixTurns?: CodexTurnSummary[];
+  pushAllowed?: boolean;
+  pushStatuses?: PushStatus[];
+  ghChecks?: GhChecksResult;
+  mergePrTurn?: CodexTurnSummary | null;
+  prMerged?: boolean;
+  mergeVerification?: MergeVerification | null;
+  buildFixTurns?: CodexTurnSummary[];
+  dryRun?: boolean;
+  error?: unknown;
+};
+
+type PushOutcome = PushStatus & { pr: PullRequestInfo };
+
+type CleanupOutcome = {
+  path: string;
+  success: boolean;
+  error?: unknown;
+};
+
 type BuildErrorDetails = {
   stdout: string;
   stderr: string;
@@ -63,7 +99,7 @@ interface PullRequestInfo {
 }
 
 const DEFAULT_REMOTE = "origin";
-const DEFAULT_CONCURRENCY = 2;
+const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_MAX_FIX_ATTEMPTS = 3;
 const activeProcesses = new Set<ChildProcess>();
 
@@ -122,7 +158,7 @@ async function main() {
   const gitMutex = createMutex();
   const installMutex = createMutex();
 
-  const results = await runWithConcurrency(prs, config.concurrency, async (pr) => {
+  const results = await runWithConcurrency<PullRequestInfo, RunResult>(prs, config.concurrency, async (pr) => {
     const safeSlug = slugifyRef(pr.headRefName) || `head-${pr.number}`;
     const worktreeDir = `pr-${pr.number}-${safeSlug}`;
     const worktreePath = path.join(config.worktreeRoot, worktreeDir);
@@ -135,7 +171,7 @@ async function main() {
     const pushStatuses: PushStatus[] = pushAllowed
       ? []
       : [{ success: false, skipped: true, reason: "push-not-allowed", source: "pre" }];
-    const buildFixTurns = [];
+    const buildFixTurns: CodexTurnSummary[] = [];
 
     try {
       await gitMutex.run(async () => {
@@ -244,7 +280,6 @@ async function main() {
         sandboxMode,
         fullAuto: true,
         skipGitRepoCheck: true,
-        dangerouslyBypassApprovalsAndSandbox: true,
       });
       const buildPrefix = `${basePrefix} [build#${buildAttempts}]`;
       const buildThread = codex.startThread(makeThreadOptions());
@@ -290,7 +325,6 @@ async function main() {
         sandboxMode,
         fullAuto: true,
         skipGitRepoCheck: true,
-        dangerouslyBypassApprovalsAndSandbox: true,
       });
 
       const mergeThread = codex.startThread(makeThreadOptions());
@@ -309,10 +343,10 @@ async function main() {
 
       let ghChecksResult = await runGhPrChecks(pr, worktreePath, basePrefix);
 
-      const fixTurns = [];
-      let mergePrTurn = null;
+      const fixTurns: CodexTurnSummary[] = [];
+      let mergePrTurn: CodexTurnSummary | null = null;
       let prMerged = false;
-      let mergeVerification = null;
+      let mergeVerification: MergeVerification | null = null;
 
       if (pushAllowed) {
         try {
@@ -425,7 +459,7 @@ async function main() {
     }
   });
 
-  const pushOutcomes = [];
+  const pushOutcomes: PushOutcome[] = [];
   for (const result of results) {
     if (!result || result.error || result.dryRun) {
       continue;
@@ -448,7 +482,8 @@ async function main() {
     }
 
     try {
-      await ensurePushed(result.pr, result.worktreePath, config.remote, result.localBranch);
+      const localBranch = result.localBranch ?? `codex/pr-${result.pr.number}`;
+      await ensurePushed(result.pr, result.worktreePath, config.remote, localBranch);
       pushOutcomes.push({ pr: result.pr, success: true, skipped: false, reason: "post-run", source: "post" });
     } catch (error) {
       pushOutcomes.push({ pr: result.pr, success: false, skipped: false, reason: "post-run-failed", source: "post", error });
@@ -456,7 +491,7 @@ async function main() {
     }
   }
 
-  const cleanupOutcomes = [];
+  const cleanupOutcomes: CleanupOutcome[] = [];
   for (const worktreePath of createdWorktrees) {
     try {
       if (process.platform === "darwin") {
@@ -931,7 +966,7 @@ function formatToolSummary(toolCalls: ToolCallSummary[]): string {
   return `Tools (${formatted.length}): ${formatted.join(', ')}`;
 }
 
-function statusPriority(status?: string): number {
+function statusPriority(status?: string | null): number {
   switch (status) {
     case "failed":
     case "error":
@@ -945,7 +980,7 @@ function statusPriority(status?: string): number {
   }
 }
 
-function statusSymbol(status?: string): string {
+function statusSymbol(status?: string | null): string {
   switch (status) {
     case "completed":
       return "✓";
@@ -992,14 +1027,16 @@ function formatCommandError(error: unknown): string {
   return [stderr, stdout, message].filter((part) => part.length > 0).join(" ") || "unknown error";
 }
 
-function isPushAllowed(pr, config) {
-  if (!config.repoOwner) {
+function isPushAllowed(pr: PullRequestInfo, config: RunConfig): boolean {
+  const repoOwner = config.repoOwner;
+  if (!repoOwner) {
     return true;
   }
-  if (!pr.headRepositoryOwnerLogin) {
+  const prOwner = pr.headRepositoryOwnerLogin;
+  if (!prOwner) {
     return true;
   }
-  return pr.headRepositoryOwnerLogin.toLowerCase() === config.repoOwner.toLowerCase();
+  return prOwner.toLowerCase() === repoOwner.toLowerCase();
 }
 
 async function detectNewExamples(worktreePath: string, remote: string): Promise<string[]> {
@@ -1282,15 +1319,15 @@ function parseRepoSlug(url: string | null | undefined): string | null {
   return null;
 }
 
-function summarizeResults(results, pushOutcomes, cleanupOutcomes) {
-  const agentSuccesses = [];
-  const agentFailures = [];
-  const dryRuns = [];
-  const ghFailures = [];
-  const mergedPrs = [];
-  const mergeIssues = [];
-  const remediationAttempts = [];
-  const buildAttempts = [];
+function summarizeResults(results: RunResult[], pushOutcomes: PushOutcome[], cleanupOutcomes: CleanupOutcome[]): void {
+  const agentSuccesses: number[] = [];
+  const agentFailures: { number: number; message: string }[] = [];
+  const dryRuns: number[] = [];
+  const ghFailures: { number: number; output: { stdout: string; stderr: string; exitCode: number | null } }[] = [];
+  const mergedPrs: number[] = [];
+  const mergeIssues: { number: number; message: string }[] = [];
+  const remediationAttempts: { number: number; attempts: number }[] = [];
+  const buildAttempts: { number: number; attempts: number }[] = [];
 
   for (const result of results) {
     if (!result) {
