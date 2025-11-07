@@ -265,6 +265,7 @@ pub fn create_client() -> CodexHttpClient {
     let ua = get_codex_user_agent();
 
     let mut builder = reqwest::Client::builder()
+        .use_rustls_tls()
         // Set UA via dedicated helper to avoid header validation pitfalls
         .user_agent(ua)
         .default_headers(headers);
