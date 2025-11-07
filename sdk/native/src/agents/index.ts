@@ -28,6 +28,8 @@
 
 export { CodexProvider } from "./CodexProvider";
 export type { CodexProviderOptions } from "./CodexProvider";
+export { codexTool } from "./codexTool";
+export type { CodexToolOptions } from "./codexTool";
 
 // Re-export types for convenience
 export type {
