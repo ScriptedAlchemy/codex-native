@@ -572,58 +572,52 @@ class CodexModel implements Model {
     } else {
       // Convert AgentInputItem[] to UserInput[]
       for (const item of request.input) {
-        // Handle different item types
-        if (item.type === "function_call_result") {
-          // Tool results - for now, convert to text describing the result
-          const result = item as any;
-          parts.push({
-            type: "text",
-            text: `[Tool ${result.name} returned: ${result.result}]`
-          });
-        } else if (item.type === "reasoning") {
-          // Reasoning content
-          const reasoning = item as any;
-          parts.push({
-            type: "text",
-            text: `[Reasoning: ${reasoning.content || reasoning.reasoning}]`
-          });
-        } else if ((item.type === "message" || item.type === undefined) && 'role' in item) {
-          // Message item - extract content
-          const messageItem = item as any;
-          const content = messageItem.content;
-
-          if (typeof content === "string") {
-            parts.push({ type: "text", text: content });
-          } else if (Array.isArray(content)) {
-            // Process content array
-            for (const contentItem of content) {
-              if (contentItem.type === "input_text") {
-                parts.push({ type: "text", text: contentItem.text });
-              } else if (contentItem.type === "input_image") {
-                const imagePath = await this.handleImageInput(contentItem);
-                if (imagePath) {
-                  parts.push({ type: "local_image", path: imagePath });
-                }
-              } else if (contentItem.type === "input_file") {
-                throw new Error(
-                  `CodexProvider does not yet support input_file type. ` +
-                  `File handling needs to be implemented based on file type and format.`
-                );
-              } else if (contentItem.type === "audio") {
-                throw new Error(
-                  `CodexProvider does not yet support audio type. ` +
-                  `Audio handling needs to be implemented.`
-                );
-              } else if (contentItem.type === "refusal") {
-                parts.push({
-                  type: "text",
-                  text: `[Refusal: ${contentItem.refusal}]`
-                });
-              } else if (contentItem.type === "output_text") {
-                parts.push({ type: "text", text: contentItem.text });
-              }
+        switch (item.type) {
+          case "input_text":
+            parts.push({ type: "text", text: item.text });
+            break;
+          case "reasoning_text":
+            parts.push({ type: "text", text: `[Reasoning: ${item.text}]` });
+            break;
+          case "input_image": {
+            const imagePath = await this.handleImageInput(item as any);
+            if (imagePath) {
+              parts.push({ type: "local_image", path: imagePath });
             }
+            break;
           }
+          case "input_file":
+            throw new Error(
+              `CodexProvider does not yet support input_file type. ` +
+              `File handling needs to be implemented based on file type and format.`
+            );
+          case "input_audio":
+            throw new Error(
+              `CodexProvider does not yet support input_audio type. ` +
+              `Audio handling needs to be implemented.`
+            );
+          case "function_call_result": {
+            const result = item as any;
+            parts.push({
+              type: "text",
+              text: `[Tool ${result.name} returned: ${result.result}]`
+            });
+            break;
+          }
+          case "input_refusal": {
+            const refusal = item as any;
+            parts.push({
+              type: "text",
+              text: `[Refusal: ${refusal.refusal}]`
+            });
+            break;
+          }
+          default:
+            // Fallback: if the item includes direct text content, include it
+            if ((item as any)?.text) {
+              parts.push({ type: "text", text: (item as any).text });
+            }
+            break;
         }
       }
     }
@@ -646,9 +640,9 @@ class CodexModel implements Model {
 
     const converted = new Usage({
       requests: 1,
-      input_tokens: usage.input_tokens,
-      output_tokens: usage.output_tokens,
-      total_tokens: usage.input_tokens + usage.output_tokens,
+      inputTokens: usage.input_tokens,
+      outputTokens: usage.output_tokens,
+      totalTokens: usage.input_tokens + usage.output_tokens,
     });
 
     if (usage.cached_input_tokens) {
