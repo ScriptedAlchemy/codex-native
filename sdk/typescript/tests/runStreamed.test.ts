@@ -33,7 +33,8 @@ describe("Codex", () => {
         events.push(event);
       }
 
-      expect(events).toEqual([
+      const structuredEvents = events.filter((event) => event.type !== "raw_event");
+      expect(structuredEvents).toEqual([
         {
           type: "thread.started",
           thread_id: expect.any(String),
@@ -58,6 +59,9 @@ describe("Codex", () => {
           },
         },
       ]);
+
+      const rawEvents = events.filter((event) => event.type === "raw_event");
+      expect(rawEvents.length).toBeGreaterThan(0);
       expect(thread.id).toEqual(expect.any(String));
     } finally {
       await close();
