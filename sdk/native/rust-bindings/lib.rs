@@ -280,7 +280,7 @@ impl RunRequest {
       base_url: self.base_url,
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
-      full_auto: self.full_auto.unwrap_or(false),
+      full_auto: self.full_auto.unwrap_or(true),
     })
   }
 }
