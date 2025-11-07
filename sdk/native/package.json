@@ -2,8 +2,16 @@
   "name": "@codex-native/sdk",
   "version": "0.0.1",
   "description": "Native NAPI-based Codex SDK - complete standalone implementation.",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
   "files": [
     "dist",
     "README.md",
@@ -11,10 +19,14 @@
     "*.node"
   ],
   "scripts": {
-    "build": "npm run build:napi && npm run build:ts",
+    "clean": "rm -rf dist *.node npm target/release/*.node && cargo clean --release",
+    "clean:all": "rm -rf dist *.node npm target node_modules && cargo clean",
+    "build": "npm run build:rust && npm run build:napi && npm run build:ts && npm run verify:build",
+    "build:rust": "cargo fmt && cargo clippy --release -- -D warnings",
     "build:napi": "napi build --platform --release",
     "build:napi:debug": "napi build --platform",
     "build:ts": "tsup",
+    "verify:build": "node -e \"const fs=require('fs');const hasNode=fs.existsSync('codex_native.darwin-arm64.node')||fs.existsSync('codex_native.linux-x64-gnu.node')||fs.existsSync('codex_native.win32-x64-msvc.node');const hasDist=fs.existsSync('dist/index.mjs')&&fs.existsSync('dist/index.d.mts');if(!hasNode||!hasDist){console.error('Build incomplete: missing .node or dist files');process.exit(1)}console.log('✓ Build verification passed')\"",
     "create-npm-dirs": "napi create-npm-dirs",
     "artifacts": "napi artifacts",
     "prepublishOnly": "napi prepublish -t npm",
@@ -22,6 +34,8 @@
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch",
     "coverage": "NODE_OPTIONS=--experimental-vm-modules jest --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "cargo fmt --check && cargo clippy --release -- -D warnings && npm run typecheck",
     "version": "napi version",
     "release:patch": "npm version patch && npm run release",
     "release:minor": "npm version minor && npm run release",

@@ -37,6 +37,7 @@ export interface RunRequest {
   baseUrl?: string
   apiKey?: string
   linuxSandboxPath?: string
+  fullAuto?: boolean
 }
 
 export declare function runThread(req: RunRequest): Promise<Array<string>>
