@@ -89,6 +89,12 @@ type BuildErrorDetails = {
   message: string;
 };
 
+type ThreadKind = "build" | "merge" | "fix" | "merge_pr";
+
+type ThreadRegistryRecord = Partial<Record<ThreadKind, string>>;
+
+type ThreadRegistryData = Record<string, ThreadRegistryRecord>;
+
 interface PullRequestInfo {
   number: number;
   title: string;
@@ -101,6 +107,7 @@ interface PullRequestInfo {
 const DEFAULT_REMOTE = "origin";
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_MAX_FIX_ATTEMPTS = 3;
+const THREAD_REGISTRY_FILENAME = ".codex-pr-threads.json";
 const activeProcesses = new Set<ChildProcess>();
 
 function registerProcess(child: ChildProcess) {
@@ -136,6 +143,196 @@ process.on("SIGTERM", () => {
   process.exit(143);
 });
 
+const THREAD_KIND_VALUES: ThreadKind[] = ["build", "merge", "fix", "merge_pr"];
+
+const THREAD_KIND_LABELS: Record<ThreadKind, string> = {
+  build: "build remediation",
+  merge: "merge preparation",
+  fix: "remediation",
+  merge_pr: "PR merge",
+};
+
+class ThreadRegistry {
+  private readonly filePath: string;
+  private data: ThreadRegistryData = {};
+  private loaded = false;
+  private loadingPromise: Promise<void> | null = null;
+  private writeChain: Promise<void> = Promise.resolve();
+
+  constructor(filePath: string) {
+    this.filePath = filePath;
+  }
+
+  async initialize(): Promise<void> {
+    await this.ensureLoaded();
+  }
+
+  async get(prNumber: number, kind: ThreadKind): Promise<string | null> {
+    await this.ensureLoaded();
+    const key = String(prNumber);
+    return this.data[key]?.[kind] ?? null;
+  }
+
+  async set(prNumber: number, kind: ThreadKind, threadId: string): Promise<void> {
+    if (!threadId) {
+      return;
+    }
+    await this.runExclusive(async () => {
+      await this.ensureLoaded();
+      const key = String(prNumber);
+      if (!this.data[key]) {
+        this.data[key] = {};
+      }
+      this.data[key]![kind] = threadId;
+      await this.persist();
+    });
+  }
+
+  async clear(prNumber: number, kind?: ThreadKind): Promise<void> {
+    await this.runExclusive(async () => {
+      await this.ensureLoaded();
+      const key = String(prNumber);
+      const record = this.data[key];
+      if (!record) {
+        return;
+      }
+      if (kind) {
+        delete record[kind];
+        if (Object.keys(record).length === 0) {
+          delete this.data[key];
+        }
+      } else {
+        delete this.data[key];
+      }
+      await this.persist();
+    });
+  }
+
+  private async ensureLoaded(): Promise<void> {
+    if (this.loaded) {
+      return;
+    }
+    if (this.loadingPromise) {
+      await this.loadingPromise;
+      return;
+    }
+    this.loadingPromise = (async () => {
+      try {
+        const contents = await fs.readFile(this.filePath, "utf8");
+        this.data = this.normalizeData(JSON.parse(contents));
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException)?.code;
+        if (code !== "ENOENT") {
+          console.warn(`Failed to load Codex thread registry at ${this.filePath}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        this.data = {};
+      }
+      this.loaded = true;
+    })();
+    await this.loadingPromise;
+  }
+
+  private normalizeData(value: unknown): ThreadRegistryData {
+    if (!value || typeof value !== "object") {
+      return {};
+    }
+    const normalized: ThreadRegistryData = {};
+    for (const [prNumber, recordValue] of Object.entries(value as Record<string, unknown>)) {
+      if (!recordValue || typeof recordValue !== "object") {
+        continue;
+      }
+      const record: ThreadRegistryRecord = {};
+      for (const kind of THREAD_KIND_VALUES) {
+        const threadId = (recordValue as Record<string, unknown>)[kind];
+        if (typeof threadId === "string" && threadId.trim()) {
+          record[kind] = threadId;
+        }
+      }
+      if (Object.keys(record).length > 0) {
+        normalized[prNumber] = record;
+      }
+    }
+    return normalized;
+  }
+
+  private async persist(): Promise<void> {
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+    await fs.writeFile(this.filePath, `${JSON.stringify(this.data, null, 2)}\n`);
+  }
+
+  private runExclusive<T>(fn: () => Promise<T> | T): Promise<T> {
+    const next = this.writeChain.then(() => fn());
+    this.writeChain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+}
+
+type ThreadAcquisitionParams = {
+  codex: Codex;
+  registry: ThreadRegistry;
+  prNumber: number;
+  kind: ThreadKind;
+  prefix: string;
+  makeThreadOptions: () => ThreadOptions;
+};
+
+async function acquireThreadForKind(params: ThreadAcquisitionParams): Promise<Thread> {
+  const { codex, registry, prNumber, kind, prefix, makeThreadOptions } = params;
+  const existingId = await registry.get(prNumber, kind);
+  if (existingId) {
+    try {
+      logWithPrefix(prefix, `Reusing Codex ${THREAD_KIND_LABELS[kind]} thread (${existingId}).`);
+      return codex.resumeThread(existingId, makeThreadOptions());
+    } catch (error) {
+      logWithPrefix(prefix, `Failed to resume Codex ${THREAD_KIND_LABELS[kind]} thread (${existingId}): ${formatErrorMessage(error)}. Starting a new thread.`);
+      await clearThreadIdWithWarning(registry, prNumber, kind, prefix);
+    }
+  }
+
+  logWithPrefix(prefix, `Starting new Codex ${THREAD_KIND_LABELS[kind]} thread.`);
+  return codex.startThread(makeThreadOptions());
+}
+
+async function persistThreadIdWithWarning(
+  registry: ThreadRegistry,
+  prNumber: number,
+  kind: ThreadKind,
+  threadId: string | null,
+  prefix: string,
+): Promise<void> {
+  if (!threadId) {
+    return;
+  }
+  try {
+    await registry.set(prNumber, kind, threadId);
+  } catch (error) {
+    logWithPrefix(prefix, `Warning: failed to persist Codex ${THREAD_KIND_LABELS[kind]} thread id (${threadId}): ${formatErrorMessage(error)}`);
+  }
+}
+
+async function clearThreadIdWithWarning(
+  registry: ThreadRegistry,
+  prNumber: number,
+  kind: ThreadKind,
+  prefix: string,
+): Promise<void> {
+  try {
+    await registry.clear(prNumber, kind);
+  } catch (error) {
+    logWithPrefix(prefix, `Warning: failed to clear Codex ${THREAD_KIND_LABELS[kind]} thread id: ${formatErrorMessage(error)}`);
+  }
+}
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 async function main() {
   const config = await buildConfig();
 
@@ -144,6 +341,9 @@ async function main() {
   await ensureBinaryAvailable("pnpm");
 
   await fs.mkdir(config.worktreeRoot, { recursive: true });
+  const threadRegistryPath = path.join(config.repoRoot, THREAD_REGISTRY_FILENAME);
+  const threadRegistry = new ThreadRegistry(threadRegistryPath);
+  await threadRegistry.initialize();
 
   const prs = await listOpenPullRequests(config);
   if (prs.length === 0) {
@@ -281,10 +481,22 @@ async function main() {
         skipGitRepoCheck: true,
       });
       const buildPrefix = `${basePrefix} [build#${buildAttempts}]`;
-      const buildThread = codex.startThread(makeThreadOptions());
+      const buildThread = await acquireThreadForKind({
+        codex,
+        registry: threadRegistry,
+        prNumber: pr.number,
+        kind: "build",
+        prefix: buildPrefix,
+        makeThreadOptions,
+      });
       const buildPrompt = buildBuildFailurePrompt(pr, worktreePath, buildError, buildAttempts);
       logWithPrefix(buildPrefix, "Starting Codex build remediation turn...");
-      const buildFixTurn = await runCodexTurnWithLogging(buildThread, buildPrompt, buildPrefix);
+      let buildFixTurn: CodexTurnSummary;
+      try {
+        buildFixTurn = await runCodexTurnWithLogging(buildThread, buildPrompt, buildPrefix);
+      } finally {
+        await persistThreadIdWithWarning(threadRegistry, pr.number, "build", buildThread.id, buildPrefix);
+      }
       buildFixTurns.push(buildFixTurn);
       logWithPrefix(buildPrefix, "Build remediation summary:");
       logWithPrefix(buildPrefix, buildFixTurn.finalResponse.trim());
@@ -325,13 +537,23 @@ async function main() {
         skipGitRepoCheck: true,
       });
 
-      const mergeThread = codex.startThread(makeThreadOptions());
-
       const mergePrefix = `${basePrefix} [merge]`;
+      const mergeThread = await acquireThreadForKind({
+        codex,
+        registry: threadRegistry,
+        prNumber: pr.number,
+        kind: "merge",
+        prefix: mergePrefix,
+        makeThreadOptions,
+      });
       const mergePrompt = buildMergePrompt(pr, worktreePath);
       logWithPrefix(mergePrefix, "Starting Codex merge turn...");
-
-      const mergeTurn = await runCodexTurnWithLogging(mergeThread, mergePrompt, mergePrefix);
+      let mergeTurn: CodexTurnSummary;
+      try {
+        mergeTurn = await runCodexTurnWithLogging(mergeThread, mergePrompt, mergePrefix);
+      } finally {
+        await persistThreadIdWithWarning(threadRegistry, pr.number, "merge", mergeThread.id, mergePrefix);
+      }
 
       logWithPrefix(mergePrefix, "Merge summary:");
       logWithPrefix(mergePrefix, mergeTurn.finalResponse.trim());
@@ -364,13 +586,24 @@ async function main() {
       while (!ghChecksResult.success && attempts < config.maxFixAttempts) {
         attempts += 1;
 
-        const fixThread = codex.startThread(makeThreadOptions());
-
         const fixPrefix = `${basePrefix} [checks#${attempts}]`;
+        const fixThread = await acquireThreadForKind({
+          codex,
+          registry: threadRegistry,
+          prNumber: pr.number,
+          kind: "fix",
+          prefix: fixPrefix,
+          makeThreadOptions,
+        });
         const fixPrompt = buildFixPrompt(pr, worktreePath, newExamples, ghChecksResult, attempts);
         logWithPrefix(fixPrefix, "Starting Codex remediation turn...");
 
-        const fixTurn = await runCodexTurnWithLogging(fixThread, fixPrompt, fixPrefix);
+        let fixTurn: CodexTurnSummary;
+        try {
+          fixTurn = await runCodexTurnWithLogging(fixThread, fixPrompt, fixPrefix);
+        } finally {
+          await persistThreadIdWithWarning(threadRegistry, pr.number, "fix", fixThread.id, fixPrefix);
+        }
         fixTurns.push(fixTurn);
 
         logWithPrefix(fixPrefix, "Remediation summary:");
@@ -401,13 +634,23 @@ async function main() {
       } else {
         logWithPrefix(basePrefix, "gh pr checks --watch completed successfully; preparing to merge the PR.");
 
-        const mergePrThread = codex.startThread(makeThreadOptions());
-
         const mergePrPrefix = `${basePrefix} [pr-merge]`;
+        const mergePrThread = await acquireThreadForKind({
+          codex,
+          registry: threadRegistry,
+          prNumber: pr.number,
+          kind: "merge_pr",
+          prefix: mergePrPrefix,
+          makeThreadOptions,
+        });
         const mergePrPrompt = buildPrMergePrompt(pr, worktreePath);
         logWithPrefix(mergePrPrefix, "Starting Codex PR merge turn...");
 
-        mergePrTurn = await runCodexTurnWithLogging(mergePrThread, mergePrPrompt, mergePrPrefix);
+        try {
+          mergePrTurn = await runCodexTurnWithLogging(mergePrThread, mergePrPrompt, mergePrPrefix);
+        } finally {
+          await persistThreadIdWithWarning(threadRegistry, pr.number, "merge_pr", mergePrThread.id, mergePrPrefix);
+        }
 
         logWithPrefix(mergePrPrefix, "PR merge summary:");
         logWithPrefix(mergePrPrefix, mergePrTurn.finalResponse.trim());
