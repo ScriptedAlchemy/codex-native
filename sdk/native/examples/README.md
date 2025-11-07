@@ -66,6 +66,16 @@ Advanced multi-agent workflows.
   - Custom weather and temperature tools
   - Framework tool execution patterns
 
+- **`agents-guardrails.ts`** — Guardrails with CodexProvider
+  - Global and agent-level guardrails
+  - Blocking sensitive input before Codex runs
+  - Handling guardrail tripwire errors gracefully
+
+- **`agents-structured-output.ts`** — Structured JSON responses
+  - Zod-based output schema validation
+  - Conversation continuation with `previousResponseId`
+  - Release notes generation example
+
 ## Running Examples
 
 ### Prerequisites
