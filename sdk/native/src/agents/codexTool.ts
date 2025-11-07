@@ -3,12 +3,13 @@ import type { ToolExecutor, ToolExecutorResult } from "./toolRegistry";
 import { registerCodexToolExecutor } from "./toolRegistry";
 
 type BaseToolOptions = Parameters<typeof tool>[0];
+type AgentTool = ReturnType<typeof tool>;
 
 export type CodexToolOptions = BaseToolOptions & {
   codexExecute: (input: unknown) => Promise<unknown> | unknown;
 };
 
-export function codexTool(options: CodexToolOptions) {
+export function codexTool(options: CodexToolOptions): AgentTool {
   const { codexExecute, ...delegate } = options;
   const agentTool = tool(delegate as BaseToolOptions);
 
