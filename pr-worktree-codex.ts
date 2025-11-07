@@ -278,7 +278,6 @@ async function main() {
       const makeThreadOptions = (): ThreadOptions => ({
         workingDirectory: worktreePath,
         sandboxMode,
-        fullAuto: true,
         skipGitRepoCheck: true,
       });
       const buildPrefix = `${basePrefix} [build#${buildAttempts}]`;
@@ -323,7 +322,6 @@ async function main() {
       const makeThreadOptions = (): ThreadOptions => ({
         workingDirectory: worktreePath,
         sandboxMode,
-        fullAuto: true,
         skipGitRepoCheck: true,
       });
 

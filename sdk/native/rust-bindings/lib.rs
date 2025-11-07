@@ -230,6 +230,8 @@ pub struct RunRequest {
   pub api_key: Option<String>,
   #[napi(js_name = "linuxSandboxPath")]
   pub linux_sandbox_path: Option<String>,
+  #[napi(js_name = "fullAuto")]
+  pub full_auto: Option<bool>,
 }
 
 struct InternalRunRequest {
@@ -244,6 +246,7 @@ struct InternalRunRequest {
   base_url: Option<String>,
   api_key: Option<String>,
   linux_sandbox_path: Option<PathBuf>,
+  full_auto: bool,
 }
 
 impl RunRequest {
@@ -281,6 +284,7 @@ impl RunRequest {
       base_url: self.base_url,
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
+      full_auto: self.full_auto.unwrap_or(false),
     })
   }
 }
@@ -344,6 +348,10 @@ impl Drop for EnvOverrides {
 }
 
 fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli {
+  let sandbox_mode = options.sandbox_mode;
+  let wants_danger = matches!(sandbox_mode, Some(SandboxModeCliArg::DangerFullAccess));
+  let cli_full_auto = options.full_auto && !wants_danger;
+
   let command = options.thread_id.as_ref().map(|id| Command::Resume(ResumeArgs {
     session_id: Some(id.clone()),
     last: false,
@@ -355,10 +363,10 @@ fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli 
     images: options.images.clone(),
     model: options.model.clone(),
     oss: false,
-    sandbox_mode: options.sandbox_mode,
+    sandbox_mode,
     config_profile: None,
-    full_auto: true,
-    dangerously_bypass_approvals_and_sandbox: true,
+    full_auto: cli_full_auto,
+    dangerously_bypass_approvals_and_sandbox: wants_danger,
     cwd: options.working_directory.clone(),
     skip_git_repo_check: options.skip_git_repo_check,
     output_schema: schema_path,

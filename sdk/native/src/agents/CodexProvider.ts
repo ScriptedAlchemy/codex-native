@@ -44,6 +44,12 @@ export interface CodexProviderOptions extends CodexOptions {
    * @default false
    */
   skipGitRepoCheck?: boolean;
+
+  /**
+   * Sandbox policy to use when executing shell commands
+   * @default "danger-full-access"
+   */
+  sandboxMode?: ThreadOptions["sandboxMode"];
 }
 
 /**
@@ -163,7 +169,7 @@ class CodexModel implements Model {
       model: this.modelName,
       workingDirectory: this.options.workingDirectory,
       skipGitRepoCheck: this.options.skipGitRepoCheck,
-      fullAuto: true,
+      sandboxMode: this.options.sandboxMode ?? "danger-full-access",
     };
   }
 
