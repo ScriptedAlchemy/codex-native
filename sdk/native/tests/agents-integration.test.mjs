@@ -168,6 +168,8 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
     });
   });
 
+  const runRealAgentsTest = process.env.CODEX_NATIVE_REAL_AGENT_TEST === "1";
+
   describe("Real OpenAI Agents Integration", () => {
     it("works with Agent and Runner using mock backend", async () => {
       const { Agent, Runner } = await import("@openai/agents");
@@ -209,7 +211,7 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
       }
     }, 15000); // Longer timeout for runner execution
 
-    it("works with real Codex backend", async () => {
+    (runRealAgentsTest ? it : it.skip)("works with real Codex backend", async () => {
       // This test requires a real Codex backend (no API key needed)
 
       const { Agent, Runner } = await import("@openai/agents");

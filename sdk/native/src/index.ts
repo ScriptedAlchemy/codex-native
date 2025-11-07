@@ -43,5 +43,5 @@ export type {
 } from "./reviewOptions";
 
 // OpenAI Agents framework integration
-export { CodexProvider } from "./agents";
-export type { CodexProviderOptions } from "./agents";
+export { CodexProvider, codexTool } from "./agents";
+export type { CodexProviderOptions, CodexToolOptions } from "./agents";
