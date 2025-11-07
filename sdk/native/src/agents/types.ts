@@ -10,7 +10,7 @@ export type {
   SerializedOutputType,
 } from "@openai/agents-core";
 
-export type { Prompt } from "@openai/agents-core/dist/model";
+export type { Prompt } from "@openai/agents-core/model";
 
 export type {
   AgentInputItem,
