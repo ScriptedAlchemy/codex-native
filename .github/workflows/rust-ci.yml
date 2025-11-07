@@ -61,9 +61,8 @@ jobs:
         working-directory: codex-rs
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@1.91
         with:
-          toolchain: "1.90.0"
           components: rustfmt
       - name: cargo fmt
         run: cargo fmt -- --config imports_granularity=Item --check
@@ -80,10 +79,8 @@ jobs:
         working-directory: codex-rs
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.90.0"
-      - uses: taiki-e/install-action@0c5db7f7f897c03b771660e91d065338615679f4 # v2
+      - uses: dtolnay/rust-toolchain@1.90
+      - uses: taiki-e/install-action@6f9c7cc51aa54b13cbcbd12f8bbf69d8ba405b4b # v2
         with:
           tool: cargo-shear
           version: 1.5.1
@@ -155,9 +152,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@1.91
         with:
-          toolchain: "1.90.0"
           targets: ${{ matrix.target }}
           components: clippy
 
@@ -178,7 +174,7 @@ jobs:
 
       # Install and restore sccache cache
       - name: Install sccache
-        uses: taiki-e/install-action@0c5db7f7f897c03b771660e91d065338615679f4 # v2
+        uses: taiki-e/install-action@6f9c7cc51aa54b13cbcbd12f8bbf69d8ba405b4b # v2
         with:
           tool: sccache
           version: 0.7.5
@@ -236,7 +232,7 @@ jobs:
 
       - name: Install cargo-chef
         if: ${{ matrix.profile == 'release' }}
-        uses: taiki-e/install-action@0c5db7f7f897c03b771660e91d065338615679f4 # v2
+        uses: taiki-e/install-action@6f9c7cc51aa54b13cbcbd12f8bbf69d8ba405b4b # v2
         with:
           tool: cargo-chef
           version: 0.1.71
@@ -360,9 +356,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@1.91
         with:
-          toolchain: "1.90.0"
           targets: ${{ matrix.target }}
 
       - name: Restore cargo home cache
@@ -379,7 +374,7 @@ jobs:
             cargo-home-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-
 
       - name: Install sccache
-        uses: taiki-e/install-action@0c5db7f7f897c03b771660e91d065338615679f4 # v2
+        uses: taiki-e/install-action@6f9c7cc51aa54b13cbcbd12f8bbf69d8ba405b4b # v2
         with:
           tool: sccache
           version: 0.7.5
@@ -408,7 +403,7 @@ jobs:
             sccache-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-${{ hashFiles('**/Cargo.lock') }}-
             sccache-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-
 
-      - uses: taiki-e/install-action@0c5db7f7f897c03b771660e91d065338615679f4 # v2
+      - uses: taiki-e/install-action@6f9c7cc51aa54b13cbcbd12f8bbf69d8ba405b4b # v2
         with:
           tool: nextest
           version: 0.9.103

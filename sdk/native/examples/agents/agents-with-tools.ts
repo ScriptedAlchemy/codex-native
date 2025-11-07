@@ -6,12 +6,6 @@
  * - Create simple agents that interact via Codex
  * - Handle basic conversational queries
  *
- * Note: Custom tool execution (like weather tools defined in this file) is not
- * yet fully supported. The CodexProvider can execute Codex's built-in tools
- * (bash, file operations, web search, etc.) but bidirectional tool execution
- * with the OpenAI Agents framework requires additional integration work.
- * See CodexProvider.ts executeToolViaFramework() for details.
- *
  * Installation:
  * ```bash
  * npm install @codex-native/sdk @openai/agents zod
@@ -37,11 +31,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { z } from 'zod';
-import { Agent, run, withTrace, tool } from '@openai/agents';
-import { CodexProvider } from '../../src/index';
+import { Agent, run, withTrace } from '@openai/agents';
+import { CodexProvider, codexTool } from '../../src/index';
 
 // Define a weather tool using zod for type-safe parameters
-const getWeatherTool = tool({
+const getWeatherTool = codexTool({
   name: 'get_weather',
   description: 'Get the weather for a given city',
   parameters: z.object({
@@ -55,10 +49,16 @@ const getWeatherTool = tool({
     const temp = Math.floor(Math.random() * 30) + 10;
     return `The weather in ${input.city} is ${condition} with a temperature of ${temp}°C`;
   },
+  codexExecute: async (input) => {
+    const weatherConditions = ['sunny', 'cloudy', 'rainy', 'snowy'];
+    const condition = weatherConditions[Math.floor(Math.random() * weatherConditions.length)];
+    const temp = Math.floor(Math.random() * 30) + 10;
+    return `The weather in ${input.city} is ${condition} with a temperature of ${temp}°C`;
+  },
 });
 
 // Define a temperature conversion tool
-const convertTemperatureTool = tool({
+const convertTemperatureTool = codexTool({
   name: 'convert_temperature',
   description: 'Convert temperature between Celsius and Fahrenheit',
   parameters: z.object({
@@ -82,16 +82,25 @@ const convertTemperatureTool = tool({
 
     return `${input.value}°${input.from === 'celsius' ? 'C' : 'F'} is ${result.toFixed(1)}°${input.to === 'celsius' ? 'C' : 'F'}`;
   },
+  codexExecute: async (input) => {
+    if (input.from === input.to) {
+      return `${input.value}°${input.from === 'celsius' ? 'C' : 'F'}`;
+    }
+
+    let result: number;
+    if (input.from === 'celsius' && input.to === 'fahrenheit') {
+      result = (input.value * 9/5) + 32;
+    } else {
+      result = (input.value - 32) * 5/9;
+    }
+
+    return `${input.value}°${input.from === 'celsius' ? 'C' : 'F'} is ${result.toFixed(1)}°${input.to === 'celsius' ? 'C' : 'F'}`;
+  },
 });
 
 async function main() {
   console.log('🤖 OpenAI Agents with Codex Provider\n');
-  console.log('NOTE: This example demonstrates the CodexProvider integration,');
-  console.log('but custom tools (get_weather, convert_temperature) are not yet');
-  console.log('fully supported due to limitations in the current implementation.\n');
-  console.log('The CodexProvider can execute its built-in tools (bash, file operations,');
-  console.log('web search, etc.) but bidirectional tool execution with the OpenAI Agents');
-  console.log('framework requires additional integration work.\n');
+  console.log('Custom tools are now executed directly by Codex via codexTool().\n');
 
   // Create a temporary directory to avoid loading workspace AGENTS.md
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-agents-example-'));
@@ -137,9 +146,7 @@ async function main() {
   console.log('✓ Example complete!');
   console.log('\nKey takeaways:');
   console.log('  • CodexProvider successfully integrates with OpenAI Agents framework');
-  console.log('  • Basic queries work without custom tools');
-  console.log('  • Custom tool execution requires bidirectional framework integration');
-  console.log('  • See CodexProvider.ts executeToolViaFramework() for details');
+  console.log('  • Custom tools defined with codexTool() run inside Codex threads');
 
   // Cleanup
   try {
