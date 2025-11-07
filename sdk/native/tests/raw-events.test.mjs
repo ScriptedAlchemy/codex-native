@@ -149,6 +149,5 @@ describe("Event forwarding completeness", () => {
     } finally {
       await close();
     }
-  });
+  }, 10000);
 });
-

@@ -13,12 +13,19 @@ importers:
 
   .:
     devDependencies:
+      '@codex-native/sdk':
+        specifier: workspace:*
+        version: link:sdk/native
       '@napi-rs/cli':
         specifier: ^2.18.4
         version: 2.18.4
       prettier:
         specifier: ^3.5.3
         version: 3.5.3
+
+  codex-cli: {}
+
+  codex-rs/responses-api-proxy/npm: {}
 
   sdk/native:
     devDependencies:

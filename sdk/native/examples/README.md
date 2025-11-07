@@ -109,6 +109,14 @@ Advanced multi-agent workflows.
   - Multi-agent workflow tracing
   - Error tracing and debugging
 
+### `/diagnostics` - Troubleshooting Utilities
+Quick scripts to validate local environments.
+
+- **`gh-network-check.ts`** — GitHub CLI connectivity probe
+  - Ensures `gh` is available inside Codex runs
+  - Confirms TLS trust store configuration by hitting `https://api.github.com`
+  - Highlights command outputs and exit codes for fast debugging
+
 ## Running Examples
 
 ### Prerequisites
