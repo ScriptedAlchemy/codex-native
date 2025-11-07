@@ -7,13 +7,31 @@ export type OutputSchemaFile = {
   cleanup: () => Promise<void>;
 };
 
-export async function createOutputSchemaFile(schema: unknown): Promise<OutputSchemaFile> {
+export function normalizeOutputSchema(schema: unknown): Record<string, unknown> | undefined {
   if (schema === undefined) {
-    return { cleanup: async () => {} };
+    return undefined;
   }
 
   if (!isJsonObject(schema)) {
     throw new Error("outputSchema must be a plain JSON object");
+  }
+
+  const record = { ...schema } as Record<string, unknown> & {
+    additionalProperties?: unknown;
+  };
+  const additionalProperties =
+    typeof record.additionalProperties === "boolean" ? record.additionalProperties : false;
+
+  return {
+    ...record,
+    additionalProperties,
+  };
+}
+
+export async function createOutputSchemaFile(schema: unknown): Promise<OutputSchemaFile> {
+  const normalizedSchema = normalizeOutputSchema(schema);
+  if (!normalizedSchema) {
+    return { cleanup: async () => {} };
   }
 
   const schemaDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-output-schema-"));
@@ -27,7 +45,7 @@ export async function createOutputSchemaFile(schema: unknown): Promise<OutputSch
   };
 
   try {
-    await fs.writeFile(schemaPath, JSON.stringify(schema), "utf8");
+    await fs.writeFile(schemaPath, JSON.stringify(normalizedSchema), "utf8");
     return { schemaPath, cleanup };
   } catch (error) {
     await cleanup();

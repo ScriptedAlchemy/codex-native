@@ -13,6 +13,12 @@ export type CodexExecArgs = {
   skipGitRepoCheck?: boolean;
   outputSchemaFile?: string;
   outputSchema?: unknown;
+  fullAuto?: boolean;
+  review?: ReviewExecOptions | null;
+};
+
+export type ReviewExecOptions = {
+  userFacingHint?: string;
 };
 
 /**
@@ -32,6 +38,10 @@ export class CodexExec {
     this.native = nativeBinding;
   }
 
+  requiresOutputSchemaFile(): boolean {
+    return false;
+  }
+
   async *run(args: CodexExecArgs): AsyncGenerator<string> {
     const binding = this.native;
     const queue = new AsyncQueue<string>();
@@ -47,9 +57,12 @@ export class CodexExec {
       outputSchema: args.outputSchema,
       baseUrl: args.baseUrl,
       apiKey: args.apiKey,
+      fullAuto: args.fullAuto,
+      reviewMode: args.review ? true : undefined,
+      reviewHint: args.review?.userFacingHint,
     };
 
-    let runPromise: Promise<void>;
+    let runPromise: Promise<void> = Promise.resolve();
     try {
       runPromise = binding
         .runThreadStream(request, (err, eventJson) => {

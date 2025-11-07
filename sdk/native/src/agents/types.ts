@@ -136,6 +136,7 @@ export interface ModelResponse {
 }
 
 export interface Usage {
+  requests: number;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -156,9 +157,9 @@ export type AgentOutputItem =
   | Reasoning;
 
 export interface AssistantMessageItem {
-  type: "assistant_message";
+  type?: "message" | "assistant_message";
   role: "assistant";
-  status: "in_progress" | "completed";
+  status: "in_progress" | "completed" | "incomplete";
   content: OutputContent[];
 }
 

@@ -28,6 +28,7 @@ use codex_exec::exec_events::McpToolCallItemResult;
 use codex_exec::exec_events::McpToolCallStatus;
 use codex_exec::exec_events::PatchApplyStatus;
 use codex_exec::exec_events::PatchChangeKind;
+use codex_exec::exec_events::RawEvent;
 use codex_exec::exec_events::ReasoningItem;
 use codex_exec::exec_events::ThreadErrorEvent;
 use codex_exec::exec_events::ThreadEvent;
@@ -753,7 +754,14 @@ fn exec_command_end_without_begin_is_ignored() {
         }),
     );
     let out = ep.collect_thread_events(&end_only);
-    assert!(out.is_empty());
+    assert_eq!(out.len(), 1);
+    match &out[0] {
+        ThreadEvent::Raw(raw) => {
+            assert_eq!(raw.raw["type"], "exec_command_end");
+            assert_eq!(raw.raw["call_id"], "no-begin");
+        }
+        other => panic!("expected raw event, got {other:?}"),
+    }
 }
 
 #[test]
@@ -782,7 +790,7 @@ fn patch_apply_success_produces_item_completed_patchapply() {
         },
     );
 
-    // Begin -> no output
+    // Begin -> raw event forwarded
     let begin = event(
         "p1",
         EventMsg::PatchApplyBegin(PatchApplyBeginEvent {
@@ -792,7 +800,11 @@ fn patch_apply_success_produces_item_completed_patchapply() {
         }),
     );
     let out_begin = ep.collect_thread_events(&begin);
-    assert!(out_begin.is_empty());
+    assert_eq!(out_begin.len(), 1);
+    match &out_begin[0] {
+        ThreadEvent::Raw(raw) => assert_eq!(raw.raw["type"], "patch_apply_begin"),
+        other => panic!("expected raw event, got {other:?}"),
+    }
 
     // End (success) -> item.completed (item_0)
     let end = event(
@@ -860,7 +872,12 @@ fn patch_apply_failure_produces_item_completed_patchapply_failed() {
             changes: changes.clone(),
         }),
     );
-    assert!(ep.collect_thread_events(&begin).is_empty());
+    let begin_events = ep.collect_thread_events(&begin);
+    assert_eq!(begin_events.len(), 1);
+    match &begin_events[0] {
+        ThreadEvent::Raw(raw) => assert_eq!(raw.raw["type"], "patch_apply_begin"),
+        other => panic!("expected raw event, got {other:?}"),
+    }
 
     // End (failure) -> item.completed (item_0) with Failed status
     let end = event(
@@ -916,7 +933,33 @@ fn task_complete_produces_turn_completed_with_usage() {
             rate_limits: None,
         }),
     );
-    assert!(ep.collect_thread_events(&token_count_event).is_empty());
+    let token_events = ep.collect_thread_events(&token_count_event);
+    assert_eq!(
+        token_events,
+        vec![ThreadEvent::Raw(RawEvent {
+            raw: json!({
+                "type": "token_count",
+                "info": {
+                    "total_token_usage": {
+                        "input_tokens": 1200,
+                        "cached_input_tokens": 200,
+                        "output_tokens": 345,
+                        "reasoning_output_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                    "last_token_usage": {
+                        "input_tokens": 1200,
+                        "cached_input_tokens": 200,
+                        "output_tokens": 345,
+                        "reasoning_output_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                    "model_context_window": null,
+                },
+                "rate_limits": null,
+            })
+        })]
+    );
 
     // Then TaskComplete should produce turn.completed with the captured usage.
     let complete_event = event(

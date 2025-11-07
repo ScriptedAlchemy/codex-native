@@ -44,7 +44,6 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
   describe("Provider Interface", () => {
     it("implements ModelProvider interface", () => {
       const provider = new CodexProvider({
-        apiKey: "test-key",
         skipGitRepoCheck: true,
       });
 
@@ -54,11 +53,10 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
 
     it("returns a Model instance from getModel()", () => {
       const provider = new CodexProvider({
-        apiKey: "test-key",
         skipGitRepoCheck: true,
       });
 
-      const model = provider.getModel("claude-sonnet-4.5");
+      const model = provider.getModel("gpt-5-codex");
 
       expect(model).toBeDefined();
       expect(typeof model.getResponse).toBe("function");
@@ -83,7 +81,6 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
   describe("Model Interface", () => {
     it("implements getResponse() method", async () => {
       const provider = new CodexProvider({
-        apiKey: "test-key",
         skipGitRepoCheck: true,
       });
 
@@ -99,7 +96,6 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
 
     it("implements getStreamedResponse() method", async () => {
       const provider = new CodexProvider({
-        apiKey: "test-key",
         skipGitRepoCheck: true,
       });
 
@@ -147,7 +143,7 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
       const options = {
         apiKey: "test-key",
         baseUrl: "https://test.example.com",
-        defaultModel: "claude-sonnet-4.5",
+        defaultModel: "gpt-5-codex",
         workingDirectory: "/tmp",
         skipGitRepoCheck: true,
       };
@@ -172,6 +168,8 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
     });
   });
 
+  const runRealAgentsTest = process.env.CODEX_NATIVE_REAL_AGENT_TEST === "1";
+
   describe("Real OpenAI Agents Integration", () => {
     it("works with Agent and Runner using mock backend", async () => {
       const { Agent, Runner } = await import("@openai/agents");
@@ -191,7 +189,6 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
       try {
         const provider = new CodexProvider({
           baseUrl: url,
-          apiKey: "test",
           skipGitRepoCheck: true,
         });
 
@@ -214,14 +211,12 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
       }
     }, 15000); // Longer timeout for runner execution
 
-    it.skip("works with real Codex backend (requires CODEX_API_KEY)", async () => {
-      // This test requires a real Codex backend
-      // Run with: CODEX_API_KEY=... npm test -- agents-integration
+    (runRealAgentsTest ? it : it.skip)("works with real Codex backend", async () => {
+      // This test requires a real Codex backend (no API key needed)
 
       const { Agent, Runner } = await import("@openai/agents");
 
       const provider = new CodexProvider({
-        apiKey: process.env.CODEX_API_KEY,
         skipGitRepoCheck: true,
         });
 
