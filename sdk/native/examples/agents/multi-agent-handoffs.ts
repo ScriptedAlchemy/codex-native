@@ -24,9 +24,25 @@
 
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { Agent, run, withTrace } from '@openai/agents';
 import { CodexProvider } from '../../src/index';
+
+function cleanupTmpDir(dir: string) {
+  try {
+    if (process.platform === 'win32') {
+      const child = spawn('cmd', ['/c', 'rd', '/s', '/q', dir], { detached: true, stdio: 'ignore' });
+      child.unref();
+      return;
+    }
+
+    const child = spawn('rm', ['-rf', dir], { detached: true, stdio: 'ignore' });
+    child.unref();
+  } catch {
+    void fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
 async function main() {
   console.log('🔄 Multi-Agent Handoffs Example\n');
@@ -262,12 +278,7 @@ class UserAuthenticator {
   console.log('  • Context is preserved across handoffs');
   console.log('  • CodexProvider enables all agents to use Codex capabilities');
 
-  // Cleanup asynchronously so the example exits promptly even if deletion lags.
-  void fs
-    .rm(tmpDir, { recursive: true, force: true })
-    .catch(() => {
-      // Ignore cleanup errors
-    });
+  cleanupTmpDir(tmpDir);
 }
 
 // Run if executed directly

@@ -305,6 +305,18 @@ class CodexModel implements Model {
   private async executeToolViaFramework(
     invocation: NativeToolInvocation
   ): Promise<NativeToolResult> {
+    if (!invocation) {
+      console.warn('Codex requested a tool execution without invocation data.');
+      return {
+        output: JSON.stringify({
+          message: 'Tool invocation payload missing',
+          note: 'Codex returned null invocation data so the tool was not executed.',
+        }),
+        success: false,
+        error: 'Missing tool invocation data from Codex',
+      };
+    }
+
     console.log(
       `Tool execution requested by Codex: ${invocation.toolName} (callId: ${invocation.callId})`
     );
