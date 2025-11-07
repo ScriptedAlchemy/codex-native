@@ -6,6 +6,7 @@ import type { Input, UserInput } from "../thread";
 import type { CodexOptions, NativeToolDefinition } from "../codexOptions";
 import type { ThreadOptions } from "../threadOptions";
 import type { NativeToolInvocation, NativeToolResult } from "../nativeBinding";
+import { getCodexToolExecutor, type ToolExecutor, type ToolExecutionContext, type ToolExecutorResult } from "./toolRegistry";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -43,6 +44,12 @@ export interface CodexProviderOptions extends CodexOptions {
    * @default false
    */
   skipGitRepoCheck?: boolean;
+
+  /**
+   * Sandbox policy to use when executing shell commands
+   * @default "danger-full-access"
+   */
+  sandboxMode?: ThreadOptions["sandboxMode"];
 }
 
 /**
@@ -117,10 +124,7 @@ class CodexModel implements Model {
   private thread: Thread | null = null;
   private options: CodexProviderOptions;
   private registeredTools: Set<string> = new Set();
-  private pendingToolCalls: Map<string, {
-    resolve: (result: string) => void;
-    reject: (error: Error) => void;
-  }> = new Map();
+  private toolExecutors: Map<string, ToolExecutor> = new Map();
   private tempImageFiles: Set<string> = new Set();
 
   constructor(codex: Codex, modelName: string | undefined, options: CodexProviderOptions) {
@@ -165,7 +169,7 @@ class CodexModel implements Model {
       model: this.modelName,
       workingDirectory: this.options.workingDirectory,
       skipGitRepoCheck: this.options.skipGitRepoCheck,
-      fullAuto: true,
+      sandboxMode: this.options.sandboxMode ?? "danger-full-access",
     };
   }
 
@@ -249,6 +253,8 @@ class CodexModel implements Model {
    * and registers them with the Codex instance for bidirectional tool execution.
    */
   private registerRequestTools(tools: SerializedTool[]): void {
+    this.toolExecutors.clear();
+
     for (const tool of tools) {
       if (tool.type !== "function") {
         continue;
@@ -256,10 +262,19 @@ class CodexModel implements Model {
 
       // Skip if already registered
       if (this.registeredTools.has(tool.name)) {
+        const executor = this.resolveToolExecutor(tool.name);
+        if (executor) {
+          this.toolExecutors.set(tool.name, executor);
+        }
         continue;
       }
 
       try {
+        const executor = this.resolveToolExecutor(tool.name);
+        if (executor) {
+          this.toolExecutors.set(tool.name, executor);
+        }
+
         // Convert SerializedTool to NativeToolDefinition
         const nativeToolDef: NativeToolDefinition = {
           name: tool.name,
@@ -285,6 +300,10 @@ class CodexModel implements Model {
     }
   }
 
+  private resolveToolExecutor(toolName: string): ToolExecutor | undefined {
+    return getCodexToolExecutor(toolName);
+  }
+
   /**
    * Execute a tool via the OpenAI Agents framework
    *
@@ -305,46 +324,74 @@ class CodexModel implements Model {
   private async executeToolViaFramework(
     invocation: NativeToolInvocation
   ): Promise<NativeToolResult> {
-    console.log(
-      `Tool execution requested by Codex: ${invocation.toolName} (callId: ${invocation.callId})`
-    );
+    const executor = this.toolExecutors.get(invocation.toolName) ?? getCodexToolExecutor(invocation.toolName);
+    if (!executor) {
+      const message = `No Codex executor registered for tool '${invocation.toolName}'. Use codexTool() or provide a codexExecute handler.`;
+      console.warn(message);
+      return {
+        success: false,
+        error: message,
+        output: undefined,
+      };
+    }
 
-    // FRAMEWORK INTEGRATION POINT:
-    // The framework would need to:
-    // 1. Listen for tool execution requests (e.g., via an event emitter)
-    // 2. Execute the tool using its own tool handlers
-    // 3. Resolve the pending promise with the result
-    //
-    // Example integration pattern (not implemented):
-    // ```
-    // this.emit('tool_execution_requested', {
-    //   toolName: invocation.toolName,
-    //   callId: invocation.callId,
-    //   arguments: invocation.arguments,
-    //   onResult: (result: string) => resolve({ output: result, success: true }),
-    //   onError: (error: string) => resolve({ error, success: false })
-    // });
-    // ```
+    let parsedArguments: unknown = {};
+    if (invocation.arguments) {
+      try {
+        parsedArguments = JSON.parse(invocation.arguments);
+      } catch (error) {
+        return {
+          success: false,
+          error: `Failed to parse tool arguments: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }
 
-    // For now, return a placeholder response indicating the tool was called
-    // but could not be executed without framework integration
-    return {
-      output: JSON.stringify({
-        message: "Tool execution via framework is not yet implemented",
-        toolName: invocation.toolName,
-        callId: invocation.callId,
-        arguments: invocation.arguments,
-        note: "This requires bidirectional communication between Codex and the OpenAI Agents framework. The framework needs to listen for tool execution requests and provide results back to Codex.",
-      }),
-      success: false,
-      error: "Framework integration not complete - tool execution requires the OpenAI Agents framework to handle the tool call and return results",
+    const context: ToolExecutionContext = {
+      name: invocation.toolName,
+      callId: invocation.callId,
+      arguments: parsedArguments,
+      rawInvocation: invocation,
     };
+
+    try {
+      const result = await executor(context);
+      return this.normalizeToolResult(result);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
    * Handle image input by converting to local file path
    * Supports: base64 data URLs, HTTP(S) URLs, and file IDs (not yet implemented)
    */
+  private normalizeToolResult(result: ToolExecutorResult): NativeToolResult {
+    if (result === undefined || result === null) {
+      return { success: true };
+    }
+
+    if (typeof result === "string") {
+      return { success: true, output: result };
+    }
+
+    if (typeof result === "object" && ("output" in result || "error" in result || "success" in result)) {
+      return {
+        success: result.success ?? !result.error,
+        output: result.output,
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      output: JSON.stringify(result),
+    };
+  }
+
   private async handleImageInput(item: any): Promise<string | null> {
     const imageValue = item.image;
 
