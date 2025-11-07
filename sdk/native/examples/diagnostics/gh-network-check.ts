@@ -1,5 +1,5 @@
 import { Codex } from "../../src/index";
-import type { CommandExecutionItem, ThreadItem } from "../../src/items";
+import type { CommandExecutionItem, ThreadItem } from "../../src/index";
 
 /**
  * Diagnostic script that asks Codex to run GitHub CLI commands inside a dangerous sandbox.
