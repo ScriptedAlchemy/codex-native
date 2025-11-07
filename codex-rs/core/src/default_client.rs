@@ -260,19 +260,33 @@ fn sanitize_user_agent(candidate: String, fallback: &str) -> String {
 pub fn create_client() -> CodexHttpClient {
     use reqwest::header::HeaderMap;
 
-    let mut headers = HeaderMap::new();
-    headers.insert("originator", originator().header_value.clone());
+    let mut default_headers = HeaderMap::new();
+    default_headers.insert("originator", originator().header_value.clone());
     let ua = get_codex_user_agent();
 
-    let mut builder = reqwest::Client::builder()
-        // Set UA via dedicated helper to avoid header validation pitfalls
-        .user_agent(ua)
-        .default_headers(headers);
-    if is_sandboxed() {
-        builder = builder.no_proxy();
-    }
+    let build_client = || {
+        let mut builder = reqwest::Client::builder()
+            .use_rustls_tls()
+            .user_agent(ua.clone())
+            .default_headers(default_headers.clone());
+        if is_sandboxed() {
+            builder = builder.no_proxy();
+        }
+        builder.build()
+    };
 
-    let inner = builder.build().unwrap_or_else(|_| reqwest::Client::new());
+    let inner = match build_client() {
+        Ok(client) => client,
+        Err(error) => {
+            tracing::error!(?error, "Failed to build reqwest client with rustls");
+            match build_client() {
+                Ok(client) => client,
+                Err(error) => {
+                    panic!("failed to build reqwest client with rustls: {error}");
+                }
+            }
+        }
+    };
     CodexHttpClient::new(inner)
 }
 
