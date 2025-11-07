@@ -31,6 +31,7 @@ result
 CLAUDE.md
 .claude/
 AGENTS.override.md
+.codex-pr-threads.json
 
 # caches
 .cache/
@@ -73,6 +74,7 @@ Icon?
 # Unwanted package managers
 .yarn/
 yarn.lock
+package-lock.json
 
 # release
 package.json-e
