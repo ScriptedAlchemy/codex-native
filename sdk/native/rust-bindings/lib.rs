@@ -38,30 +38,33 @@ fn ensure_embedded_linux_sandbox() -> napi::Result<PathBuf> {
 
   static SANDBOX_PATH: OnceLock<PathBuf> = OnceLock::new();
 
-  SANDBOX_PATH
-    .get_or_try_init(|| {
-      let root = std::env::temp_dir().join("codex-native");
-      fs::create_dir_all(&root).map_err(io_to_napi)?;
-      let target_path = root.join("codex-linux-sandbox");
+  // Check if already initialized
+  if let Some(path) = SANDBOX_PATH.get() {
+    return Ok(path.clone());
+  }
 
-      let mut tmp = NamedTempFile::new_in(&root).map_err(io_to_napi)?;
-      tmp.write_all(EMBEDDED_LINUX_SANDBOX_BYTES)
-        .map_err(io_to_napi)?;
-      tmp.flush().map_err(io_to_napi)?;
+  // Initialize the sandbox path
+  let root = std::env::temp_dir().join("codex-native");
+  fs::create_dir_all(&root).map_err(io_to_napi)?;
+  let target_path = root.join("codex-linux-sandbox");
 
-      let temp_path = tmp.into_temp_path();
-      if target_path.exists() {
-        fs::remove_file(&target_path).map_err(io_to_napi)?;
-      }
-      temp_path.persist(&target_path).map_err(|(_, err)| io_to_napi(err))?;
+  let mut tmp = NamedTempFile::new_in(&root).map_err(io_to_napi)?;
+  tmp.write_all(EMBEDDED_LINUX_SANDBOX_BYTES)
+    .map_err(io_to_napi)?;
+  tmp.flush().map_err(io_to_napi)?;
 
-      let mut perms = fs::metadata(&target_path).map_err(io_to_napi)?.permissions();
-      perms.set_mode(0o755);
-      fs::set_permissions(&target_path, perms).map_err(io_to_napi)?;
+  let temp_path = tmp.into_temp_path();
+  if target_path.exists() {
+    fs::remove_file(&target_path).map_err(io_to_napi)?;
+  }
+  temp_path.persist(&target_path).map_err(|err| io_to_napi(err.error))?;
 
-      Ok(target_path)
-    })
-    .cloned()
+  let mut perms = fs::metadata(&target_path).map_err(io_to_napi)?.permissions();
+  perms.set_mode(0o755);
+  fs::set_permissions(&target_path, perms).map_err(io_to_napi)?;
+
+  // Store the path and return it
+  Ok(SANDBOX_PATH.get_or_init(|| target_path.clone()).clone())
 }
 
 #[cfg(target_os = "linux")]
