@@ -1480,8 +1480,30 @@ async function pathExists(target: string): Promise<boolean> {
   }
 }
 
+async function isGhAuthenticated(): Promise<boolean> {
+  try {
+    await runCommand("gh", ["auth", "status"], {});
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 async function runGhPrChecks(pr: PullRequestInfo, worktreePath: string, basePrefix: string): Promise<GhChecksResult> {
   const prefix = `${basePrefix} [gh-checks]`;
+
+  // Check if gh is authenticated first
+  const isAuthenticated = await isGhAuthenticated();
+  if (!isAuthenticated) {
+    logWithPrefix(prefix, "Skipping gh pr checks (gh CLI not authenticated - run 'gh auth login' or set GH_TOKEN)");
+    return {
+      success: false,
+      stdout: "",
+      stderr: "gh CLI not authenticated",
+      exitCode: null
+    };
+  }
+
   logWithPrefix(prefix, "Running gh pr checks --watch ...");
 
   try {
