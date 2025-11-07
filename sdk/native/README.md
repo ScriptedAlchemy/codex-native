@@ -105,6 +105,53 @@ const thread = codex.resumeThread(savedThreadId);
 await thread.run("Implement the fix");
 ```
 
+### Running code reviews
+
+Invoke the native review workflow without crafting prompts manually. The SDK provides presets that mirror the `/review` slash command:
+
+```typescript
+const codex = new Codex();
+
+// Review everything that is staged, unstaged, or untracked
+const review = await codex.review({
+  target: { type: "current_changes" },
+});
+
+for (const finding of review.items) {
+  if (finding.type === "agent_message") {
+    console.log(finding.text);
+  }
+}
+```
+
+Additional presets let you review against another branch or a specific commit:
+
+```typescript
+await codex.review({
+  target: { type: "branch", baseBranch: "main" },
+});
+
+await codex.review({
+  target: {
+    type: "commit",
+    sha: "abc1234def5678",
+    subject: "Tighten input validation",
+  },
+});
+```
+
+For bespoke instructions, pass a custom prompt and optional hint:
+
+```typescript
+await codex.review({
+  target: {
+    type: "custom",
+    prompt: "Review only the data-access layer for regression risks.",
+    hint: "data-access layer",
+  },
+});
+```
+
 ### Working directory controls
 
 Codex runs in the current working directory by default. To avoid unrecoverable errors, Codex requires the working directory to be a Git repository. You can skip the Git repository check by passing the `skipGitRepoCheck` option when creating a thread.
@@ -123,6 +170,134 @@ The Native SDK provides additional capabilities beyond the TypeScript SDK:
 ### Custom Tool Registration
 
 Register JavaScript functions as tools that Codex can discover and invoke during execution. Tools are registered globally on the `Codex` instance and become available to all threads and agents.
+
+> **Override built-ins:** If you register a tool whose `name` matches one of Codex's built-in tools (for example `read_file`, `local_shell`, or `apply_patch`), the native implementation is replaced for the lifetime of that `Codex` instance. This lets you customize or disable default behaviors while keeping the same tool interface.
+
+#### Built-in tool override cheat sheet
+
+All snippets assume you already created an instance with `const codex = new Codex();`. Registering any of these names swaps out Codex's default implementation.
+
+- `shell` – sandboxed shell command runner (models without unified exec)
+  ```typescript
+  codex.registerTool({
+    name: "shell",
+    handler: () => ({ error: "Shell disabled by policy", success: false }),
+  });
+  ```
+
+- `exec_command` – streaming command execution (available when unified exec is enabled)
+  ```typescript
+  codex.registerTool({
+    name: "exec_command",
+    handler: (_, invocation) => ({
+      output: `Pretend ran: ${invocation.arguments}`,
+      success: true,
+    }),
+  });
+  ```
+
+- `write_stdin` – feeds additional input into an in-flight `exec_command`
+  ```typescript
+  codex.registerTool({
+    name: "write_stdin",
+    handler: () => ({ output: "stdin blocked", success: false }),
+  });
+  ```
+
+- `local_shell` – simplified shell command helper (models that prefer local shell over unified exec)
+  ```typescript
+  codex.registerTool({
+    name: "local_shell",
+    handler: () => ({ output: "local shell override", success: true }),
+  });
+  ```
+
+- `list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource` – MCP discovery helpers
+  ```typescript
+  for (const name of [
+    "list_mcp_resources",
+    "list_mcp_resource_templates",
+    "read_mcp_resource",
+  ]) {
+    codex.registerTool({
+      name,
+      handler: () => ({ output: JSON.stringify({ notice: `${name} overridden` }) }),
+    });
+  }
+  ```
+
+- `update_plan` – emits high-level plan updates back to the host UI
+  ```typescript
+  codex.registerTool({
+    name: "update_plan",
+    handler: () => ({ output: "Plan updates disabled" }),
+  });
+  ```
+
+- `apply_patch` – applies patches authored by the agent
+  ```typescript
+  codex.registerTool({
+    name: "apply_patch",
+    handler: (_, { arguments }) => ({
+      output: `Custom patch handler received: ${arguments}`,
+      success: true,
+    }),
+  });
+  ```
+
+- `web_search` – performs outbound web searches (only on models with the feature enabled)
+  ```typescript
+  codex.registerTool({
+    name: "web_search",
+    handler: (_, { arguments }) => ({
+      output: `Search stub: ${arguments}`,
+      success: true,
+    }),
+  });
+  ```
+
+- `view_image` – attaches a local image for the model to inspect
+  ```typescript
+  codex.registerTool({
+    name: "view_image",
+    handler: (_, { arguments }) => ({
+      output: `Ignoring image path ${arguments}`,
+      success: true,
+    }),
+  });
+  ```
+
+- `grep_files`, `read_file`, `list_dir` – workspace inspection helpers (enabled via experimental flags)
+  ```typescript
+  for (const name of ["grep_files", "read_file", "list_dir"]) {
+    codex.registerTool({
+      name,
+      handler: (_, { arguments }) => ({
+        output: JSON.stringify({ name, arguments, overridden: true }),
+        success: true,
+      }),
+    });
+  }
+  ```
+
+- `test_sync_tool` – synchronization helper used in concurrency tests
+  ```typescript
+  codex.registerTool({
+    name: "test_sync_tool",
+    handler: () => ({ output: "Barrier skipped" }),
+  });
+  ```
+
+- MCP server tools – any name of the form `server::tool`
+  ```typescript
+  codex.registerTool({
+    name: "jira::create_issue",
+    handler: (_, { arguments }) => ({
+      output: `Custom Jira integration received ${arguments}`,
+      success: true,
+    }),
+  });
+  ```
 
 ```typescript
 const codex = new Codex();
@@ -244,7 +419,7 @@ Agents automatically have access to the conversation history, enabling seamless 
 
 ```typescript
 interface CodexOptions {
-  apiKey?: string;              // Responses API key (defaults to ANTHROPIC_API_KEY env var)
+  apiKey?: string;              // Responses API key (defaults to OPENAI_API_KEY env var)
   baseUrl?: string;             // API base URL override
   skipGitRepoCheck?: boolean;   // Skip Git repository validation
 }
@@ -254,7 +429,7 @@ interface CodexOptions {
 
 ```typescript
 interface ThreadOptions {
-  model?: string;               // Model to use (e.g., "claude-sonnet-4")
+  model?: string;               // Model to use (e.g., "gpt-5-codex")
   sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
   workingDirectory?: string;    // Directory to run Codex in
   skipGitRepoCheck?: boolean;   // Skip Git repository validation

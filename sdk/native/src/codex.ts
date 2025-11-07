@@ -1,8 +1,14 @@
 import { CodexOptions, NativeToolDefinition } from "./codexOptions";
 import { CodexExec } from "./exec";
 import { NativeBinding, getNativeBinding } from "./nativeBinding";
+import type { StreamedTurn, Turn } from "./thread";
 import { Thread } from "./thread";
 import { ThreadOptions } from "./threadOptions";
+import { TurnOptions } from "./turnOptions";
+import { ThreadEvent, ThreadError, Usage } from "./events";
+import { ThreadItem } from "./items";
+import { createOutputSchemaFile, normalizeOutputSchema } from "./outputSchemaFile";
+import { buildReviewPrompt, type ReviewInvocationOptions } from "./reviewOptions";
 
 /**
  * Codex is the main class for interacting with the Codex agent.
@@ -32,6 +38,10 @@ export class Codex {
     this.exec = new CodexExec();
   }
 
+  /**
+   * Register a tool for Codex. When `tool.name` matches a built-in Codex tool,
+   * the native implementation is replaced for this Codex instance.
+   */
   registerTool(tool: NativeToolDefinition): void {
     if (!this.nativeBinding) {
       throw new Error("Native tool registration requires the NAPI binding");
@@ -47,6 +57,21 @@ export class Codex {
       this.options.tools = [];
     }
     this.options.tools.push(tool);
+  }
+
+  /**
+   * Clear all registered tools, restoring built-in defaults.
+   */
+  clearTools(): void {
+    if (!this.nativeBinding) {
+      throw new Error("Native tool management requires the NAPI binding");
+    }
+    if (typeof this.nativeBinding.clearRegisteredTools === 'function') {
+      this.nativeBinding.clearRegisteredTools();
+    }
+    if (this.options.tools) {
+      this.options.tools = [];
+    }
   }
 
   /**
@@ -66,5 +91,105 @@ export class Codex {
    */
   resumeThread(id: string, options: ThreadOptions = {}): Thread {
     return new Thread(this.exec, this.options, options, id);
+  }
+
+  /**
+   * Starts a review task using the built-in Codex review flow.
+   */
+  async review(options: ReviewInvocationOptions): Promise<Turn> {
+    const generator = this.reviewStreamedInternal(options);
+    const items: ThreadItem[] = [];
+    let finalResponse = "";
+    let usage: Usage | null = null;
+    let turnFailure: ThreadError | null = null;
+    for await (const event of generator) {
+      if (event.type === "item.completed") {
+        if (event.item.type === "agent_message") {
+          finalResponse = event.item.text;
+        }
+        items.push(event.item);
+      } else if (event.type === "exited_review_mode") {
+        // Capture the structured review output
+        if (event.review_output) {
+          const reviewOutput = event.review_output;
+          let reviewText = "";
+
+          // Add overall explanation
+          if (reviewOutput.overall_explanation) {
+            reviewText += reviewOutput.overall_explanation;
+          }
+
+          // Add findings if present
+          if (reviewOutput.findings && reviewOutput.findings.length > 0) {
+            if (reviewText) reviewText += "\n\n";
+            reviewText += "## Review Findings\n\n";
+            reviewOutput.findings.forEach((finding, index) => {
+              reviewText += `### ${index + 1}. ${finding.title}\n`;
+              reviewText += `${finding.body}\n`;
+              reviewText += `**Priority:** ${finding.priority} | **Confidence:** ${finding.confidence_score}\n`;
+              reviewText += `**Location:** ${finding.code_location.absolute_file_path}:${finding.code_location.line_range.start}-${finding.code_location.line_range.end}\n\n`;
+            });
+          }
+
+          finalResponse = reviewText;
+        }
+      } else if (event.type === "turn.completed") {
+        usage = event.usage;
+      } else if (event.type === "turn.failed") {
+        turnFailure = event.error;
+        break;
+      }
+    }
+    if (turnFailure) {
+      throw new Error(turnFailure.message);
+    }
+    return { items, finalResponse, usage };
+  }
+
+  /**
+   * Starts a review task and returns the event stream.
+   */
+  async reviewStreamed(options: ReviewInvocationOptions): Promise<StreamedTurn> {
+    return { events: this.reviewStreamedInternal(options) };
+  }
+
+  private async *reviewStreamedInternal(
+    options: ReviewInvocationOptions,
+  ): AsyncGenerator<ThreadEvent> {
+    const { target, threadOptions = {}, turnOptions = {} } = options;
+    const { prompt, hint } = buildReviewPrompt(target);
+    const normalizedSchema = normalizeOutputSchema(turnOptions.outputSchema);
+    const needsSchemaFile = this.exec.requiresOutputSchemaFile();
+    const schemaFile = needsSchemaFile
+      ? await createOutputSchemaFile(normalizedSchema)
+      : { schemaPath: undefined, cleanup: async () => {} };
+    const generator = this.exec.run({
+      input: prompt,
+      baseUrl: this.options.baseUrl,
+      apiKey: this.options.apiKey,
+      model: threadOptions.model,
+      sandboxMode: threadOptions.sandboxMode,
+      workingDirectory: threadOptions.workingDirectory,
+      skipGitRepoCheck: threadOptions.skipGitRepoCheck,
+      outputSchemaFile: schemaFile.schemaPath,
+      outputSchema: normalizedSchema,
+      fullAuto: threadOptions.fullAuto,
+      review: {
+        userFacingHint: hint,
+      },
+    });
+    try {
+      for await (const item of generator) {
+        let parsed: ThreadEvent;
+        try {
+          parsed = JSON.parse(item) as ThreadEvent;
+        } catch (error) {
+          throw new Error(`Failed to parse item: ${item}`, { cause: error });
+        }
+        yield parsed;
+      }
+    } finally {
+      await schemaFile.cleanup();
+    }
   }
 }

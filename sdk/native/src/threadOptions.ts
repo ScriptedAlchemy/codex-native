@@ -7,4 +7,5 @@ export type ThreadOptions = {
   sandboxMode?: SandboxMode;
   workingDirectory?: string;
   skipGitRepoCheck?: boolean;
+  fullAuto?: boolean;
 };
