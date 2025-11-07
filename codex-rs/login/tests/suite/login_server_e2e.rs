@@ -129,7 +129,8 @@ async fn end_to_end_login_flow_persists_auth_json() -> Result<()> {
     let login_port = server.actual_port;
 
     // Simulate browser callback, and follow redirect to /success
-    let client = reqwest::Client::builder().use_rustls_tls()
+    let client = reqwest::Client::builder()
+        .use_rustls_tls()
         .redirect(reqwest::redirect::Policy::limited(5))
         .build()?;
     let url = format!("http://127.0.0.1:{login_port}/auth/callback?code=abc&state=test_state_123");
