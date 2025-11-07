@@ -29,8 +29,9 @@
 import os from 'node:os';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-import { Agent, runStreamed } from '@openai/agents';
+import { Agent, run } from '@openai/agents';
 import { CodexProvider } from '../../src/index';
+import { runExampleStep } from '../utils';
 
 async function main() {
   console.log('🌊 Streaming Responses with CodexProvider\n');
@@ -64,51 +65,58 @@ async function main() {
   console.log('\nQuery: "Explain how streaming works in AI agents"\n');
   console.log('[Streaming Response]\n');
 
-  const stream1 = await runStreamed(streamingAgent, 'Explain how streaming works in AI agents');
+  const stream1 = await runExampleStep('Basic streaming run', () =>
+    run(streamingAgent, 'Explain how streaming works in AI agents')
+  );
 
-  let accumulatedText = '';
-  let tokenCount = 0;
+  if (stream1) {
+    let accumulatedText = '';
+    let tokenCount = 0;
 
-  for await (const event of stream1.events) {
-    switch (event.type) {
-      case 'response_started':
-        console.log('📡 Response started...\n');
-        break;
+    for await (const event of stream1.events) {
+      switch (event.type) {
+        case 'response_started':
+          console.log('📡 Response started...\n');
+          break;
 
-      case 'output_text_delta':
-        // Print deltas as they arrive
-        process.stdout.write(event.delta);
-        accumulatedText += event.delta;
-        tokenCount += event.delta.split(/\s+/).length;
-        break;
+        case 'output_text_delta':
+          // Print deltas as they arrive
+          process.stdout.write(event.delta);
+          accumulatedText += event.delta;
+          tokenCount += event.delta.split(/\s+/).length;
+          break;
 
-      case 'output_text_done':
-        console.log('\n\n✓ Text output completed');
-        break;
+        case 'output_text_done':
+          console.log('\n\n✓ Text output completed');
+          break;
 
-      case 'reasoning_delta':
-        // Reasoning deltas (if supported)
-        process.stdout.write(`[Reasoning] ${event.delta}`);
-        break;
+        case 'reasoning_delta':
+          // Reasoning deltas (if supported)
+          process.stdout.write(`[Reasoning] ${event.delta}`);
+          break;
 
-      case 'reasoning_done':
-        console.log('\n✓ Reasoning completed');
-        break;
+        case 'reasoning_done':
+          console.log('\n✓ Reasoning completed');
+          break;
 
-      case 'response_done':
-        console.log('\n📊 Final Statistics:');
-        console.log(`  Total tokens: ${event.response.usage.totalTokens}`);
-        console.log(`  Input tokens: ${event.response.usage.inputTokens}`);
-        console.log(`  Output tokens: ${event.response.usage.outputTokens}`);
-        break;
+        case 'response_done':
+          console.log('\n📊 Final Statistics:');
+          console.log(`  Total tokens: ${event.response.usage.totalTokens}`);
+          console.log(`  Input tokens: ${event.response.usage.inputTokens}`);
+          console.log(`  Output tokens: ${event.response.usage.outputTokens}`);
+          break;
 
-      case 'error':
-        console.error('\n✗ Error:', event.error.message);
-        break;
+        case 'error':
+          console.error('\n✗ Error:', event.error.message);
+          break;
+      }
     }
+
+    console.log('\n✓ Example 1 completed');
+  } else {
+    console.log('Skipping Example 1 due to a connection issue.');
   }
 
-  console.log('\n✓ Example 1 completed');
 
   // ============================================================================
   // Example 2: Streaming with Progress Indicator
@@ -125,46 +133,50 @@ async function main() {
   console.log('\nQuery: "Write a function to calculate fibonacci numbers"\n');
   console.log('[Streaming with Progress]\n');
 
-  const stream2 = await runStreamed(
-    progressAgent,
-    'Write a function to calculate fibonacci numbers'
+  const stream2 = await runExampleStep('Progress streaming run', () =>
+    run(progressAgent, 'Write a function to calculate fibonacci numbers')
   );
 
-  let chunkCount = 0;
-  let lastUpdate = Date.now();
+  if (stream2) {
+    let chunkCount = 0;
+    let lastUpdate = Date.now();
 
-  for await (const event of stream2.events) {
-    switch (event.type) {
-      case 'response_started':
-        console.log('⏳ Starting response generation...\n');
-        break;
+    for await (const event of stream2.events) {
+      switch (event.type) {
+        case 'response_started':
+          console.log('⏳ Starting response generation...\n');
+          break;
 
-      case 'output_text_delta':
-        chunkCount++;
-        const now = Date.now();
-        // Update progress indicator every 500ms
-        if (now - lastUpdate > 500) {
-          process.stdout.write(`\r📝 Received ${chunkCount} chunks... `);
-          lastUpdate = now;
-        }
-        // Still print the actual content
-        process.stdout.write(event.delta);
-        break;
+        case 'output_text_delta':
+          chunkCount++;
+          const now = Date.now();
+          // Update progress indicator every 500ms
+          if (now - lastUpdate > 500) {
+            process.stdout.write(`\r📝 Received ${chunkCount} chunks... `);
+            lastUpdate = now;
+          }
+          // Still print the actual content
+          process.stdout.write(event.delta);
+          break;
 
-      case 'output_text_done':
-        console.log(`\n\n✓ Completed (${chunkCount} chunks)`);
-        break;
+        case 'output_text_done':
+          console.log(`\n\n✓ Completed (${chunkCount} chunks)`);
+          break;
 
-      case 'response_done':
-        console.log('\n📊 Usage:');
-        console.log(`  Input: ${event.response.usage.inputTokens} tokens`);
-        console.log(`  Output: ${event.response.usage.outputTokens} tokens`);
-        console.log(`  Total: ${event.response.usage.totalTokens} tokens`);
-        break;
+        case 'response_done':
+          console.log('\n📊 Usage:');
+          console.log(`  Input: ${event.response.usage.inputTokens} tokens`);
+          console.log(`  Output: ${event.response.usage.outputTokens} tokens`);
+          console.log(`  Total: ${event.response.usage.totalTokens} tokens`);
+          break;
+      }
     }
+
+    console.log('\n✓ Example 2 completed');
+  } else {
+    console.log('Skipping Example 2 due to a connection issue.');
   }
 
-  console.log('\n✓ Example 2 completed');
 
   // ============================================================================
   // Example 3: Streaming with Custom Processing
@@ -181,49 +193,55 @@ async function main() {
   console.log('\nQuery: "List the benefits of using streaming in AI applications"\n');
   console.log('[Custom Processing]\n');
 
-  const stream3 = await runStreamed(
-    customAgent,
-    'List the benefits of using streaming in AI applications'
+  const stream3 = await runExampleStep('Custom processing streaming run', () =>
+    run(
+      customAgent,
+      'List the benefits of using streaming in AI applications'
+    )
   );
 
-  const lines: string[] = [];
-  let currentLine = '';
+  if (stream3) {
+    const lines: string[] = [];
+    let currentLine = '';
 
-  for await (const event of stream3.events) {
-    switch (event.type) {
-      case 'output_text_delta':
-        currentLine += event.delta;
-        // Process line by line
-        if (event.delta.includes('\n')) {
-          const parts = currentLine.split('\n');
-          // Add all but the last part (which might be incomplete)
-          for (let i = 0; i < parts.length - 1; i++) {
-            if (parts[i]!.trim()) {
-              lines.push(parts[i]!);
-              console.log(`  ${lines.length}. ${parts[i]!.trim()}`);
+    for await (const event of stream3.events) {
+      switch (event.type) {
+        case 'output_text_delta':
+          currentLine += event.delta;
+          // Process line by line
+          if (event.delta.includes('\n')) {
+            const parts = currentLine.split('\n');
+            // Add all but the last part (which might be incomplete)
+            for (let i = 0; i < parts.length - 1; i++) {
+              lines.push(parts[i]);
+              console.log(`• ${parts[i]}`);
             }
+            currentLine = parts[parts.length - 1];
           }
-          // Keep the last part as current line
-          currentLine = parts[parts.length - 1] || '';
-        }
-        break;
+          break;
 
-      case 'output_text_done':
-        // Process remaining line
-        if (currentLine.trim()) {
-          lines.push(currentLine);
-          console.log(`  ${lines.length}. ${currentLine.trim()}`);
-        }
-        console.log(`\n✓ Processed ${lines.length} items`);
-        break;
+        case 'output_text_done':
+          if (currentLine.trim()) {
+            lines.push(currentLine.trim());
+            console.log(`• ${currentLine.trim()}`);
+          }
+          console.log('\n✓ Completed custom processing');
+          break;
 
-      case 'response_done':
-        console.log('\n📊 Response completed');
-        break;
+        case 'response_done':
+          console.log('\n📄 Structured Summary:');
+          lines.forEach((line, index) => {
+            console.log(`  ${index + 1}. ${line}`);
+          });
+          break;
+      }
     }
+
+    console.log('\n✓ Example 3 completed');
+  } else {
+    console.log('Skipping Example 3 due to a connection issue.');
   }
 
-  console.log('\n✓ Example 3 completed');
 
   // ============================================================================
   // Example 4: Error Handling in Streaming
@@ -240,37 +258,43 @@ async function main() {
   console.log('\nQuery: "Explain error handling in streaming"\n');
   console.log('[Error Handling]\n');
 
-  const stream4 = await runStreamed(
-    errorHandlingAgent,
-    'Explain error handling in streaming'
+  const stream4 = await runExampleStep('Error handling streaming run', () =>
+    run(errorHandlingAgent, 'Explain error handling in streaming')
   );
 
-  let hasError = false;
+  if (stream4) {
+    let hasError = false;
 
-  try {
-    for await (const event of stream4.events) {
-      switch (event.type) {
-        case 'output_text_delta':
-          process.stdout.write(event.delta);
-          break;
+    try {
+      for await (const event of stream4.events) {
+        switch (event.type) {
+          case 'output_text_delta':
+            process.stdout.write(event.delta);
+            break;
 
-        case 'error':
-          hasError = true;
-          console.error('\n\n✗ Streaming error:', event.error.message);
-          break;
+          case 'error':
+            hasError = true;
+            console.error('\n\n✗ Streaming error:', event.error.message);
+            break;
 
-        case 'response_done':
-          if (!hasError) {
-            console.log('\n\n✓ Stream completed successfully');
-          }
-          break;
+          case 'response_done':
+            if (!hasError) {
+              console.log('\n\n✓ Stream completed successfully');
+            }
+            break;
+        }
       }
+    } catch (error) {
+      console.error(
+        '\n\n✗ Fatal error during streaming:',
+        error instanceof Error ? error.message : String(error),
+      );
     }
-  } catch (error) {
-    console.error('\n\n✗ Fatal error during streaming:', error instanceof Error ? error.message : String(error));
-  }
 
-  console.log('\n✓ Example 4 completed');
+    console.log('\n✓ Example 4 completed');
+  } else {
+    console.log('Skipping Example 4 due to a connection issue.');
+  }
 
   // ============================================================================
   // Summary
@@ -280,7 +304,7 @@ async function main() {
   console.log('='.repeat(60));
   console.log('\nKey takeaways:');
   console.log('  • Streaming provides real-time updates as responses are generated');
-  console.log('  • Use runStreamed() instead of run() for streaming');
+  console.log('  • Use run() to obtain StreamedRunResult for streaming flows');
   console.log('  • Handle different event types: deltas, done, errors');
   console.log('  • CodexProvider supports full streaming capabilities');
   console.log('  • Streaming enables better UX with progress indicators');
