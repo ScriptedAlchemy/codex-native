@@ -15,7 +15,5 @@
     "useUnknownInCatchVariables": false,
     "noEmit": true
   },
-  "include": [
-    "pr-worktree-codex.ts"
-  ]
+  "include": ["pr-worktree-codex.ts"]
 }

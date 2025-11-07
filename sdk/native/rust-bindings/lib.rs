@@ -38,30 +38,56 @@ fn ensure_embedded_linux_sandbox() -> napi::Result<PathBuf> {
 
   static SANDBOX_PATH: OnceLock<PathBuf> = OnceLock::new();
 
-  SANDBOX_PATH
-    .get_or_try_init(|| {
+  let path = SANDBOX_PATH
+    .get_or_init(|| {
       let root = std::env::temp_dir().join("codex-native");
-      fs::create_dir_all(&root).map_err(io_to_napi)?;
+      if let Err(e) = fs::create_dir_all(&root) {
+        eprintln!("Warning: failed to create codex-native temp dir: {}", e);
+        return PathBuf::new();
+      }
       let target_path = root.join("codex-linux-sandbox");
 
-      let mut tmp = NamedTempFile::new_in(&root).map_err(io_to_napi)?;
-      tmp.write_all(EMBEDDED_LINUX_SANDBOX_BYTES)
-        .map_err(io_to_napi)?;
-      tmp.flush().map_err(io_to_napi)?;
+      let mut tmp = match NamedTempFile::new_in(&root) {
+        Ok(tmp) => tmp,
+        Err(e) => {
+          eprintln!("Warning: failed to create temp file: {}", e);
+          return PathBuf::new();
+        }
+      };
+
+      if let Err(e) = tmp.write_all(EMBEDDED_LINUX_SANDBOX_BYTES) {
+        eprintln!("Warning: failed to write sandbox binary: {}", e);
+        return PathBuf::new();
+      }
+      if let Err(e) = tmp.flush() {
+        eprintln!("Warning: failed to flush temp file: {}", e);
+        return PathBuf::new();
+      }
 
       let temp_path = tmp.into_temp_path();
       if target_path.exists() {
-        fs::remove_file(&target_path).map_err(io_to_napi)?;
+        let _ = fs::remove_file(&target_path);
       }
-      temp_path.persist(&target_path).map_err(|(_, err)| io_to_napi(err))?;
 
-      let mut perms = fs::metadata(&target_path).map_err(io_to_napi)?.permissions();
-      perms.set_mode(0o755);
-      fs::set_permissions(&target_path, perms).map_err(io_to_napi)?;
+      if let Err(e) = temp_path.persist(&target_path) {
+        eprintln!("Warning: failed to persist sandbox binary: {}", e.error);
+        return PathBuf::new();
+      }
 
-      Ok(target_path)
-    })
-    .cloned()
+      if let Ok(metadata) = fs::metadata(&target_path) {
+        let mut perms = metadata.permissions();
+        perms.set_mode(0o755);
+        let _ = fs::set_permissions(&target_path, perms);
+      }
+
+      target_path
+    });
+
+  if path.as_os_str().is_empty() {
+    Err(napi::Error::from_reason("Failed to initialize Linux sandbox".to_string()))
+  } else {
+    Ok(path.clone())
+  }
 }
 
 #[cfg(target_os = "linux")]
