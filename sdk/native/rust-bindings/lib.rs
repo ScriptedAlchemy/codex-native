@@ -1,26 +1,28 @@
 #![deny(clippy::all)]
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use codex_common::CliConfigOverrides;
 use codex_common::SandboxModeCliArg;
-use codex_exec::exec_events::ThreadEvent as ExecThreadEvent;
-use codex_exec::run_with_thread_event_callback;
-use codex_exec::{Cli, Color, Command, ResumeArgs};
 use codex_core::function_tool::FunctionCallError;
 use codex_core::tools::context::ToolInvocation;
 use codex_core::tools::context::ToolOutput;
 use codex_core::tools::context::ToolPayload;
-use codex_core::tools::registry::{ExternalToolRegistration, ToolHandler, ToolKind, set_pending_external_tools};
+use codex_core::tools::registry::{
+  ExternalToolRegistration, ToolHandler, ToolKind, set_pending_external_tools,
+};
 use codex_core::tools::spec::create_function_tool_spec_from_schema;
-use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use codex_exec::exec_events::ThreadEvent as ExecThreadEvent;
+use codex_exec::run_with_thread_event_callback;
+use codex_exec::{Cli, Color, Command, ResumeArgs};
 use napi::bindgen_prelude::{Function, Status};
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
-use serde_json::json;
 use serde_json::Value as JsonValue;
+use serde_json::json;
 use tempfile::NamedTempFile;
 
 #[cfg(target_os = "linux")]
@@ -36,7 +38,11 @@ fn ensure_embedded_linux_sandbox() -> napi::Result<PathBuf> {
   use std::fs;
   use std::os::unix::fs::PermissionsExt;
 
-  static SANDBOX_PATH: OnceLock<PathBuf> = OnceLock::new();
+  // Simplified: just create the sandbox each time if it doesn't exist
+  // The filesystem acts as our "cache" - if the file exists, we don't recreate it
+  let root = std::env::temp_dir().join("codex-native");
+  fs::create_dir_all(&root).map_err(io_to_napi)?;
+  let target_path = root.join("codex-linux-sandbox");
 
   let path = SANDBOX_PATH
     .get_or_init(|| {
@@ -88,6 +94,27 @@ fn ensure_embedded_linux_sandbox() -> napi::Result<PathBuf> {
   } else {
     Ok(path.clone())
   }
+  // Only create if it doesn't exist
+  if !target_path.exists() {
+    let mut tmp = NamedTempFile::new_in(&root).map_err(io_to_napi)?;
+    tmp
+      .write_all(EMBEDDED_LINUX_SANDBOX_BYTES)
+      .map_err(io_to_napi)?;
+    tmp.flush().map_err(io_to_napi)?;
+
+    let temp_path = tmp.into_temp_path();
+    temp_path
+      .persist(&target_path)
+      .map_err(|err| io_to_napi(err.error))?;
+
+    let mut perms = fs::metadata(&target_path)
+      .map_err(io_to_napi)?
+      .permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&target_path, perms).map_err(io_to_napi)?;
+  }
+
+  Ok(target_path)
 }
 
 #[cfg(target_os = "linux")]
@@ -141,10 +168,12 @@ pub fn register_tool(
   info: NativeToolInfo,
   handler: Function<JsToolInvocation, NativeToolResponse>,
 ) -> napi::Result<()> {
-  let schema = info.parameters.unwrap_or_else(|| json!({
-    "type": "object",
-    "properties": {}
-  }));
+  let schema = info.parameters.unwrap_or_else(|| {
+    json!({
+      "type": "object",
+      "properties": {}
+    })
+  });
   let spec = create_function_tool_spec_from_schema(
     info.name.clone(),
     info.description.clone(),
@@ -185,7 +214,8 @@ pub struct JsToolInvocation {
 }
 
 struct JsToolHandler {
-  callback: ThreadsafeFunction<JsToolInvocation, NativeToolResponse, JsToolInvocation, napi::Status, true>,
+  callback:
+    ThreadsafeFunction<JsToolInvocation, NativeToolResponse, JsToolInvocation, napi::Status, true>,
 }
 
 #[async_trait]
@@ -285,7 +315,7 @@ impl RunRequest {
       Some(other) => {
         return Err(napi::Error::from_reason(format!(
           "Unsupported sandbox mode: {other}",
-        )))
+        )));
       }
     };
 
@@ -311,6 +341,7 @@ impl RunRequest {
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
       full_auto: self.full_auto.unwrap_or(false),
+      full_auto: self.full_auto.unwrap_or(true),
     })
   }
 }
@@ -327,7 +358,10 @@ fn prepare_schema(schema: Option<JsonValue>) -> napi::Result<Option<TempSchemaFi
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let path = file.path().to_path_buf();
     let temp_path = file.into_temp_path();
-    Ok(Some(TempSchemaFile { path, _guard: temp_path }))
+    Ok(Some(TempSchemaFile {
+      path,
+      _guard: temp_path,
+    }))
   } else {
     Ok(None)
   }
@@ -383,6 +417,15 @@ fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli 
     last: false,
     prompt: Some(options.prompt.clone()),
   }));
+  let cli_full_auto = options.full_auto;
+
+  let command = options.thread_id.as_ref().map(|id| {
+    Command::Resume(ResumeArgs {
+      session_id: Some(id.clone()),
+      last: false,
+      prompt: Some(options.prompt.clone()),
+    })
+  });
 
   Cli {
     command,
@@ -396,7 +439,9 @@ fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli 
     cwd: options.working_directory.clone(),
     skip_git_repo_check: options.skip_git_repo_check,
     output_schema: schema_path,
-    config_overrides: CliConfigOverrides { raw_overrides: Vec::new() },
+    config_overrides: CliConfigOverrides {
+      raw_overrides: Vec::new(),
+    },
     color: Color::Never,
     json: false,
     last_message_file: None,
@@ -535,7 +580,9 @@ pub async fn run_thread_stream(
             Ok(JsonValue::String(text)),
             ThreadsafeFunctionCallMode::NonBlocking,
           );
-          if status != Status::Ok && let Ok(mut guard) = error_clone.lock() {
+          if status != Status::Ok
+            && let Ok(mut guard) = error_clone.lock()
+          {
             *guard = Some(napi::Error::from_status(status));
           }
         }
@@ -544,7 +591,7 @@ pub async fn run_thread_stream(
             *guard = Some(napi::Error::from_reason(err.to_string()));
           }
         }
-      }
+      },
       Err(err) => {
         if let Ok(mut guard) = error_clone.lock() {
           *guard = Some(err);
