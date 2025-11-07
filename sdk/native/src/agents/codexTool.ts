@@ -9,11 +9,6 @@ export type CodexToolOptions = BaseToolOptions & {
   codexExecute: (input: unknown) => Promise<unknown> | unknown;
 };
 
-type AgentTool = ReturnType<typeof tool>;
-
-export function codexTool(options: CodexToolOptions): AgentTool {
-  const { codexExecute, ...delegate } = options;
-  const agentTool: AgentTool = tool(delegate as BaseToolOptions);
 export function codexTool(options: CodexToolOptions): AgentTool {
   const { codexExecute, ...delegate } = options;
   const agentTool = tool(delegate as BaseToolOptions);

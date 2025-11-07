@@ -44,56 +44,6 @@ fn ensure_embedded_linux_sandbox() -> napi::Result<PathBuf> {
   fs::create_dir_all(&root).map_err(io_to_napi)?;
   let target_path = root.join("codex-linux-sandbox");
 
-  let path = SANDBOX_PATH
-    .get_or_init(|| {
-      let root = std::env::temp_dir().join("codex-native");
-      if let Err(e) = fs::create_dir_all(&root) {
-        eprintln!("Warning: failed to create codex-native temp dir: {}", e);
-        return PathBuf::new();
-      }
-      let target_path = root.join("codex-linux-sandbox");
-
-      let mut tmp = match NamedTempFile::new_in(&root) {
-        Ok(tmp) => tmp,
-        Err(e) => {
-          eprintln!("Warning: failed to create temp file: {}", e);
-          return PathBuf::new();
-        }
-      };
-
-      if let Err(e) = tmp.write_all(EMBEDDED_LINUX_SANDBOX_BYTES) {
-        eprintln!("Warning: failed to write sandbox binary: {}", e);
-        return PathBuf::new();
-      }
-      if let Err(e) = tmp.flush() {
-        eprintln!("Warning: failed to flush temp file: {}", e);
-        return PathBuf::new();
-      }
-
-      let temp_path = tmp.into_temp_path();
-      if target_path.exists() {
-        let _ = fs::remove_file(&target_path);
-      }
-
-      if let Err(e) = temp_path.persist(&target_path) {
-        eprintln!("Warning: failed to persist sandbox binary: {}", e.error);
-        return PathBuf::new();
-      }
-
-      if let Ok(metadata) = fs::metadata(&target_path) {
-        let mut perms = metadata.permissions();
-        perms.set_mode(0o755);
-        let _ = fs::set_permissions(&target_path, perms);
-      }
-
-      target_path
-    });
-
-  if path.as_os_str().is_empty() {
-    Err(napi::Error::from_reason("Failed to initialize Linux sandbox".to_string()))
-  } else {
-    Ok(path.clone())
-  }
   // Only create if it doesn't exist
   if !target_path.exists() {
     let mut tmp = NamedTempFile::new_in(&root).map_err(io_to_napi)?;
@@ -340,7 +290,6 @@ impl RunRequest {
       base_url: self.base_url,
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
-      full_auto: self.full_auto.unwrap_or(false),
       full_auto: self.full_auto.unwrap_or(true),
     })
   }
@@ -411,13 +360,6 @@ fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli 
   let sandbox_mode = options.sandbox_mode;
   let wants_danger = matches!(sandbox_mode, Some(SandboxModeCliArg::DangerFullAccess));
   let cli_full_auto = options.full_auto && !wants_danger;
-
-  let command = options.thread_id.as_ref().map(|id| Command::Resume(ResumeArgs {
-    session_id: Some(id.clone()),
-    last: false,
-    prompt: Some(options.prompt.clone()),
-  }));
-  let cli_full_auto = options.full_auto;
 
   let command = options.thread_id.as_ref().map(|id| {
     Command::Resume(ResumeArgs {
