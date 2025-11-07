@@ -359,7 +359,7 @@ impl Drop for EnvOverrides {
 fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli {
   let sandbox_mode = options.sandbox_mode;
   let wants_danger = matches!(sandbox_mode, Some(SandboxModeCliArg::DangerFullAccess));
-  let cli_full_auto = options.full_auto;
+  let cli_full_auto = options.full_auto && !wants_danger;
 
   let command = options.thread_id.as_ref().map(|id| {
     Command::Resume(ResumeArgs {
