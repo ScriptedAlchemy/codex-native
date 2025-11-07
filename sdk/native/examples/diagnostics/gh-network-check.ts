@@ -1,4 +1,5 @@
 import { Codex } from "../../src/index";
+import type { CommandExecutionItem, ThreadItem } from "../../src/index";
 import type { CommandExecutionItem, ThreadItem } from "../../src/items";
 
 /**
