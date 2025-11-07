@@ -6,6 +6,7 @@
     "preinstall": "node -e \"if (!/pnpm/.test(process.env.npm_execpath||'') && !/pnpm/.test(process.env.npm_config_user_agent||'')) { console.error('This repository uses PNPM. Please run: pnpm install'); process.exit(1) }\"",
     "format": "prettier --check *.json *.md docs/*.md .github/workflows/*.yml **/*.js",
     "format:fix": "prettier --write *.json *.md docs/*.md .github/workflows/*.yml **/*.js",
+    "pr": "pnpm dlx tsx pr-worktree-codex.ts",
     "sdk:build": "node sdk/native/scripts/build-all.mjs",
     "sdk:test": "pnpm --filter @codex-native/sdk run test",
     "sdk:publish-platforms": "pnpm --filter @codex-native/sdk run publish:platforms",
@@ -16,6 +17,7 @@
     "sdk:release:major": "pnpm --filter @codex-native/sdk run release:major"
   },
   "devDependencies": {
+    "@codex-native/sdk": "workspace:*",
     "@napi-rs/cli": "^2.18.4",
     "prettier": "^3.5.3"
   },
