@@ -29,7 +29,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-import { Agent, runStreamed } from '@openai/agents';
+import { Agent, run } from '@openai/agents';
 import { CodexProvider } from '../../src/index';
 
 async function main() {
@@ -64,12 +64,14 @@ async function main() {
   console.log('\nQuery: "Explain how streaming works in AI agents"\n');
   console.log('[Streaming Response]\n');
 
-  const stream1 = await runStreamed(streamingAgent, 'Explain how streaming works in AI agents');
+  const stream1 = await run(streamingAgent, 'Explain how streaming works in AI agents', {
+    stream: true,
+  });
 
   let accumulatedText = '';
   let tokenCount = 0;
 
-  for await (const event of stream1.events) {
+  for await (const event of stream1) {
     switch (event.type) {
       case 'response_started':
         console.log('📡 Response started...\n');
@@ -125,15 +127,14 @@ async function main() {
   console.log('\nQuery: "Write a function to calculate fibonacci numbers"\n');
   console.log('[Streaming with Progress]\n');
 
-  const stream2 = await runStreamed(
-    progressAgent,
-    'Write a function to calculate fibonacci numbers'
-  );
+  const stream2 = await run(progressAgent, 'Write a function to calculate fibonacci numbers', {
+    stream: true,
+  });
 
   let chunkCount = 0;
   let lastUpdate = Date.now();
 
-  for await (const event of stream2.events) {
+  for await (const event of stream2) {
     switch (event.type) {
       case 'response_started':
         console.log('⏳ Starting response generation...\n');
@@ -181,15 +182,16 @@ async function main() {
   console.log('\nQuery: "List the benefits of using streaming in AI applications"\n');
   console.log('[Custom Processing]\n');
 
-  const stream3 = await runStreamed(
+  const stream3 = await run(
     customAgent,
-    'List the benefits of using streaming in AI applications'
+    'List the benefits of using streaming in AI applications',
+    { stream: true }
   );
 
   const lines: string[] = [];
   let currentLine = '';
 
-  for await (const event of stream3.events) {
+  for await (const event of stream3) {
     switch (event.type) {
       case 'output_text_delta':
         currentLine += event.delta;
@@ -240,15 +242,16 @@ async function main() {
   console.log('\nQuery: "Explain error handling in streaming"\n');
   console.log('[Error Handling]\n');
 
-  const stream4 = await runStreamed(
+  const stream4 = await run(
     errorHandlingAgent,
-    'Explain error handling in streaming'
+    'Explain error handling in streaming',
+    { stream: true }
   );
 
   let hasError = false;
 
   try {
-    for await (const event of stream4.events) {
+    for await (const event of stream4) {
       switch (event.type) {
         case 'output_text_delta':
           process.stdout.write(event.delta);
@@ -280,7 +283,7 @@ async function main() {
   console.log('='.repeat(60));
   console.log('\nKey takeaways:');
   console.log('  • Streaming provides real-time updates as responses are generated');
-  console.log('  • Use runStreamed() instead of run() for streaming');
+  console.log('  • Call run(agent, input, { stream: true }) to enable streaming');
   console.log('  • Handle different event types: deltas, done, errors');
   console.log('  • CodexProvider supports full streaming capabilities');
   console.log('  • Streaming enables better UX with progress indicators');
