@@ -8,7 +8,7 @@ export default defineConfig({
   clean: true,
   minify: false,
   target: "node18",
-  shims: false,
+  shims: true,
   outExtension({ format }) {
     if (format === "cjs") {
       return { js: ".cjs" };
