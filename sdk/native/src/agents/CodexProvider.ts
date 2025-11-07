@@ -710,28 +710,20 @@ class CodexModel implements Model {
     return output;
   }
 
-  private convertItemsToStreamOutput(items: ThreadItem[]): AgentOutputItem[] {
-    const output: AgentOutputItem[] = [];
+  private buildStreamResponse(
+    usage: Usage,
+    responseId: string,
+    items: ThreadItem[],
+    lastMessage: string | null
+  ): ModelResponse & { id: string } {
+    const output = this.convertItemsToOutput(items, lastMessage ?? "");
 
-    for (const item of items) {
-      if (item.type !== "agent_message") {
-        continue;
-      }
-
-      output.push({
-        type: "message",
-        role: "assistant",
-        status: "completed",
-        content: [
-          {
-            type: "output_text",
-            text: item.text,
-          },
-        ],
-      });
-    }
-
-    return output;
+    return {
+      id: responseId,
+      responseId,
+      usage,
+      output,
+    };
   }
 
   /**
@@ -824,31 +816,19 @@ class CodexModel implements Model {
       case "turn.completed":
         // Emit response done with full response
         const usage = this.convertUsage(event.usage);
-        const streamUsage = {
-          requests: usage.requests,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          totalTokens: usage.totalTokens,
-          ...(usage.inputTokensDetails?.[0]
-            ? { inputTokensDetails: usage.inputTokensDetails[0] }
-            : {}),
-          ...(usage.outputTokensDetails?.[0]
-            ? { outputTokensDetails: usage.outputTokensDetails[0] }
-            : {}),
-        } satisfies Record<string, unknown>;
-
         const responseId = this.thread?.id ?? "codex-stream-response";
-        const outputItems = this.convertItemsToStreamOutput(this.streamedTurnItems);
+        const response = this.buildStreamResponse(
+          usage,
+          responseId,
+          this.streamedTurnItems,
+          this.lastStreamedMessage
+        );
         this.streamedTurnItems = [];
         this.lastStreamedMessage = null;
 
         events.push({
           type: "response_done",
-          response: {
-            usage: streamUsage as unknown as Usage,
-            output: outputItems,
-            responseId,
-          },
+          response,
         });
         break;
 
