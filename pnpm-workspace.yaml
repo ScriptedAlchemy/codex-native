@@ -1,6 +1,8 @@
 packages:
   - docs
   - sdk/native
+  - codex-cli
+  - codex-rs/responses-api-proxy/npm
   - sdk/typescript
 
 ignoredBuiltDependencies:

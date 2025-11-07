@@ -52,7 +52,7 @@ OpenAI Agents framework integration examples.
   - Quick-start pattern
 
 ### `/agents` - OpenAI Agents Framework
-Advanced multi-agent workflows using the OpenAI Agents SDK.
+Advanced multi-agent workflows.
 
 - **`agents-integration.ts`** — CodexProvider with OpenAI Agents
   - Single and multi-agent workflows
@@ -66,48 +66,56 @@ Advanced multi-agent workflows using the OpenAI Agents SDK.
   - Custom weather and temperature tools
   - Framework tool execution patterns
 
-- **`multi-agent-handoffs.ts`** — Multi-agent handoffs and specialization
-  - Specialized agents for different tasks
-  - Triage agent for routing requests
-  - Agent-to-agent handoffs
-  - Collaborative multi-step workflows
-  - Context preservation across handoffs
+- **`agents-handoffs.ts`** — Agent handoffs and delegation
+  - Delegating tasks between specialized agents
+  - Maintaining conversation context across handoffs
+  - Conditional handoffs based on task type
+  - Multi-agent chains and workflows
+  - Router pattern for task routing
 
-- **`structured-output.ts`** — JSON schema validation and structured output
-  - Defining schemas with Zod
-  - Code analysis with structured results
-  - Test plan generation
-  - API documentation generation
-  - Performance analysis with metrics
+- **`agents-guardrails.ts`** — Input validation and guardrails
+  - Input validation guardrails
+  - Content filtering guardrails
+  - Security checks and dangerous command detection
+  - Multiple guardrails combined
+  - Early termination on guardrail failures
 
-- **`streaming-responses.ts`** — Real-time streaming with agents
-  - Streaming text with incremental updates
-  - Progress tracking during generation
-  - Reasoning output streams
-  - Multi-stage streaming workflows
-  - Parallel agent streaming
+- **`agents-structured-output.ts`** — Structured output with JSON schemas
+  - JSON schema validation
+  - Simple and complex nested schemas
+  - Zod schema integration
+  - Type-safe structured responses
+  - Array response schemas
 
-- **`context-sessions.ts`** — Context management and conversation sessions
-  - Multi-turn conversations with memory
-  - Managing multiple concurrent sessions
-  - Long-running conversation context
-  - Context-aware agent collaboration
-  - Session resumption and continuity
+- **`agents-streaming.ts`** — Real-time streaming responses
+  - Real-time streaming deltas
+  - Handling different stream event types
+  - Token usage tracking
+  - Progress indicators
+  - Custom processing of stream events
+  - Error handling in streaming
 
-- **`guardrails-validation.ts`** — Safety guardrails and input validation
-  - Input validation and filtering
-  - Output validation for sensitive data
-  - Rate limiting and abuse prevention
-  - Content policy enforcement
-  - Layered security guardrails
+- **`agents-multi-agent-workflow.ts`** — Complex multi-agent workflows
+  - Multiple specialized agents working together
+  - Sequential workflows (ProductManager → Architect → Developer → Tester)
+  - Parallel agent execution
+  - Iterative refinement workflows
+  - Context sharing between agents
 
-- **`real-world-code-refactor.ts`** — Production-ready refactoring pipeline
-  - Multi-agent refactoring workflow
-  - Code analysis and quality assessment
-  - Automated refactoring with validation
-  - Test generation and execution
-  - Documentation generation
-  - Batch file processing
+- **`agents-tracing.ts`** — Tracing and debugging
+  - Enabling tracing for agent workflows
+  - Nested tracing for hierarchical workflows
+  - Performance monitoring and token usage
+  - Multi-agent workflow tracing
+  - Error tracing and debugging
+
+### `/diagnostics` - Troubleshooting Utilities
+Quick scripts to validate local environments.
+
+- **`gh-network-check.ts`** — GitHub CLI connectivity probe
+  - Ensures `gh` is available inside Codex runs
+  - Confirms TLS trust store configuration by hitting `https://api.github.com`
+  - Highlights command outputs and exit codes for fast debugging
 
 ## Running Examples
 
@@ -126,26 +134,9 @@ npm run build
 Using `tsx`:
 
 ```bash
-# Basic examples
 npx tsx examples/basic/streaming-deltas.ts
-npx tsx examples/basic/review-example.ts
-
-# Tool examples
 npx tsx examples/tools/tool-override-example.ts
-npx tsx examples/tools/automatic-tool-registration.ts
-
-# Provider examples
-npx tsx examples/provider/codex-provider-run.ts
-npx tsx examples/provider/codex-provider-direct.ts
-
-# Agent examples
 npx tsx examples/agents/agents-integration.ts
-npx tsx examples/agents/multi-agent-handoffs.ts
-npx tsx examples/agents/structured-output.ts
-npx tsx examples/agents/streaming-responses.ts
-npx tsx examples/agents/context-sessions.ts
-npx tsx examples/agents/guardrails-validation.ts
-npx tsx examples/agents/real-world-code-refactor.ts
 ```
 
 Using `node` (after building):
@@ -161,26 +152,20 @@ node dist-examples/examples/basic/streaming-deltas.js
 1. `provider/codex-provider-run.ts` — Simplest example
 2. `basic/streaming-deltas.ts` — Core streaming features
 3. `tools/automatic-tool-registration.ts` — Working with tools
-4. `agents/agents-integration.ts` — Basic agent usage
-
-### OpenAI Agents SDK Features
-- **Multi-Agent Workflows**: `agents/multi-agent-handoffs.ts`
-- **Structured Output**: `agents/structured-output.ts`
-- **Streaming**: `agents/streaming-responses.ts`
-- **Context Management**: `agents/context-sessions.ts`
-- **Safety & Validation**: `agents/guardrails-validation.ts`
-- **Real-World Application**: `agents/real-world-code-refactor.ts`
 
 ### Advanced Features
-- **Custom Tools**: `tools/automatic-tool-registration.ts`, `agents/agents-with-tools.ts`
+- **Multi-Agent**: `agents/agents-integration.ts`, `agents/agents-multi-agent-workflow.ts`
+- **Agent Handoffs**: `agents/agents-handoffs.ts`
+- **Guardrails**: `agents/agents-guardrails.ts`
+- **Structured Output**: `agents/agents-structured-output.ts`
+- **Streaming**: `agents/agents-streaming.ts`
+- **Tracing**: `agents/agents-tracing.ts`
 - **Tool Override**: `tools/tool-override-example.ts`
 - **Code Review**: `basic/review-example.ts`
-- **Multi-Modal**: `basic/streaming-deltas.ts`, `provider/codex-provider-direct.ts`
 
 ### Integration Patterns
-- **OpenAI Agents Framework**: All files in `/agents` and `/provider`
+- **OpenAI Agents**: All files in `/agents` and `/provider`
 - **Direct SDK Usage**: Files in `/basic` and `/tools`
-- **Production Workflows**: `agents/real-world-code-refactor.ts`
 
 ## Additional Resources
 

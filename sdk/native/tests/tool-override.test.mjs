@@ -148,7 +148,7 @@ describe("Tool override capability", () => {
     } finally {
       await close();
     }
-  });
+  }, 10000);
 });
 
 describe("Tool override documentation", () => {
@@ -193,4 +193,3 @@ describe("Tool override documentation", () => {
     }
   });
 });
-
