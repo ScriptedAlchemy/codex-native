@@ -362,8 +362,8 @@ async function main() {
     const safeSlug = slugifyRef(pr.headRefName) || `head-${pr.number}`;
     const worktreeDir = `pr-${pr.number}-${safeSlug}`;
     const worktreePath = path.join(config.worktreeRoot, worktreeDir);
-    const remoteRef = `refs/remotes/${config.remote}/pr-worktree/${pr.number}`;
-    const localBranch = `codex/pr-${pr.number}`;
+    const fetchRef = `pull/${pr.number}/head`;
+    const localBranch = pr.headRefName;
     let createdWorktree = false;
 
     const basePrefix = formatPrefix(pr);
@@ -379,7 +379,7 @@ async function main() {
           "fetch",
           "--force",
           config.remote,
-          `pull/${pr.number}/head:${remoteRef}`,
+          `+${fetchRef}:refs/remotes/${config.remote}/${pr.headRefName}`,
         ], { cwd: config.repoRoot });
 
         const knownWorktree = existingWorktrees.has(worktreePath);
@@ -395,21 +395,22 @@ async function main() {
             "worktree",
             "add",
             "--force",
-            "--detach",
+            "-B",
+            localBranch,
             worktreePath,
-            remoteRef,
+            `refs/remotes/${config.remote}/${pr.headRefName}`,
           ], { cwd: config.repoRoot });
           existingWorktrees.add(worktreePath);
           createdWorktrees.add(worktreePath);
           console.log(`[PR ${pr.number}] Created worktree at ${worktreePath}`);
           createdWorktree = true;
         } else {
-          await runCommand("git", ["reset", "--hard", remoteRef], { cwd: worktreePath });
+          await runCommand("git", ["reset", "--hard", `refs/remotes/${config.remote}/${pr.headRefName}`], { cwd: worktreePath });
           await runCommand("git", ["clean", "-fdx"], { cwd: worktreePath });
           console.log(`[PR ${pr.number}] Refreshed existing worktree at ${worktreePath}`);
         }
 
-        await runCommand("git", ["checkout", "-B", localBranch, remoteRef], { cwd: worktreePath });
+        await runCommand("git", ["branch", `--set-upstream-to=${config.remote}/${pr.headRefName}`, localBranch], { cwd: worktreePath });
       });
     } catch (error) {
       console.error(`[PR ${pr.number}] Failed to prepare worktree:`, error);
@@ -1077,10 +1078,8 @@ async function ensurePushed(pr: PullRequestInfo, worktreePath: string, remote: s
     }
   }
 
-  const pushTarget = `${localBranch ?? pr.headRefName}:${pr.headRefName}`;
-
   try {
-    await runCommand("git", ["push", remote, pushTarget], { cwd: worktreePath });
+    await runCommand("git", ["push", remote, localBranch], { cwd: worktreePath });
   } catch (error) {
     throw error;
   }
