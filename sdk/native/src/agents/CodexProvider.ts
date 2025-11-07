@@ -18,11 +18,11 @@ import type {
   StreamEvent,
   AgentInputItem,
   AgentOutputItem,
-  Usage,
   AssistantMessageItem,
   OutputText,
   SerializedTool,
 } from "./types";
+import { Usage } from "./types";
 
 /**
  * Options for creating a CodexProvider
@@ -126,6 +126,8 @@ class CodexModel implements Model {
   private registeredTools: Set<string> = new Set();
   private toolExecutors: Map<string, ToolExecutor> = new Map();
   private tempImageFiles: Set<string> = new Set();
+  private streamedTurnItems: ThreadItem[] = [];
+  private lastStreamedMessage: string | null = null;
 
   constructor(codex: Codex, modelName: string | undefined, options: CodexProviderOptions) {
     this.codex = codex;
@@ -189,7 +191,7 @@ class CodexModel implements Model {
 
       // Run Codex (tools are now registered and will be available)
       const turn = await thread.run(input, {
-        outputSchema: request.outputType?.schema,
+        outputSchema: typeof request.outputType === 'object' ? request.outputType.schema : undefined,
       });
 
       // Convert Codex response to ModelResponse format
@@ -218,7 +220,7 @@ class CodexModel implements Model {
       const input = await this.convertRequestToInput(request);
 
       const { events } = await thread.runStreamed(input, {
-        outputSchema: request.outputType?.schema,
+        outputSchema: typeof request.outputType === 'object' ? request.outputType.schema : undefined,
       });
 
       // Track text accumulation for delta calculation
@@ -570,41 +572,58 @@ class CodexModel implements Model {
     } else {
       // Convert AgentInputItem[] to UserInput[]
       for (const item of request.input) {
-        if (item.type === "input_text") {
-          parts.push({ type: "text", text: item.text });
-        } else if (item.type === "input_image") {
-          // Handle image input - Codex supports local_image with file paths
-          const imagePath = await this.handleImageInput(item as any);
-          if (imagePath) {
-            parts.push({ type: "local_image", path: imagePath });
-          }
-        } else if (item.type === "input_file") {
-          // Files could potentially be handled similarly to images
-          // For now, throw an error as we'd need to handle different file types
-          throw new Error(
-            `CodexProvider does not yet support input_file type. ` +
-            `File handling needs to be implemented based on file type and format.`
-          );
-        } else if (item.type === "input_audio") {
-          throw new Error(
-            `CodexProvider does not yet support input_audio type. ` +
-            `Audio handling needs to be implemented.`
-          );
-        } else if (item.type === "function_call_result") {
+        // Handle different item types
+        if (item.type === "function_call_result") {
           // Tool results - for now, convert to text describing the result
-          // This allows the agentic loop to continue even if we can't pass structured results
           const result = item as any;
           parts.push({
             type: "text",
             text: `[Tool ${result.name} returned: ${result.result}]`
           });
-        } else if (item.type === "input_refusal") {
-          // Model refused - treat as text
-          const refusal = item as any;
+        } else if (item.type === "reasoning") {
+          // Reasoning content
+          const reasoning = item as any;
           parts.push({
             type: "text",
-            text: `[Refusal: ${refusal.refusal}]`
+            text: `[Reasoning: ${reasoning.content || reasoning.reasoning}]`
           });
+        } else if ((item.type === "message" || item.type === undefined) && 'role' in item) {
+          // Message item - extract content
+          const messageItem = item as any;
+          const content = messageItem.content;
+
+          if (typeof content === "string") {
+            parts.push({ type: "text", text: content });
+          } else if (Array.isArray(content)) {
+            // Process content array
+            for (const contentItem of content) {
+              if (contentItem.type === "input_text") {
+                parts.push({ type: "text", text: contentItem.text });
+              } else if (contentItem.type === "input_image") {
+                const imagePath = await this.handleImageInput(contentItem);
+                if (imagePath) {
+                  parts.push({ type: "local_image", path: imagePath });
+                }
+              } else if (contentItem.type === "input_file") {
+                throw new Error(
+                  `CodexProvider does not yet support input_file type. ` +
+                  `File handling needs to be implemented based on file type and format.`
+                );
+              } else if (contentItem.type === "audio") {
+                throw new Error(
+                  `CodexProvider does not yet support audio type. ` +
+                  `Audio handling needs to be implemented.`
+                );
+              } else if (contentItem.type === "refusal") {
+                parts.push({
+                  type: "text",
+                  text: `[Refusal: ${contentItem.refusal}]`
+                });
+              } else if (contentItem.type === "output_text") {
+                parts.push({ type: "text", text: contentItem.text });
+              }
+            }
+          }
         }
       }
     }
@@ -622,22 +641,18 @@ class CodexModel implements Model {
    */
   private convertUsage(usage: CodexUsage | null): Usage {
     if (!usage) {
-      return { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return new Usage();
     }
 
-    const inputTokensDetails = usage.cached_input_tokens
-      ? [{ cachedTokens: usage.cached_input_tokens }]
-      : undefined;
-
-    const converted: Usage = {
+    const converted = new Usage({
       requests: 1,
       inputTokens: usage.input_tokens,
       outputTokens: usage.output_tokens,
       totalTokens: usage.input_tokens + usage.output_tokens,
-    };
+    });
 
-    if (inputTokensDetails) {
-      converted.inputTokensDetails = inputTokensDetails;
+    if (usage.cached_input_tokens) {
+      converted.inputTokensDetails = [{ cachedTokens: usage.cached_input_tokens }];
     }
 
     return converted;
@@ -652,9 +667,9 @@ class CodexModel implements Model {
     for (const item of items) {
       switch (item.type) {
         case "agent_message": {
-          const content: OutputText[] = [
+          const content = [
             {
-              type: "output_text",
+              type: "output_text" as const,
               text: item.text,
             },
           ];
@@ -664,15 +679,20 @@ class CodexModel implements Model {
             role: "assistant",
             status: "completed",
             content,
-          });
+          } as AssistantMessageItem);
           break;
         }
 
         case "reasoning": {
           output.push({
             type: "reasoning",
-            reasoning: item.text,
-          });
+            content: [
+              {
+                type: "input_text" as const,
+                text: item.text,
+              },
+            ],
+          } as any);
           break;
         }
 
@@ -698,14 +718,43 @@ class CodexModel implements Model {
         status: "completed",
         content: [
           {
-            type: "output_text",
+            type: "output_text" as const,
             text: finalResponse,
           },
         ],
-      });
+      } as AssistantMessageItem);
     }
 
     return output;
+  }
+
+  private buildStreamResponse(
+    usage: Usage,
+    responseId: string,
+    items: ThreadItem[],
+    lastMessage: string | null
+  ): any {
+    const messageItems = items.filter(
+      (item): item is Extract<ThreadItem, { type: "agent_message" }> => item.type === "agent_message"
+    );
+    const output = this.convertItemsToOutput(messageItems, lastMessage ?? "");
+
+    // Convert Usage to plain object format expected by StreamEvent
+    const usageData = {
+      requests: usage.requests,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      totalTokens: usage.totalTokens,
+      inputTokensDetails: usage.inputTokensDetails?.[0],
+      outputTokensDetails: usage.outputTokensDetails?.[0],
+    };
+
+    return {
+      id: responseId,
+      responseId,
+      usage: usageData,
+      output,
+    };
   }
 
   /**
@@ -724,6 +773,8 @@ class CodexModel implements Model {
 
       case "turn.started":
         // No equivalent in StreamEvent - skip
+        this.streamedTurnItems = [];
+        this.lastStreamedMessage = null;
         break;
 
       case "item.started":
@@ -765,27 +816,40 @@ class CodexModel implements Model {
             const delta = currentText.slice(previousText.length);
             textAccumulator.set(itemKey, currentText);
 
+            // Use "model" type for custom reasoning events
             events.push({
-              type: "reasoning_delta",
-              delta,
-            });
+              type: "model",
+              event: {
+                type: "reasoning_delta",
+                delta,
+              },
+            } as StreamEvent);
           }
         }
         break;
 
       case "item.completed":
+        this.streamedTurnItems.push(event.item);
+
         if (event.item.type === "agent_message") {
-          // Emit final text done event
+          // Use "model" type for custom output_text_done events
           events.push({
-            type: "output_text_done",
-            text: event.item.text,
-          });
+            type: "model",
+            event: {
+              type: "output_text_done",
+              text: event.item.text,
+            },
+          } as StreamEvent);
           textAccumulator.delete("agent_message");
+          this.lastStreamedMessage = event.item.text;
         } else if (event.item.type === "reasoning") {
           events.push({
-            type: "reasoning_done",
-            reasoning: event.item.text,
-          });
+            type: "model",
+            event: {
+              type: "reasoning_done",
+              reasoning: event.item.text,
+            },
+          } as StreamEvent);
           textAccumulator.delete("reasoning");
         }
         break;
@@ -793,45 +857,44 @@ class CodexModel implements Model {
       case "turn.completed":
         // Emit response done with full response
         const usage = this.convertUsage(event.usage);
-        const streamUsage: Usage = { ...usage };
-
-        if (Array.isArray(usage.inputTokensDetails)) {
-          const [details] = usage.inputTokensDetails;
-          if (details) {
-            streamUsage.inputTokensDetails = [details];
-          } else {
-            delete streamUsage.inputTokensDetails;
-          }
-        }
-
         const responseId = this.thread?.id ?? "codex-stream-response";
+        const response = this.buildStreamResponse(
+          usage,
+          responseId,
+          this.streamedTurnItems,
+          this.lastStreamedMessage
+        );
+        this.streamedTurnItems = [];
+        this.lastStreamedMessage = null;
 
         events.push({
           type: "response_done",
-          response: {
-            usage: streamUsage,
-            output: [], // Items were already emitted as deltas
-            responseId,
-          },
-        });
+          response,
+        } as StreamEvent);
         break;
 
       case "turn.failed":
         events.push({
-          type: "error",
-          error: {
-            message: event.error.message,
+          type: "model",
+          event: {
+            type: "error",
+            error: {
+              message: event.error.message,
+            },
           },
-        });
+        } as StreamEvent);
         break;
 
       case "error":
         events.push({
-          type: "error",
-          error: {
-            message: event.message,
+          type: "model",
+          event: {
+            type: "error",
+            error: {
+              message: event.message,
+            },
           },
-        });
+        } as StreamEvent);
         break;
 
       default:
