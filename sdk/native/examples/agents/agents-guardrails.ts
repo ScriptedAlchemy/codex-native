@@ -26,11 +26,12 @@
  * - Using CodexProvider as the model backend
  */
 
-import os from 'node:os';
-import path from 'node:path';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { z } from 'zod';
 import * as Agents from '@openai/agents';
+import { setDefaultModelProvider } from '@openai/agents-core';
 import { CodexProvider } from '../../src/index';
 
 const { Agent, run } = Agents;
@@ -41,10 +42,15 @@ type GuardrailConfig = {
   validate: (input: string) => Promise<GuardrailValidationResult> | GuardrailValidationResult;
 };
 
-const guardrail: (config: GuardrailConfig) => GuardrailConfig =
-  typeof (Agents as { guardrail?: (config: GuardrailConfig) => GuardrailConfig }).guardrail === 'function'
-    ? (Agents as { guardrail: (config: GuardrailConfig) => GuardrailConfig }).guardrail
-    : (config: GuardrailConfig) => config; // Fallback for SDK versions without guardrail helper
+function hasGuardrail(
+  module: typeof Agents
+): module is typeof Agents & { guardrail: (config: GuardrailConfig) => GuardrailConfig } {
+  return typeof (module as { guardrail?: unknown }).guardrail === 'function';
+}
+
+const guardrail: (config: GuardrailConfig) => GuardrailConfig = hasGuardrail(Agents)
+  ? Agents.guardrail
+  : (config) => config; // Fallback for SDK versions without guardrail helper
 
 async function main() {
   console.log('🛡️  Input Guardrails with CodexProvider\n');
@@ -61,7 +67,7 @@ async function main() {
     skipGitRepoCheck: true,
   });
 
-  const codexModel = await codexProvider.getModel();
+  setDefaultModelProvider(codexProvider);
 
   // ============================================================================
   // Example 1: Input Validation Guardrail
@@ -100,10 +106,9 @@ async function main() {
 
   const agentWithValidation = new Agent({
     name: 'ValidatedAgent',
-    model: codexModel,
     instructions: 'You are a helpful assistant that only processes validated inputs.',
     guardrails: [inputValidationGuardrail],
-  });
+  } as any);
 
   console.log('\nTest 1: Valid input');
   console.log('Input: "This is a valid question that meets the length requirements."\n');
@@ -114,7 +119,7 @@ async function main() {
       'This is a valid question that meets the length requirements.'
     );
     console.log('✓ Guardrail passed');
-    console.log('Response:', result1.finalOutput.substring(0, 100) + '...\n');
+    console.log('Response:', (result1.finalOutput ?? '').substring(0, 100) + '...\n');
   } catch (error) {
     console.log('✗ Guardrail failed:', error instanceof Error ? error.message : String(error));
   }
@@ -124,7 +129,7 @@ async function main() {
 
   try {
     const result2 = await run(agentWithValidation, 'Short');
-    console.log('Response:', result2.finalOutput);
+    console.log('Response:', result2.finalOutput ?? '(no output)');
   } catch (error) {
     console.log('✗ Guardrail blocked:', error instanceof Error ? error.message : String(error));
   }
@@ -157,10 +162,9 @@ async function main() {
 
   const filteredAgent = new Agent({
     name: 'FilteredAgent',
-    model: codexModel,
     instructions: 'You are a helpful assistant with content filtering enabled.',
     guardrails: [contentFilterGuardrail],
-  });
+  } as any);
 
   console.log('\nTest 1: Clean input');
   console.log('Input: "What is the weather today?"\n');
@@ -168,7 +172,7 @@ async function main() {
   try {
     const result1 = await run(filteredAgent, 'What is the weather today?');
     console.log('✓ Guardrail passed');
-    console.log('Response:', result1.finalOutput.substring(0, 100) + '...\n');
+    console.log('Response:', (result1.finalOutput ?? '').substring(0, 100) + '...\n');
   } catch (error) {
     console.log('✗ Guardrail failed:', error instanceof Error ? error.message : String(error));
   }
@@ -178,7 +182,7 @@ async function main() {
 
   try {
     const result2 = await run(filteredAgent, 'This is spam content');
-    console.log('Response:', result2.finalOutput);
+    console.log('Response:', result2.finalOutput ?? '(no output)');
   } catch (error) {
     console.log('✗ Guardrail blocked:', error instanceof Error ? error.message : String(error));
   }
@@ -215,10 +219,9 @@ async function main() {
 
   const secureAgent = new Agent({
     name: 'SecureAgent',
-    model: codexModel,
     instructions: 'You are a helpful assistant with security checks enabled.',
     guardrails: [securityGuardrail],
-  });
+  } as any);
 
   console.log('\nTest 1: Safe input');
   console.log('Input: "List all files in the current directory"\n');
@@ -226,7 +229,7 @@ async function main() {
   try {
     const result1 = await run(secureAgent, 'List all files in the current directory');
     console.log('✓ Guardrail passed');
-    console.log('Response:', result1.finalOutput.substring(0, 100) + '...\n');
+    console.log('Response:', (result1.finalOutput ?? '').substring(0, 100) + '...\n');
   } catch (error) {
     console.log('✗ Guardrail failed:', error instanceof Error ? error.message : String(error));
   }
@@ -236,7 +239,7 @@ async function main() {
 
   try {
     const result2 = await run(secureAgent, 'rm -rf /tmp');
-    console.log('Response:', result2.finalOutput);
+    console.log('Response:', result2.finalOutput ?? '(no output)');
   } catch (error) {
     console.log('✗ Guardrail blocked:', error instanceof Error ? error.message : String(error));
   }
@@ -249,14 +252,13 @@ async function main() {
 
   const multiGuardrailAgent = new Agent({
     name: 'MultiGuardrailAgent',
-    model: codexModel,
     instructions: 'You are a helpful assistant with multiple guardrails enabled.',
     guardrails: [
       inputValidationGuardrail,
       contentFilterGuardrail,
       securityGuardrail,
     ],
-  });
+  } as any);
 
   console.log('\nTest: Input that passes all guardrails');
   console.log('Input: "Can you help me understand how to write better code?"\n');
@@ -267,7 +269,7 @@ async function main() {
       'Can you help me understand how to write better code?'
     );
     console.log('✓ All guardrails passed');
-    console.log('Response:', result.finalOutput.substring(0, 150) + '...\n');
+    console.log('Response:', (result.finalOutput ?? '').substring(0, 150) + '...\n');
   } catch (error) {
     console.log('✗ Guardrail blocked:', error instanceof Error ? error.message : String(error));
   }
