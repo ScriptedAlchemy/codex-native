@@ -163,7 +163,7 @@ async function main() {
     const worktreeDir = `pr-${pr.number}-${safeSlug}`;
     const worktreePath = path.join(config.worktreeRoot, worktreeDir);
     const remoteRef = `refs/remotes/${config.remote}/pr-worktree/${pr.number}`;
-    const localBranch = `codex/pr-${pr.number}`;
+    const localBranch = pr.headRefName || `codex/pr-${pr.number}`;
     let createdWorktree = false;
 
     const basePrefix = formatPrefix(pr);
