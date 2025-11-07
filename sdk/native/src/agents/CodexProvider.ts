@@ -792,12 +792,26 @@ class CodexModel implements Model {
 
       case "turn.completed":
         // Emit response done with full response
+        const usage = this.convertUsage(event.usage);
+        const streamUsage: Usage = { ...usage };
+
+        if (Array.isArray(usage.inputTokensDetails)) {
+          const [details] = usage.inputTokensDetails;
+          if (details) {
+            streamUsage.inputTokensDetails = [details];
+          } else {
+            delete streamUsage.inputTokensDetails;
+          }
+        }
+
+        const responseId = this.thread?.id ?? "codex-stream-response";
+
         events.push({
           type: "response_done",
           response: {
-            usage: this.convertUsage(event.usage),
+            usage: streamUsage,
             output: [], // Items were already emitted as deltas
-            responseId: this.thread?.id || undefined,
+            responseId,
           },
         });
         break;
