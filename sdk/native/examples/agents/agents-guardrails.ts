@@ -67,6 +67,21 @@ function guardrailFailure(reason: string) {
     outputInfo: { reason },
   };
 }
+import * as Agents from '@openai/agents';
+import { CodexProvider } from '../../src/index';
+
+const { Agent, run } = Agents;
+
+type GuardrailValidationResult = { valid: boolean; reason?: string };
+type GuardrailConfig = {
+  name: string;
+  validate: (input: string) => Promise<GuardrailValidationResult> | GuardrailValidationResult;
+};
+
+const guardrail: (config: GuardrailConfig) => GuardrailConfig =
+  typeof (Agents as { guardrail?: (config: GuardrailConfig) => GuardrailConfig }).guardrail === 'function'
+    ? (Agents as { guardrail: (config: GuardrailConfig) => GuardrailConfig }).guardrail
+    : (config: GuardrailConfig) => config; // Fallback for SDK versions without guardrail helper
 
 async function main() {
   console.log('🛡️  Input Guardrails with CodexProvider\n');
@@ -325,4 +340,3 @@ if (require.main === module) {
 }
 
 export { main };
-
