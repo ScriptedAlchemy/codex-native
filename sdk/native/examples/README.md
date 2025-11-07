@@ -66,6 +66,49 @@ Advanced multi-agent workflows.
   - Custom weather and temperature tools
   - Framework tool execution patterns
 
+- **`agents-handoffs.ts`** — Agent handoffs and delegation
+  - Delegating tasks between specialized agents
+  - Maintaining conversation context across handoffs
+  - Conditional handoffs based on task type
+  - Multi-agent chains and workflows
+  - Router pattern for task routing
+
+- **`agents-guardrails.ts`** — Input validation and guardrails
+  - Input validation guardrails
+  - Content filtering guardrails
+  - Security checks and dangerous command detection
+  - Multiple guardrails combined
+  - Early termination on guardrail failures
+
+- **`agents-structured-output.ts`** — Structured output with JSON schemas
+  - JSON schema validation
+  - Simple and complex nested schemas
+  - Zod schema integration
+  - Type-safe structured responses
+  - Array response schemas
+
+- **`agents-streaming.ts`** — Real-time streaming responses
+  - Real-time streaming deltas
+  - Handling different stream event types
+  - Token usage tracking
+  - Progress indicators
+  - Custom processing of stream events
+  - Error handling in streaming
+
+- **`agents-multi-agent-workflow.ts`** — Complex multi-agent workflows
+  - Multiple specialized agents working together
+  - Sequential workflows (ProductManager → Architect → Developer → Tester)
+  - Parallel agent execution
+  - Iterative refinement workflows
+  - Context sharing between agents
+
+- **`agents-tracing.ts`** — Tracing and debugging
+  - Enabling tracing for agent workflows
+  - Nested tracing for hierarchical workflows
+  - Performance monitoring and token usage
+  - Multi-agent workflow tracing
+  - Error tracing and debugging
+
 ## Running Examples
 
 ### Prerequisites
@@ -103,7 +146,12 @@ node dist-examples/examples/basic/streaming-deltas.js
 3. `tools/automatic-tool-registration.ts` — Working with tools
 
 ### Advanced Features
-- **Multi-Agent**: `agents/agents-integration.ts`
+- **Multi-Agent**: `agents/agents-integration.ts`, `agents/agents-multi-agent-workflow.ts`
+- **Agent Handoffs**: `agents/agents-handoffs.ts`
+- **Guardrails**: `agents/agents-guardrails.ts`
+- **Structured Output**: `agents/agents-structured-output.ts`
+- **Streaming**: `agents/agents-streaming.ts`
+- **Tracing**: `agents/agents-tracing.ts`
 - **Tool Override**: `tools/tool-override-example.ts`
 - **Code Review**: `basic/review-example.ts`
 
