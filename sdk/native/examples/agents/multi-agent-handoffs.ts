@@ -262,12 +262,12 @@ class UserAuthenticator {
   console.log('  • Context is preserved across handoffs');
   console.log('  • CodexProvider enables all agents to use Codex capabilities');
 
-  // Cleanup
-  try {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  } catch (e) {
-    // Ignore cleanup errors
-  }
+  // Cleanup asynchronously so the example exits promptly even if deletion lags.
+  void fs
+    .rm(tmpDir, { recursive: true, force: true })
+    .catch(() => {
+      // Ignore cleanup errors
+    });
 }
 
 // Run if executed directly
