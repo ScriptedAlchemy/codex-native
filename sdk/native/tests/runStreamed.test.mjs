@@ -1,5 +1,6 @@
-import { describe, expect, it, beforeAll } from "@jest/globals";
+import { describe, expect, it, beforeAll, jest } from "@jest/globals";
 import { fileURLToPath } from "node:url";
+import { promises as fs } from "node:fs";
 
 import {
   assistantMessage,
@@ -54,7 +55,10 @@ describe("Codex runStreamed with native binding", () => {
         events.push(event);
       }
 
-      expect(events).toEqual([
+      // Filter out raw_event types for this test
+      const standardEvents = events.filter((e) => e.type !== "raw_event");
+
+      expect(standardEvents).toEqual([
         {
           type: "thread.started",
           thread_id: expect.any(String),
@@ -183,6 +187,7 @@ describe("Codex runStreamed with native binding", () => {
       additionalProperties: false,
     };
 
+    const mkdtempSpy = jest.spyOn(fs, "mkdtemp");
     try {
       const client = createClient(url);
       const thread = client.startThread();
@@ -198,7 +203,9 @@ describe("Codex runStreamed with native binding", () => {
         strict: true,
         schema,
       });
+      expect(mkdtempSpy).not.toHaveBeenCalled();
     } finally {
+      mkdtempSpy.mockRestore();
       await close();
     }
   });

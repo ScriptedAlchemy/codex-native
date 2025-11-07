@@ -10,8 +10,7 @@
  * import { Agent, Runner } from '@openai/agents';
  *
  * const provider = new CodexProvider({
- *   apiKey: process.env.CODEX_API_KEY,
- *   defaultModel: 'claude-sonnet-4.5'
+ *   defaultModel: 'gpt-5-codex'
  * });
  *
  * const agent = new Agent({
@@ -29,6 +28,8 @@
 
 export { CodexProvider } from "./CodexProvider";
 export type { CodexProviderOptions } from "./CodexProvider";
+export { codexTool } from "./codexTool";
+export type { CodexToolOptions } from "./codexTool";
 
 // Re-export types for convenience
 export type {

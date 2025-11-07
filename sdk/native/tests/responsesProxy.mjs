@@ -136,10 +136,10 @@ export function responseFailed(errorMessage) {
   };
 }
 
-export function responseCompleted(responseId = DEFAULT_RESPONSE_ID, usage = DEFAULT_COMPLETED_USAGE) {
+export function responseCompleted(responseId = DEFAULT_RESPONSE_ID, usage = DEFAULT_COMPLETED_USAGE, finalText) {
   const inputDetails = usage.input_tokens_details ? { ...usage.input_tokens_details } : null;
   const outputDetails = usage.output_tokens_details ? { ...usage.output_tokens_details } : null;
-  return {
+  const response = {
     type: "response.completed",
     response: {
       id: responseId,
@@ -152,4 +152,20 @@ export function responseCompleted(responseId = DEFAULT_RESPONSE_ID, usage = DEFA
       },
     },
   };
+  if (typeof finalText === "string") {
+    response.response.output = [
+      {
+        id: DEFAULT_MESSAGE_ID,
+        role: "assistant",
+        content: [
+          {
+            type: "output_text",
+            text: finalText,
+          },
+        ],
+      },
+    ];
+    response.response.output_text = finalText;
+  }
+  return response;
 }

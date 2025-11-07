@@ -7,17 +7,16 @@
  *
  * Installation:
  * ```bash
- * npm install @openai/codex-native @openai/agents
+ * npm install @codex-native/sdk @openai/agents
  * ```
  *
  * Usage:
  * ```bash
- * export CODEX_API_KEY="your-api-key"
  * npx tsx examples/agents-integration.ts
  * ```
  */
 
-import { CodexProvider } from "@openai/codex-native";
+import { CodexProvider } from "../../src/index";
 
 // These would come from @openai/agents when installed
 // import { Agent, Runner } from "@openai/agents";
@@ -40,9 +39,7 @@ async function main() {
   // Step 1: Create the CodexProvider
   // ============================================================================
   const provider = new CodexProvider({
-    apiKey: process.env.CODEX_API_KEY,
-    baseUrl: process.env.CODEX_BASE_URL,
-    defaultModel: "claude-sonnet-4.5",
+    defaultModel: "gpt-5-codex",
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true, // For example purposes
   });
@@ -149,7 +146,9 @@ each using Codex as their backend through the provider.
   - No need for framework-level tool configuration
 
 ✓ Multi-modal Input:
-  - Support for text and images (future)
+  - Support for text and images (available now!)
+  - Images can be URLs, base64 data, or file paths
+  - CodexProvider automatically handles image conversion
   - Codex can analyze screenshots and diagrams
 `);
 
@@ -160,7 +159,7 @@ each using Codex as their backend through the provider.
   console.log("\n\nDirect Provider Usage (for testing):");
   console.log("─".repeat(60));
 
-  const model = provider.getModel("claude-sonnet-4.5");
+  const model = provider.getModel("gpt-5-codex");
 
   try {
     const response = await model.getResponse({
@@ -171,7 +170,20 @@ each using Codex as their backend through the provider.
         maxTokens: 1000,
       },
       tools: [],
-      outputType: { type: "json_schema", schema: {} },
+      outputType: {
+        type: "json_schema",
+        schema: {
+          type: "object",
+          properties: {
+            answer: {
+              type: "string",
+              description: "The answer to the question",
+            },
+          },
+          required: ["answer"],
+          additionalProperties: false,
+        },
+      },
       handoffs: [],
       tracing: { enabled: false },
     });
@@ -183,7 +195,7 @@ each using Codex as their backend through the provider.
     console.log(`\n  Output items: ${response.output.length}`);
 
     for (const item of response.output) {
-      if (item.type === "assistant_message") {
+      if (!item.type || item.type === "message") {
         console.log(`\n  Message: ${item.content[0]?.type === "output_text" ? item.content[0].text : "(non-text)"}`);
       }
     }
@@ -198,7 +210,12 @@ each using Codex as their backend through the provider.
 
 // Run if executed directly
 if (require.main === module) {
-  main().catch((error) => {
+  main()
+  .then(() => {
+    // Force exit after completion to avoid hanging
+    process.exit(0);
+  })
+  .catch((error) => {
     console.error("Fatal error:", error);
     process.exit(1);
   });

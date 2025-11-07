@@ -33,6 +33,12 @@ pub enum ThreadEvent {
     /// Represents an unrecoverable error emitted directly by the event stream.
     #[serde(rename = "error")]
     Error(ThreadErrorEvent),
+    /// Signals that Codex exited review mode and optionally provides structured output.
+    #[serde(rename = "exited_review_mode")]
+    ExitedReviewMode(ExitedReviewModeEvent),
+    /// Raw protocol event payload forwarded for consumers that need full fidelity.
+    #[serde(rename = "raw_event")]
+    Raw(RawEvent),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
@@ -85,6 +91,47 @@ pub struct ItemUpdatedEvent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub struct ThreadErrorEvent {
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+pub struct ReviewFinding {
+    pub title: String,
+    pub body: String,
+    pub confidence_score: f32,
+    pub priority: i32,
+    pub code_location: ReviewCodeLocation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+pub struct ReviewCodeLocation {
+    pub absolute_file_path: String,
+    pub line_range: ReviewLineRange,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+pub struct ReviewLineRange {
+    pub start: i32,
+    pub end: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+pub struct ReviewOutputEvent {
+    pub findings: Vec<ReviewFinding>,
+    pub overall_correctness: String,
+    pub overall_explanation: String,
+    pub overall_confidence_score: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+pub struct ExitedReviewModeEvent {
+    #[serde(default)]
+    pub review_output: Option<ReviewOutputEvent>,
+}
+
+/// Raw protocol event payload as emitted by codex-core.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+pub struct RawEvent {
+    pub raw: JsonValue,
 }
 
 /// Canonical representation of a thread item and its domain-specific payload.

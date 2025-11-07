@@ -33,7 +33,15 @@ export type { NativeToolInvocation, NativeToolResult } from "./nativeBinding";
 
 export type { ThreadOptions, ApprovalMode, SandboxMode } from "./threadOptions";
 export type { TurnOptions } from "./turnOptions";
+export type {
+  ReviewInvocationOptions,
+  ReviewTarget,
+  CurrentChangesReview,
+  BranchReview,
+  CommitReview,
+  CustomReview,
+} from "./reviewOptions";
 
 // OpenAI Agents framework integration
-export { CodexProvider } from "./agents";
-export type { CodexProviderOptions } from "./agents";
+export { CodexProvider, codexTool } from "./agents";
+export type { CodexProviderOptions, CodexToolOptions } from "./agents";

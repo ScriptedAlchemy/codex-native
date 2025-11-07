@@ -12,7 +12,7 @@ concurrency:
 jobs:
   sdks:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -23,25 +23,49 @@ jobs:
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@1.90
+      - uses: dtolnay/rust-toolchain@1.91
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            codex-rs/target/
+          key: sdk-cargo-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}
+          restore-keys: |
+            sdk-cargo-${{ runner.os }}-
 
       - name: build codex
         run: cargo build --bin codex
         working-directory: codex-rs
 
       - name: Install dependencies
-        run: npm_config_optional=false pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
-      - name: Build SDK packages
+      - name: Build TypeScript SDK packages
         run: pnpm -r --filter ./sdk/typescript run build
 
-      - name: Lint SDK packages
+      - name: Build native SDK package
+        run: pnpm -r --filter ./sdk/native run build
+
+      - name: Lint TypeScript SDK packages
         run: pnpm -r --filter ./sdk/typescript run lint
 
-      - name: Test SDK packages
+      - name: Lint native SDK package
+        run: pnpm -r --filter ./sdk/native run lint
+
+      - name: Test TypeScript SDK packages
         run: pnpm -r --filter ./sdk/typescript run test
+
+      - name: Test native SDK package
+        run: pnpm -r --filter ./sdk/native run test

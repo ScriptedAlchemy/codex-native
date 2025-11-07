@@ -20,6 +20,7 @@ use crate::exec_events::McpToolCallItemResult;
 use crate::exec_events::McpToolCallStatus;
 use crate::exec_events::PatchApplyStatus;
 use crate::exec_events::PatchChangeKind;
+use crate::exec_events::RawEvent;
 use crate::exec_events::ReasoningItem;
 use crate::exec_events::ThreadErrorEvent;
 use crate::exec_events::ThreadEvent;
@@ -107,7 +108,7 @@ impl EventProcessorWithJsonOutput {
     }
 
     pub fn collect_thread_events(&mut self, event: &Event) -> Vec<ThreadEvent> {
-        match &event.msg {
+        let mut events = match &event.msg {
             EventMsg::SessionConfigured(ev) => self.handle_session_configured(ev),
             EventMsg::AgentMessage(ev) => self.handle_agent_message(ev),
             EventMsg::AgentReasoning(ev) => self.handle_reasoning_event(ev),
@@ -148,7 +149,15 @@ impl EventProcessorWithJsonOutput {
             })],
             EventMsg::PlanUpdate(ev) => self.handle_plan_update(ev),
             _ => Vec::new(),
+        };
+
+        if events.is_empty()
+            && let Ok(raw) = serde_json::to_value(&event.msg)
+        {
+            events.push(ThreadEvent::Raw(RawEvent { raw }));
         }
+
+        events
     }
 
     fn get_next_item_id(&self) -> String {

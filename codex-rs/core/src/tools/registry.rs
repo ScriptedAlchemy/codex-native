@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use codex_protocol::models::ResponseInputItem;
+use tracing::error;
 use tracing::warn;
 
 use crate::client_common::tools::ToolSpec;
@@ -45,19 +46,34 @@ fn pending_external_tools() -> &'static Mutex<Vec<ExternalToolRegistration>> {
 }
 
 pub fn set_pending_external_tools(tools: Vec<ExternalToolRegistration>) {
-    let mut guard = pending_external_tools()
-        .lock()
-        .expect("pending external tools mutex poisoned");
-    *guard = tools;
+    match pending_external_tools().lock() {
+        Ok(mut guard) => {
+            *guard = tools;
+        }
+        Err(err) => {
+            error!(
+                error = ?err,
+                "failed to acquire pending external tools mutex; pending tools unchanged"
+            );
+        }
+    }
 }
 
 pub fn take_pending_external_tools() -> Vec<ExternalToolRegistration> {
-    let mut guard = pending_external_tools()
-        .lock()
-        .expect("pending external tools mutex poisoned");
-    let tools = guard.clone();
-    guard.clear();
-    tools
+    match pending_external_tools().lock() {
+        Ok(mut guard) => {
+            let tools = guard.clone();
+            guard.clear();
+            tools
+        }
+        Err(err) => {
+            error!(
+                error = ?err,
+                "failed to acquire pending external tools mutex; returning empty list"
+            );
+            Vec::new()
+        }
+    }
 }
 
 #[async_trait]
@@ -196,6 +212,12 @@ pub struct ToolRegistryBuilder {
     specs: Vec<ConfiguredToolSpec>,
 }
 
+impl Default for ToolRegistryBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ToolRegistryBuilder {
     pub fn new() -> Self {
         Self {
@@ -215,6 +237,23 @@ impl ToolRegistryBuilder {
     ) {
         self.specs
             .push(ConfiguredToolSpec::new(spec, supports_parallel_tool_calls));
+    }
+
+    pub fn upsert_spec_with_parallel_support(
+        &mut self,
+        spec: ToolSpec,
+        supports_parallel_tool_calls: bool,
+    ) {
+        let spec_name = spec.name().to_string();
+        if let Some(existing) = self
+            .specs
+            .iter_mut()
+            .find(|configured| configured.spec.name() == spec_name)
+        {
+            *existing = ConfiguredToolSpec::new(spec, supports_parallel_tool_calls);
+        } else {
+            self.push_spec_with_parallel_support(spec, supports_parallel_tool_calls);
+        }
     }
 
     pub fn register_handler(&mut self, name: impl Into<String>, handler: Arc<dyn ToolHandler>) {

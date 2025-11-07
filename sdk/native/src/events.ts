@@ -68,6 +68,35 @@ export type ThreadErrorEvent = {
   message: string;
 };
 
+/** Review finding with code location */
+export type ReviewFinding = {
+  title: string;
+  body: string;
+  confidence_score: number;
+  priority: number;
+  code_location: {
+    absolute_file_path: string;
+    line_range: {
+      start: number;
+      end: number;
+    };
+  };
+};
+
+/** Structured review output */
+export type ReviewOutputEvent = {
+  findings: ReviewFinding[];
+  overall_correctness: string;
+  overall_explanation: string;
+  overall_confidence_score: number;
+};
+
+/** Emitted when exiting review mode with optional structured results */
+export type ExitedReviewModeEvent = {
+  type: "exited_review_mode";
+  review_output: ReviewOutputEvent | null;
+};
+
 /** Top-level JSONL events emitted by codex exec. */
 export type ThreadEvent =
   | ThreadStartedEvent
@@ -77,4 +106,12 @@ export type ThreadEvent =
   | ItemStartedEvent
   | ItemUpdatedEvent
   | ItemCompletedEvent
-  | ThreadErrorEvent;
+  | ExitedReviewModeEvent
+  | ThreadErrorEvent
+  | RawThreadEvent;
+
+/** Raw protocol event forwarded without transformation. */
+export type RawThreadEvent = {
+  type: "raw_event";
+  raw: unknown;
+};
