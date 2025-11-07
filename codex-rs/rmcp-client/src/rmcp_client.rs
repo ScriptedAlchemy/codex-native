@@ -174,7 +174,7 @@ impl RmcpClient {
             }
 
             let http_client =
-                apply_default_headers(reqwest::Client::builder(), &default_headers).build()?;
+                apply_default_headers(reqwest::Client::builder().use_rustls_tls(), &default_headers).build()?;
 
             let transport = StreamableHttpClientTransport::with_client(http_client, http_config);
             PendingTransport::StreamableHttp { transport }
@@ -376,7 +376,7 @@ async fn create_oauth_transport_and_runtime(
     OAuthPersistor,
 )> {
     let http_client =
-        apply_default_headers(reqwest::Client::builder(), &default_headers).build()?;
+        apply_default_headers(reqwest::Client::builder().use_rustls_tls(), &default_headers).build()?;
     let mut oauth_state = OAuthState::new(url.to_string(), Some(http_client.clone())).await?;
 
     oauth_state

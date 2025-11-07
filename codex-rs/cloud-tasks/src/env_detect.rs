@@ -73,7 +73,7 @@ pub async fn autodetect_environment_id(
     };
     crate::append_error_log(format!("env: GET {list_url}"));
     // Fetch and log the full environments JSON for debugging
-    let http = reqwest::Client::builder().build()?;
+    let http = reqwest::Client::builder().use_rustls_tls().build()?;
     let res = http.get(&list_url).headers(headers.clone()).send().await?;
     let status = res.status();
     let ct = res
@@ -147,7 +147,7 @@ async fn get_json<T: serde::de::DeserializeOwned>(
     url: &str,
     headers: &HeaderMap,
 ) -> anyhow::Result<T> {
-    let http = reqwest::Client::builder().build()?;
+    let http = reqwest::Client::builder().use_rustls_tls().build()?;
     let res = http.get(url).headers(headers.clone()).send().await?;
     let status = res.status();
     let ct = res
