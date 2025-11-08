@@ -272,10 +272,29 @@ strip = "symbols"
 # See https://github.com/openai/codex/issues/1411 for details.
 codegen-units = 1
 
+[profile.dev]
+# Optimize for better sccache cache hit rates
+codegen-units = 16
+split-debuginfo = "off"
+
 [profile.ci-test]
 debug = 1         # Reduce debug symbol size
 inherits = "test"
 opt-level = 0
+
+[profile.test-cache]
+# Optimized for fast CI test execution with maximum caching
+inherits = "dev"
+incremental = false  # Disable for better sccache compatibility
+# Minimal debug info for faster compilation
+debug = 0
+# No optimizations for fastest compilation
+opt-level = 0
+# Balance codegen units: lower = better cache reuse, higher = more parallelism
+# 16 is a good middle ground that works well with sccache
+codegen-units = 16
+# Disable split debuginfo for better caching
+split-debuginfo = "off"
 
 [patch.crates-io]
 # Uncomment to debug local changes.
