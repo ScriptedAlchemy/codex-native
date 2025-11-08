@@ -1309,7 +1309,7 @@ async function runCodexTurnWithLogging(thread: Thread, prompt: string, prefix: s
       }
     }
   } catch (error) {
-    logWithPrefix(prefix, `Codex stream aborted: ${error instanceof Error ? error.message : String(error)}`);
+    console.log(`❌ Codex stream aborted: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
   }
 
@@ -1646,81 +1646,85 @@ function summarizeResults(results: RunResult[], pushOutcomes: PushOutcome[], cle
     }
   }
 
-  console.log("\n=== Summary ===");
+  console.log("\n" + "=".repeat(80));
+  console.log("📊 Summary");
+  console.log("=".repeat(80));
 
   if (agentSuccesses.length) {
-    console.log(`Codex processed PRs: ${agentSuccesses.join(", ")}`);
+    console.log(`✅ Successfully processed ${agentSuccesses.length} PR(s): ${agentSuccesses.join(", ")}`);
   }
 
   if (dryRuns.length) {
-    console.log(`Dry run only (no Codex execution): ${dryRuns.join(", ")}`);
+    console.log(`🏃 Dry run only (no Codex execution): ${dryRuns.join(", ")}`);
   }
 
   if (agentFailures.length) {
-    console.log("Codex failures:");
+    console.log(`\n❌ Codex failures (${agentFailures.length}):`);
     for (const failure of agentFailures) {
-      console.log(`- PR ${failure.number}: ${failure.message}`);
+      console.log(`   - PR #${failure.number}: ${failure.message}`);
     }
   }
 
   if (ghFailures.length) {
-    console.log("gh pr checks failures (before Codex remediation):");
+    console.log(`\n⚠️  CI check failures (${ghFailures.length}):`);
     for (const failure of ghFailures) {
-      console.log(`- PR ${failure.number}: exit ${failure.output.exitCode ?? "unknown"}`);
+      console.log(`   - PR #${failure.number}: exit ${failure.output.exitCode ?? "unknown"}`);
     }
   }
 
   if (mergedPrs.length) {
-    console.log(`PRs merged automatically: ${mergedPrs.join(", ")}`);
+    console.log(`\n🎉 Automatically merged ${mergedPrs.length} PR(s): ${mergedPrs.join(", ")}`);
   }
 
   if (buildAttempts.length) {
-    console.log("PRs requiring build remediation attempts:");
+    console.log(`\n🔨 Build remediation attempts:`);
     for (const entry of buildAttempts) {
-      console.log(`- PR ${entry.number}: ${entry.attempts} attempt(s)`);
+      console.log(`   - PR #${entry.number}: ${entry.attempts} attempt(s)`);
     }
   }
 
   if (remediationAttempts.length) {
-    console.log("PRs requiring remediation attempts:");
+    console.log(`\n🛠️  CI remediation attempts:`);
     for (const entry of remediationAttempts) {
-      console.log(`- PR ${entry.number}: ${entry.attempts} attempt(s)`);
+      console.log(`   - PR #${entry.number}: ${entry.attempts} attempt(s)`);
     }
   }
 
   if (mergeIssues.length) {
-    console.log("PR merge verification issues:");
+    console.log(`\n⚠️  Merge verification issues:`);
     for (const issue of mergeIssues) {
-      console.log(`- PR ${issue.number}: ${issue.message}`);
+      console.log(`   - PR #${issue.number}: ${issue.message}`);
     }
   }
 
   const pushFailures = pushOutcomes.filter((outcome) => !outcome.success && !outcome.skipped);
   const pushSkipped = pushOutcomes.filter((outcome) => outcome.skipped);
   if (pushFailures.length) {
-    console.log("Push failures:");
+    console.log(`\n❌ Push failures (${pushFailures.length}):`);
     for (const failure of pushFailures) {
       const message = failure.error instanceof Error ? failure.error.message : String(failure.error);
-      console.log(`- PR ${failure.pr.number}: ${message}`);
+      console.log(`   - PR #${failure.pr.number}: ${message}`);
     }
   }
 
   if (pushSkipped.length) {
-    console.log("Push skipped:");
+    console.log(`\n⚠️  Push skipped (${pushSkipped.length}):`);
     for (const skipped of pushSkipped) {
       const reasonText = skipped.reason ? ` (${skipped.reason})` : "";
-      console.log(`- PR ${skipped.pr.number}${reasonText}`);
+      console.log(`   - PR #${skipped.pr.number}${reasonText}`);
     }
   }
 
   const cleanupFailures = cleanupOutcomes.filter((outcome) => !outcome.success);
   if (cleanupFailures.length) {
-    console.log("Cleanup failures:");
+    console.log(`\n🗑️  Cleanup failures (${cleanupFailures.length}):`);
     for (const failure of cleanupFailures) {
       const message = failure.error instanceof Error ? failure.error.message : String(failure.error);
-      console.log(`- ${failure.path}: ${message}`);
+      console.log(`   - ${failure.path}: ${message}`);
     }
   }
+  
+  console.log("\n" + "=".repeat(80));
 }
 
 main().catch((error) => {
