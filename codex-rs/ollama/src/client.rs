@@ -63,9 +63,10 @@ impl OllamaClient {
                 && is_openai_compatible_base_url(base_url);
         let host_root = base_url_to_host_root(base_url);
         let client = reqwest::Client::builder()
+            .use_rustls_tls()
             .connect_timeout(std::time::Duration::from_secs(5))
             .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+            .map_err(io::Error::other)?;
         let client = Self {
             client,
             host_root,
@@ -221,9 +222,10 @@ impl OllamaClient {
     #[cfg(test)]
     fn from_host_root(host_root: impl Into<String>) -> Self {
         let client = reqwest::Client::builder()
+            .use_rustls_tls()
             .connect_timeout(std::time::Duration::from_secs(5))
             .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+            .expect("failed to build reqwest client");
         Self {
             client,
             host_root: host_root.into(),

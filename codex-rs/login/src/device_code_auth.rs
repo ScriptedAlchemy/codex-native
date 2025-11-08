@@ -150,7 +150,10 @@ fn print_colored_warning_device_code() {
 
 /// Full device code login flow.
 pub async fn run_device_code_login(opts: ServerOptions) -> std::io::Result<()> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .use_rustls_tls()
+        .build()
+        .map_err(|err| std::io::Error::other(format!("failed to build HTTP client: {err}")))?;
     let base_url = opts.issuer.trim_end_matches('/');
     let api_base_url = format!("{}/api/accounts", opts.issuer.trim_end_matches('/'));
     print_colored_warning_device_code();
