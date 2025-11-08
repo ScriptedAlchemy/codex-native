@@ -205,15 +205,8 @@ async function monitorPrChecks(prs, failureProcessor) {
       
       const outcome = await runCommand(GH_CMD, watchArgs, {
         onData: ({ type, data, accumulated }) => {
-          // Stream output to console for visibility
-          if (type === "stdout") {
-            process.stdout.write(data);
-          } else if (type === "stderr") {
-            process.stderr.write(data);
-          }
-          
-          // Check for failure indicators in real-time
-          if (!earlyFailureDetected.get(pr.number) && detectFailureInOutput(accumulated)) {
+          // Check for failure indicators in real-time (without printing output)
+          if (type === "stdout" && !earlyFailureDetected.get(pr.number) && detectFailureInOutput(accumulated)) {
             earlyFailureDetected.set(pr.number, true);
             
             process.stdout.write(
@@ -378,11 +371,51 @@ async function runClaudeForFailure(pr, failureLog) {
     "Bash,Git,Read,gh",
   ];
 
-  const result = await runCommand(CLAUDE_CMD, args, { env: process.env });
+  process.stdout.write(`\n🧠 Claude is working on PR #${pr.number}...\n`);
+  process.stdout.write(`${"─".repeat(80)}\n`);
+
+  const result = await runCommand(CLAUDE_CMD, args, { 
+    env: process.env,
+    onData: ({ type, data }) => {
+      // Stream Claude's output in real-time
+      if (type === "stdout") {
+        // Parse JSON lines if possible, otherwise just print raw
+        const lines = data.split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const json = JSON.parse(line);
+              // Format structured output nicely
+              if (json.type === "text") {
+                process.stdout.write(`💭 ${json.text}\n`);
+              } else if (json.type === "tool_use") {
+                process.stdout.write(`🔧 Using tool: ${json.name}\n`);
+              } else if (json.type === "tool_result") {
+                process.stdout.write(`✓ Tool completed\n`);
+              } else {
+                // Print other JSON as-is
+                process.stdout.write(`   ${line}\n`);
+              }
+            } catch {
+              // Not JSON, print raw output
+              process.stdout.write(data);
+            }
+          }
+        }
+      } else if (type === "stderr") {
+        // Print errors/warnings
+        process.stderr.write(`⚠️  ${data}`);
+      }
+    }
+  });
+  
+  process.stdout.write(`${"─".repeat(80)}\n`);
+  
   if (result.exitCode !== 0) {
     throw new Error(`Claude CLI exited with ${result.exitCode}\n${result.stderr || result.stdout}`);
   }
-  process.stdout.write(`🧠 Claude response for PR #${pr.number}:\n${indent(result.stdout)}\n`);
+  
+  process.stdout.write(`✅ Claude finished working on PR #${pr.number}\n\n`);
 }
 
 async function commitAndPushIfNeeded(pr) {
