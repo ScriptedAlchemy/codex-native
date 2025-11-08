@@ -14,7 +14,15 @@
     "sdk:release:dry": "pnpm --filter @codex-native/sdk run release:dry",
     "sdk:release:patch": "pnpm --filter @codex-native/sdk run release:patch",
     "sdk:release:minor": "pnpm --filter @codex-native/sdk run release:minor",
-    "sdk:release:major": "pnpm --filter @codex-native/sdk run release:major"
+    "sdk:release:major": "pnpm --filter @codex-native/sdk run release:major",
+    "ci:format": "cd codex-rs && cargo fmt -- --config imports_granularity=Item --check",
+    "ci:codespell": "codespell",
+    "ci:mcp-types": "cd codex-rs && ./mcp-types/check_lib_rs.py",
+    "ci:shear": "cd codex-rs && cargo shear",
+    "ci:clippy": "cd codex-rs && cargo clippy --all-features --tests --profile dev -- -D warnings",
+    "ci:build": "cd codex-rs && cargo build",
+    "ci:test": "cd codex-rs && cargo test",
+    "ci": "pnpm run ci:format && pnpm run ci:codespell && pnpm run ci:mcp-types && pnpm run ci:shear && pnpm run ci:clippy && pnpm run ci:build && pnpm run ci:test"
   },
   "devDependencies": {
     "@codex-native/sdk": "workspace:*",
