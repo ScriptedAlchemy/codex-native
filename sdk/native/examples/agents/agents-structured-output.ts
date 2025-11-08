@@ -31,6 +31,7 @@ import { promises as fs } from 'node:fs';
 import { z } from 'zod';
 import { Agent, run } from '@openai/agents';
 import { CodexProvider } from '../../src/index';
+import { runExampleStep, ensureResult } from '../utils';
 
 async function main() {
   console.log('📋 Structured Output with CodexProvider\n');
@@ -74,18 +75,22 @@ async function main() {
 
   console.log('\nQuery: "Analyze the current repository status"\n');
 
-  const result1 = await run(agentWithSchema, 'Analyze the current repository status', {
-    outputSchema: simpleSchema,
-  });
+  const result1 = await runExampleStep('Simple schema run', () =>
+    run(agentWithSchema, 'Analyze the current repository status', {
+      outputSchema: simpleSchema,
+    })
+  );
 
-  console.log('\n[Structured Response]');
-  try {
-    const parsed = JSON.parse(result1.finalOutput);
-    console.log(JSON.stringify(parsed, null, 2));
-    console.log('\n✓ Response matches schema');
-  } catch (error) {
-    console.log('Response:', result1.finalOutput);
-    console.log('⚠ Could not parse as JSON');
+  if (ensureResult(result1, 'Example 1 structured output')) {
+    console.log('\n[Structured Response]');
+    try {
+      const parsed = JSON.parse(result1.finalOutput);
+      console.log(JSON.stringify(parsed, null, 2));
+      console.log('\n✓ Response matches schema');
+    } catch (error) {
+      console.log('Response:', result1.finalOutput);
+      console.log('⚠ Could not parse as JSON');
+    }
   }
 
   // ============================================================================
@@ -140,22 +145,26 @@ async function main() {
 
   console.log('\nQuery: "Create a task plan for implementing user authentication"\n');
 
-  const result2 = await run(
-    taskAgent,
-    'Create a task plan for implementing user authentication',
-    {
-      outputSchema: complexSchema,
-    }
+  const result2 = await runExampleStep('Complex schema run', () =>
+    run(
+      taskAgent,
+      'Create a task plan for implementing user authentication',
+      {
+        outputSchema: complexSchema,
+      }
+    )
   );
 
-  console.log('\n[Structured Response]');
-  try {
-    const parsed = JSON.parse(result2.finalOutput);
-    console.log(JSON.stringify(parsed, null, 2));
-    console.log('\n✓ Response matches complex schema');
-  } catch (error) {
-    console.log('Response:', result2.finalOutput);
-    console.log('⚠ Could not parse as JSON');
+  if (ensureResult(result2, 'Example 2 structured output')) {
+    console.log('\n[Structured Response]');
+    try {
+      const parsed = JSON.parse(result2.finalOutput);
+      console.log(JSON.stringify(parsed, null, 2));
+      console.log('\n✓ Response matches complex schema');
+    } catch (error) {
+      console.log('Response:', result2.finalOutput);
+      console.log('⚠ Could not parse as JSON');
+    }
   }
 
   // ============================================================================
@@ -214,28 +223,32 @@ async function main() {
 
   console.log('\nQuery: "Create a feature request for adding dark mode"\n');
 
-  const result3 = await run(
-    zodAgent,
-    'Create a feature request for adding dark mode',
-    {
-      outputSchema: jsonSchemaFromZod,
-    }
+  const result3 = await runExampleStep('Zod schema run', () =>
+    run(
+      zodAgent,
+      'Create a feature request for adding dark mode',
+      {
+        outputSchema: jsonSchemaFromZod,
+      }
+    )
   );
 
-  console.log('\n[Structured Response]');
-  try {
-    const parsed = JSON.parse(result3.finalOutput);
-    // Validate with Zod schema
-    const validated = zodSchema.parse(parsed);
-    console.log(JSON.stringify(validated, null, 2));
-    console.log('\n✓ Response matches Zod schema');
-  } catch (error) {
-    console.log('Response:', result3.finalOutput);
-    if (error instanceof z.ZodError) {
-      console.log('\n⚠ Zod validation errors:');
-      console.log(error.errors);
-    } else {
-      console.log('⚠ Could not parse or validate');
+  if (ensureResult(result3, 'Example 3 structured output')) {
+    console.log('\n[Structured Response]');
+    try {
+      const parsed = JSON.parse(result3.finalOutput);
+      // Validate with Zod schema
+      const validated = zodSchema.parse(parsed);
+      console.log(JSON.stringify(validated, null, 2));
+      console.log('\n✓ Response matches Zod schema');
+    } catch (error) {
+      console.log('Response:', result3.finalOutput);
+      if (error instanceof z.ZodError) {
+        console.log('\n⚠ Zod validation errors:');
+        console.log(error.errors);
+      } else {
+        console.log('⚠ Could not parse or validate');
+      }
     }
   }
 
@@ -266,22 +279,26 @@ async function main() {
 
   console.log('\nQuery: "List 3 common programming best practices"\n');
 
-  const result4 = await run(listAgent, 'List 3 common programming best practices', {
-    outputSchema: arraySchema,
-  });
+  const result4 = await runExampleStep('Array schema run', () =>
+    run(listAgent, 'List 3 common programming best practices', {
+      outputSchema: arraySchema,
+    })
+  );
 
-  console.log('\n[Structured Response]');
-  try {
-    const parsed = JSON.parse(result4.finalOutput);
-    if (Array.isArray(parsed)) {
-      console.log(JSON.stringify(parsed, null, 2));
-      console.log(`\n✓ Response is an array with ${parsed.length} items`);
-    } else {
-      console.log('⚠ Response is not an array');
+  if (ensureResult(result4, 'Example 4 structured output')) {
+    console.log('\n[Structured Response]');
+    try {
+      const parsed = JSON.parse(result4.finalOutput);
+      if (Array.isArray(parsed)) {
+        console.log(JSON.stringify(parsed, null, 2));
+        console.log(`\n✓ Response is an array with ${parsed.length} items`);
+      } else {
+        console.log('⚠ Response is not an array');
+      }
+    } catch (error) {
+      console.log('Response:', result4.finalOutput);
+      console.log('⚠ Could not parse as JSON');
     }
-  } catch (error) {
-    console.log('Response:', result4.finalOutput);
-    console.log('⚠ Could not parse as JSON');
   }
 
   // ============================================================================
