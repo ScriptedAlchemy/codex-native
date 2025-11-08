@@ -83,7 +83,9 @@ class FailureProcessor {
         continue;
       }
       this.processed += 1;
-      process.stdout.write(`\n🛠️ Remediating PR #${failure.pr.number} (${failure.pr.title})\n`);
+      const remaining = this.#queue.length;
+      process.stdout.write(`\n🛠️  Processing PR #${failure.pr.number} of ${this.processed + remaining} queued (${remaining} remaining)\n`);
+      process.stdout.write(`📋 ${failure.pr.title}\n`);
       try {
         await processFailure(failure.pr, `${failure.outcome.stdout}\n${failure.outcome.stderr}`);
       } catch (error) {
