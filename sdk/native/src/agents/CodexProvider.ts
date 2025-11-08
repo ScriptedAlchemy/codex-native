@@ -573,7 +573,22 @@ class CodexModel implements Model {
       // Convert AgentInputItem[] to UserInput[]
       for (const item of request.input) {
         // Handle different item types
-        if (item.type === "function_call_result") {
+        if ((item as any).type === "input_file") {
+          throw new Error(
+            `CodexProvider does not yet support input_file type. ` +
+            `File handling needs to be implemented based on file type and format.`
+          );
+        } else if ((item as any).type === "input_audio") {
+          throw new Error(
+            `CodexProvider does not yet support input_audio type. ` +
+            `Audio handling needs to be implemented.`
+          );
+        } else if ((item as any).type === "input_image") {
+          const imagePath = await this.handleImageInput(item as any);
+          if (imagePath) {
+            parts.push({ type: "local_image", path: imagePath });
+          }
+        } else if (item.type === "function_call_result") {
           // Tool results - for now, convert to text describing the result
           const result = item as any;
           parts.push({
@@ -832,14 +847,10 @@ class CodexModel implements Model {
         this.streamedTurnItems.push(event.item);
 
         if (event.item.type === "agent_message") {
-          // Use "model" type for custom output_text_done events
           events.push({
-            type: "model",
-            event: {
-              type: "output_text_done",
-              text: event.item.text,
-            },
-          } as StreamEvent);
+            type: "output_text_done",
+            text: event.item.text,
+          } as any);
           textAccumulator.delete("agent_message");
           this.lastStreamedMessage = event.item.text;
         } else if (event.item.type === "reasoning") {
