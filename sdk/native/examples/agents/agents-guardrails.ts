@@ -30,6 +30,43 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { z } from 'zod';
+import { Agent, run } from '@openai/agents';
+import { CodexProvider } from '../../src/index';
+
+type GuardrailInput = string | unknown[];
+
+function normalizeInput(input: GuardrailInput): string {
+  if (typeof input === 'string') {
+    return input;
+  }
+
+  try {
+    return input
+      .map(item => {
+        if (typeof item === 'string') {
+          return item;
+        }
+        return JSON.stringify(item);
+      })
+      .join('\n');
+  } catch {
+    return JSON.stringify(input);
+  }
+}
+
+function guardrailSuccess(outputInfo?: Record<string, unknown>) {
+  return {
+    tripwireTriggered: false,
+    outputInfo,
+  };
+}
+
+function guardrailFailure(reason: string) {
+  return {
+    tripwireTriggered: true,
+    outputInfo: { reason },
+  };
+}
 import * as Agents from '@openai/agents';
 import { setDefaultModelProvider } from '@openai/agents-core';
 import { CodexProvider } from '../../src/index';
@@ -83,26 +120,24 @@ async function main() {
   });
 
   // Create a guardrail that validates input structure
-  const inputValidationGuardrail = guardrail({
+  const inputValidationGuardrail = {
     name: 'input-validation',
-    validate: async (input: string) => {
+    execute: async ({ input }: { input: GuardrailInput }) => {
+      const normalized = normalizeInput(input);
       try {
-        // Try to parse as JSON first
-        const parsed = JSON.parse(input);
+        const parsed = JSON.parse(normalized);
         validInputSchema.parse(parsed);
-        return { valid: true };
+        return guardrailSuccess({ mode: 'json' });
       } catch (error) {
-        // If not JSON, check if it's a plain string that meets requirements
-        if (typeof input === 'string' && input.length >= 10 && input.length <= 1000) {
-          return { valid: true };
+        if (normalized.length >= 10 && normalized.length <= 1000) {
+          return guardrailSuccess({ mode: 'text', length: normalized.length });
         }
-        return {
-          valid: false,
-          reason: 'Input must be between 10 and 1000 characters, or a valid JSON object with type, content, and optional priority fields',
-        };
+        return guardrailFailure(
+          'Input must be between 10 and 1000 characters, or a valid JSON object with type, content, and optional priority fields'
+        );
       }
     },
-  });
+  };
 
   const agentWithValidation = new Agent({
     name: 'ValidatedAgent',
@@ -143,22 +178,19 @@ async function main() {
   // List of blocked terms (in a real app, this would be more sophisticated)
   const blockedTerms = ['spam', 'phishing', 'malware', 'hack'];
 
-  const contentFilterGuardrail = guardrail({
+  const contentFilterGuardrail = {
     name: 'content-filter',
-    validate: async (input: string) => {
-      const lowerInput = input.toLowerCase();
+    execute: async ({ input }: { input: GuardrailInput }) => {
+      const lowerInput = normalizeInput(input).toLowerCase();
       const foundTerms = blockedTerms.filter(term => lowerInput.includes(term));
 
       if (foundTerms.length > 0) {
-        return {
-          valid: false,
-          reason: `Input contains blocked terms: ${foundTerms.join(', ')}`,
-        };
+        return guardrailFailure(`Input contains blocked terms: ${foundTerms.join(', ')}`);
       }
 
-      return { valid: true };
+      return guardrailSuccess();
     },
-  });
+  };
 
   const filteredAgent = new Agent({
     name: 'FilteredAgent',
@@ -202,20 +234,20 @@ async function main() {
     /drop\s+table/i,
   ];
 
-  const securityGuardrail = guardrail({
+  const securityGuardrail = {
     name: 'security-check',
-    validate: async (input: string) => {
+    execute: async ({ input }: { input: GuardrailInput }) => {
+      const normalized = normalizeInput(input);
       for (const pattern of dangerousPatterns) {
-        if (pattern.test(input)) {
-          return {
-            valid: false,
-            reason: 'Input contains potentially dangerous commands that could cause data loss',
-          };
+        if (pattern.test(normalized)) {
+          return guardrailFailure(
+            'Input contains potentially dangerous commands that could cause data loss'
+          );
         }
       }
-      return { valid: true };
+      return guardrailSuccess();
     },
-  });
+  };
 
   const secureAgent = new Agent({
     name: 'SecureAgent',
