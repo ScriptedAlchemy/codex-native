@@ -29,6 +29,7 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { Agent, run, handoff } from '@openai/agents';
 import { CodexProvider } from '../../src/index';
+import { runExampleStep } from '../utils';
 
 async function main() {
   console.log('🤝 Agent Handoffs with CodexProvider\n');
@@ -80,14 +81,20 @@ async function main() {
 
   console.log('\nQuery: "Review this function and ensure it has tests: function add(a, b) { return a + b; }"\n');
 
-  const reviewResult = await run(
-    codeReviewer,
-    'Review this function and ensure it has tests: function add(a, b) { return a + b; }'
+  const reviewResult = await runExampleStep('Code review handoff', () =>
+    run(
+      codeReviewer,
+      'Review this function and ensure it has tests: function add(a, b) { return a + b; }'
+    )
   );
 
-  console.log('\n[Review Result]');
-  console.log(reviewResult.finalOutput);
-  console.log('\n✓ Example 1 completed');
+  if (reviewResult) {
+    console.log('\n[Review Result]');
+    console.log(reviewResult.finalOutput);
+    console.log('\n✓ Example 1 completed');
+  } else {
+    console.log('Skipping Example 1 output due to a connection issue.');
+  }
 
   // ============================================================================
   // Example 2: Multi-Agent Chain - Architect → Developer → QA
@@ -136,14 +143,17 @@ async function main() {
 
   console.log('\nQuery: "Design a user authentication system"\n');
 
-  const architectureResult = await run(
-    architect,
-    'Design a user authentication system'
+  const architectureResult = await runExampleStep('Architecture handoff', () =>
+    run(architect, 'Design a user authentication system')
   );
 
-  console.log('\n[Architecture Result]');
-  console.log(architectureResult.finalOutput);
-  console.log('\n✓ Example 2 completed');
+  if (architectureResult) {
+    console.log('\n[Architecture Result]');
+    console.log(architectureResult.finalOutput);
+    console.log('\n✓ Example 2 completed');
+  } else {
+    console.log('Skipping Example 2 output due to a connection issue.');
+  }
 
   // ============================================================================
   // Example 3: Conditional Handoff - Router Agent
@@ -201,14 +211,17 @@ async function main() {
 
   console.log('\nQuery: "I found a bug where the login button doesn\'t work"\n');
 
-  const routerResult = await run(
-    router,
-    "I found a bug where the login button doesn't work"
+  const routerResult = await runExampleStep('Router handoff', () =>
+    run(router, "I found a bug where the login button doesn't work")
   );
 
-  console.log('\n[Router Result]');
-  console.log(routerResult.finalOutput);
-  console.log('\n✓ Example 3 completed');
+  if (routerResult) {
+    console.log('\n[Router Result]');
+    console.log(routerResult.finalOutput);
+    console.log('\n✓ Example 3 completed');
+  } else {
+    console.log('Skipping Example 3 output due to a connection issue.');
+  }
 
   // ============================================================================
   // Summary

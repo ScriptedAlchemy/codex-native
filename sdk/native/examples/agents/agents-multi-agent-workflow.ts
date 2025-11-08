@@ -31,6 +31,7 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { Agent, run, handoff } from '@openai/agents';
 import { CodexProvider } from '../../src/index';
+import { runExampleStep, ensureResult } from '../utils';
 
 async function main() {
   console.log('🔄 Complex Multi-Agent Workflow with CodexProvider\n');
@@ -150,49 +151,74 @@ async function main() {
   // Step 1: Product Manager defines requirements
   console.log('📋 Step 1: Product Manager defining requirements...');
   console.log('─'.repeat(60));
-  const pmResult = await run(productManager, task);
-  console.log('\n[Product Manager Output]');
-  console.log(pmResult.finalOutput.substring(0, 300) + '...\n');
-
-  // Step 2: Architect designs the system
-  console.log('\n🏗️  Step 2: Architect designing system...');
-  console.log('─'.repeat(60));
-  const archResult = await run(
-    architect,
-    `Based on these requirements, design the architecture:\n\n${pmResult.finalOutput}`
+  const pmResult = await runExampleStep('Product Manager requirements', () =>
+    run(productManager, task)
   );
-  console.log('\n[Architect Output]');
-  console.log(archResult.finalOutput.substring(0, 300) + '...\n');
 
-  // Step 3: Developer implements
-  console.log('\n💻 Step 3: Developer implementing...');
-  console.log('─'.repeat(60));
-  const devResult = await run(
-    developer,
-    `Based on this architecture, implement the code:\n\n${archResult.finalOutput}`
-  );
-  console.log('\n[Developer Output]');
-  console.log(devResult.finalOutput.substring(0, 300) + '...\n');
+  if (ensureResult(pmResult, 'the remaining workflow steps')) {
+    console.log('\n[Product Manager Output]');
+    console.log(pmResult.finalOutput.substring(0, 300) + '...\n');
 
-  // Step 4: Tester tests
-  console.log('\n🧪 Step 4: Tester testing...');
-  console.log('─'.repeat(60));
-  const testResult = await run(
-    tester,
-    `Review and test this implementation:\n\n${devResult.finalOutput}`
-  );
-  console.log('\n[Tester Output]');
-  console.log(testResult.finalOutput.substring(0, 300) + '...\n');
+    // Step 2: Architect designs the system
+    console.log('\n🏗️  Step 2: Architect designing system...');
+    console.log('─'.repeat(60));
+    const archResult = await runExampleStep('Architect design', () =>
+      run(
+        architect,
+        `Based on these requirements, design the architecture:\n\n${pmResult.finalOutput}`
+      )
+    );
 
-  // Step 5: Documenter writes docs
-  console.log('\n📚 Step 5: Documenter writing documentation...');
-  console.log('─'.repeat(60));
-  const docResult = await run(
-    documenter,
-    `Write documentation for this feature:\n\nRequirements: ${pmResult.finalOutput.substring(0, 200)}\n\nImplementation: ${devResult.finalOutput.substring(0, 200)}`
-  );
-  console.log('\n[Documenter Output]');
-  console.log(docResult.finalOutput.substring(0, 300) + '...\n');
+    if (ensureResult(archResult, 'the remaining workflow steps')) {
+      console.log('\n[Architect Output]');
+      console.log(archResult.finalOutput.substring(0, 300) + '...\n');
+
+      // Step 3: Developer implements
+      console.log('\n💻 Step 3: Developer implementing...');
+      console.log('─'.repeat(60));
+      const devResult = await runExampleStep('Developer implementation', () =>
+        run(
+          developer,
+          `Based on this architecture, implement the code:\n\n${archResult.finalOutput}`
+        )
+      );
+
+      if (ensureResult(devResult, 'the remaining workflow steps')) {
+        console.log('\n[Developer Output]');
+        console.log(devResult.finalOutput.substring(0, 300) + '...\n');
+
+        // Step 4: Tester tests
+        console.log('\n🧪 Step 4: Tester testing...');
+        console.log('─'.repeat(60));
+        const testResult = await runExampleStep('Tester review', () =>
+          run(
+            tester,
+            `Review and test this implementation:\n\n${devResult.finalOutput}`
+          )
+        );
+
+        if (ensureResult(testResult, 'the remaining workflow steps')) {
+          console.log('\n[Tester Output]');
+          console.log(testResult.finalOutput.substring(0, 300) + '...\n');
+
+          // Step 5: Documenter writes docs
+          console.log('\n📚 Step 5: Documenter writing documentation...');
+          console.log('─'.repeat(60));
+          const docResult = await runExampleStep('Documenter write-up', () =>
+            run(
+              documenter,
+              `Write documentation for this feature:\n\nRequirements: ${pmResult.finalOutput.substring(0, 200)}\n\nImplementation: ${devResult.finalOutput.substring(0, 200)}`
+            )
+          );
+
+          if (ensureResult(docResult, 'the remaining workflow steps')) {
+            console.log('\n[Documenter Output]');
+            console.log(docResult.finalOutput.substring(0, 300) + '...\n');
+          }
+        }
+      }
+    }
+  }
 
   // ============================================================================
   // Example: Parallel Agent Workflow
@@ -209,35 +235,44 @@ async function main() {
   console.log('Running agents in parallel...\n');
 
   const [apiDesign, dbDesign, securityDesign] = await Promise.all([
-    run(
-      architect,
-      `${parallelTask} - Focus on API endpoints and request/response formats`
+    runExampleStep('API design exploration', () =>
+      run(
+        architect,
+        `${parallelTask} - Focus on API endpoints and request/response formats`
+      )
     ),
-    run(
-      architect,
-      `${parallelTask} - Focus on database schema and data modeling`
+    runExampleStep('Database design exploration', () =>
+      run(
+        architect,
+        `${parallelTask} - Focus on database schema and data modeling`
+      )
     ),
-    run(
-      architect,
-      `${parallelTask} - Focus on security and authentication`
+    runExampleStep('Security design exploration', () =>
+      run(
+        architect,
+        `${parallelTask} - Focus on security and authentication`
+      )
     ),
   ]);
 
-  console.log('✓ API Design completed');
-  console.log('✓ Database Design completed');
-  console.log('✓ Security Design completed');
+  if (
+    ensureResult(apiDesign, 'parallel workflow results') &&
+    ensureResult(dbDesign, 'parallel workflow results') &&
+    ensureResult(securityDesign, 'parallel workflow results')
+  ) {
+    console.log('✓ API Design completed');
+    console.log('✓ Database Design completed');
+    console.log('✓ Security Design completed');
 
-  console.log('\n[Combined Results]');
-  console.log('\nAPI Design:');
-  console.log(apiDesign.finalOutput.substring(0, 200) + '...');
-  console.log('\nDatabase Design:');
-  console.log(dbDesign.finalOutput.substring(0, 200) + '...');
-  console.log('\nSecurity Design:');
-  console.log(securityDesign.finalOutput.substring(0, 200) + '...');
+    console.log('\n[Combined Results]');
+    console.log('\nAPI Design:');
+    console.log(apiDesign.finalOutput.substring(0, 200) + '...');
+    console.log('\nDatabase Design:');
+    console.log(dbDesign.finalOutput.substring(0, 200) + '...');
+    console.log('\nSecurity Design:');
+    console.log(securityDesign.finalOutput.substring(0, 200) + '...');
+  }
 
-  // ============================================================================
-  // Example: Iterative Refinement Workflow
-  // ============================================================================
   console.log('\n\nExample: Iterative Refinement Workflow');
   console.log('─'.repeat(60));
   console.log('\nAgents iteratively refining a solution\n');
@@ -248,24 +283,37 @@ async function main() {
 
   // Initial implementation
   console.log('🔄 Iteration 1: Initial implementation');
-  let currentCode = await run(developer, iterativeTask);
-  console.log('Code:', currentCode.finalOutput.substring(0, 200) + '...\n');
-
-  // Test and get feedback
-  console.log('🔄 Iteration 2: Testing and feedback');
-  const testFeedback = await run(
-    tester,
-    `Test this code and provide feedback:\n\n${currentCode.finalOutput}`
+  let currentCode = await runExampleStep('Initial implementation', () =>
+    run(developer, iterativeTask)
   );
-  console.log('Feedback:', testFeedback.finalOutput.substring(0, 200) + '...\n');
 
-  // Refine based on feedback
-  console.log('🔄 Iteration 3: Refining based on feedback');
-  const refinedCode = await run(
-    developer,
-    `Improve this code based on feedback:\n\nOriginal: ${currentCode.finalOutput}\n\nFeedback: ${testFeedback.finalOutput}`
-  );
-  console.log('Refined Code:', refinedCode.finalOutput.substring(0, 200) + '...\n');
+  if (ensureResult(currentCode, 'iterative workflow steps')) {
+    console.log('Code:', currentCode.finalOutput.substring(0, 200) + '...\n');
+
+    // Test and get feedback
+    console.log('🔄 Iteration 2: Testing and feedback');
+    const testFeedback = await runExampleStep('Testing feedback', () =>
+      run(
+        tester,
+        `Test this code and provide feedback:\n\n${currentCode.finalOutput}`
+      )
+    );
+    if (ensureResult(testFeedback, 'iterative workflow steps')) {
+      console.log('Feedback:', testFeedback.finalOutput.substring(0, 200) + '...\n');
+
+      // Refine based on feedback
+      console.log('🔄 Iteration 3: Refining based on feedback');
+      const refinedCode = await runExampleStep('Refined implementation', () =>
+        run(
+          developer,
+          `Improve this code based on feedback:\n\nOriginal: ${currentCode.finalOutput}\n\nFeedback: ${testFeedback.finalOutput}`
+        )
+      );
+      if (ensureResult(refinedCode, 'iterative workflow steps')) {
+        console.log('Refined Code:', refinedCode.finalOutput.substring(0, 200) + '...\n');
+      }
+    }
+  }
 
   console.log('✓ Iterative refinement completed');
 

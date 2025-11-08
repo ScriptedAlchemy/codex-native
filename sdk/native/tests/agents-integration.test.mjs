@@ -9,6 +9,9 @@
  */
 
 import { describe, expect, it, beforeAll } from "@jest/globals";
+const RUN_REAL_BACKEND = process.env.CODEX_NATIVE_RUN_REAL_BACKEND === "1";
+const realBackendTest = RUN_REAL_BACKEND ? it : it.skip;
+
 import { fileURLToPath } from "node:url";
 
 function resolveNativeBindingPath() {
@@ -218,7 +221,7 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
 
       const provider = new CodexProvider({
         skipGitRepoCheck: true,
-        });
+      });
 
       const agent = new Agent({
         name: "TestAgent",
