@@ -35,7 +35,7 @@ opentelemetry_sdk = { workspace = true, features = [
     "logs",
     "rt-tokio",
 ], optional = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, default-features = false, features = ["rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 strum_macros = { workspace = true }
