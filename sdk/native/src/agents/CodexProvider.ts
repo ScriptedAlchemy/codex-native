@@ -595,7 +595,22 @@ class CodexModel implements Model {
         }
 
         // Handle different item types
-        if (item.type === "function_call_result") {
+        if ((item as any).type === "input_file") {
+          throw new Error(
+            `CodexProvider does not yet support input_file type. ` +
+            `File handling needs to be implemented based on file type and format.`
+          );
+        } else if ((item as any).type === "input_audio") {
+          throw new Error(
+            `CodexProvider does not yet support input_audio type. ` +
+            `Audio handling needs to be implemented.`
+          );
+        } else if ((item as any).type === "input_image") {
+          const imagePath = await this.handleImageInput(item as any);
+          if (imagePath) {
+            parts.push({ type: "local_image", path: imagePath });
+          }
+        } else if (item.type === "function_call_result") {
           // Tool results - for now, convert to text describing the result
           if ('name' in item && 'result' in item) {
             parts.push({
