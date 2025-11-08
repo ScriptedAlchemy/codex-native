@@ -280,19 +280,19 @@ type ThreadAcquisitionParams = {
 };
 
 async function acquireThreadForKind(params: ThreadAcquisitionParams): Promise<Thread> {
-  const { codex, registry, prNumber, kind, prefix, makeThreadOptions } = params;
+  const { codex, registry, prNumber, kind, makeThreadOptions } = params;
   const existingId = await registry.get(prNumber, kind);
   if (existingId) {
     try {
-      logWithPrefix(prefix, `Reusing Codex ${THREAD_KIND_LABELS[kind]} thread (${existingId}).`);
+      console.log(`🔄 [PR ${prNumber}] Resuming ${THREAD_KIND_LABELS[kind]} thread`);
       return codex.resumeThread(existingId, makeThreadOptions());
     } catch (error) {
-      logWithPrefix(prefix, `Failed to resume Codex ${THREAD_KIND_LABELS[kind]} thread (${existingId}): ${formatErrorMessage(error)}. Starting a new thread.`);
-      await clearThreadIdWithWarning(registry, prNumber, kind, prefix);
+      console.log(`⚠️  [PR ${prNumber}] Failed to resume thread, starting new one`);
+      await clearThreadIdWithWarning(registry, prNumber, kind);
     }
   }
 
-  logWithPrefix(prefix, `Starting new Codex ${THREAD_KIND_LABELS[kind]} thread.`);
+  console.log(`🆕 [PR ${prNumber}] Starting new ${THREAD_KIND_LABELS[kind]} thread`);
   return codex.startThread(makeThreadOptions());
 }
 
