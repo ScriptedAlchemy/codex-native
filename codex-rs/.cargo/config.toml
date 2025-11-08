@@ -1,5 +1,12 @@
-[target.'cfg(all(windows, target_env = "msvc"))']
-rustflags = ["-C", "link-arg=/STACK:8388608"]
+# Cargo configuration for codex-rs workspace
 
-[target.'cfg(all(windows, target_env = "gnu"))']
-rustflags = ["-C", "link-arg=-Wl,--stack,8388608"]
+[build]
+# Use sccache for compilation caching
+# This significantly speeds up rebuilds by caching compiled artifacts
+# Install sccache: cargo install sccache
+# Or via homebrew: brew install sccache
+rustc-wrapper = "sccache"
+
+[env]
+# Disable incremental compilation in CI for better cache hits
+# CARGO_INCREMENTAL is still controlled per-command in package.json for flexibility

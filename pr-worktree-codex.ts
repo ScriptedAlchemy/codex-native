@@ -6,7 +6,18 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { Codex, type SandboxMode, type Thread, type ThreadEvent, type ThreadItem, type ThreadOptions, type Usage } from "@codex-native/sdk";
+import { 
+  Codex, 
+  type SandboxMode, 
+  type Thread, 
+  type ThreadEvent, 
+  type ThreadItem, 
+  type ThreadOptions, 
+  type Usage,
+  type CommandExecutionStatus,
+  type McpToolCallStatus,
+  type PatchApplyStatus,
+} from "@codex-native/sdk";
 type CommandResult = { stdout: string; stderr: string };
 type CommandWithOutputResult = { stdout: string; stderr: string; exitCode: number };
 type CommandError = ExecFileException & {
@@ -280,19 +291,19 @@ type ThreadAcquisitionParams = {
 };
 
 async function acquireThreadForKind(params: ThreadAcquisitionParams): Promise<Thread> {
-  const { codex, registry, prNumber, kind, prefix, makeThreadOptions } = params;
+  const { codex, registry, prNumber, kind, makeThreadOptions } = params;
   const existingId = await registry.get(prNumber, kind);
   if (existingId) {
     try {
-      logWithPrefix(prefix, `Reusing Codex ${THREAD_KIND_LABELS[kind]} thread (${existingId}).`);
+      console.log(`🔄 [PR ${prNumber}] Resuming ${THREAD_KIND_LABELS[kind]} thread`);
       return codex.resumeThread(existingId, makeThreadOptions());
     } catch (error) {
-      logWithPrefix(prefix, `Failed to resume Codex ${THREAD_KIND_LABELS[kind]} thread (${existingId}): ${formatErrorMessage(error)}. Starting a new thread.`);
-      await clearThreadIdWithWarning(registry, prNumber, kind, prefix);
+      console.log(`⚠️  [PR ${prNumber}] Failed to resume thread, starting new one`);
+      await clearThreadIdWithWarning(registry, prNumber, kind);
     }
   }
 
-  logWithPrefix(prefix, `Starting new Codex ${THREAD_KIND_LABELS[kind]} thread.`);
+  console.log(`🆕 [PR ${prNumber}] Starting new ${THREAD_KIND_LABELS[kind]} thread`);
   return codex.startThread(makeThreadOptions());
 }
 
@@ -301,7 +312,6 @@ async function persistThreadIdWithWarning(
   prNumber: number,
   kind: ThreadKind,
   threadId: string | null,
-  prefix: string,
 ): Promise<void> {
   if (!threadId) {
     return;
@@ -309,7 +319,7 @@ async function persistThreadIdWithWarning(
   try {
     await registry.set(prNumber, kind, threadId);
   } catch (error) {
-    logWithPrefix(prefix, `Warning: failed to persist Codex ${THREAD_KIND_LABELS[kind]} thread id (${threadId}): ${formatErrorMessage(error)}`);
+    console.log(`⚠️  [PR ${prNumber}] Warning: failed to persist thread id: ${formatErrorMessage(error)}`);
   }
 }
 
@@ -317,12 +327,11 @@ async function clearThreadIdWithWarning(
   registry: ThreadRegistry,
   prNumber: number,
   kind: ThreadKind,
-  prefix: string,
 ): Promise<void> {
   try {
     await registry.clear(prNumber, kind);
   } catch (error) {
-    logWithPrefix(prefix, `Warning: failed to clear Codex ${THREAD_KIND_LABELS[kind]} thread id: ${formatErrorMessage(error)}`);
+    console.log(`⚠️  [PR ${prNumber}] Warning: failed to clear thread id: ${formatErrorMessage(error)}`);
   }
 }
 
@@ -347,11 +356,11 @@ async function main() {
 
   const prs = await listOpenPullRequests(config);
   if (prs.length === 0) {
-    console.log("No open pull requests detected. Nothing to do.");
+    console.log("🎉 No open pull requests detected. Nothing to do.");
     return;
   }
 
-  console.log(`Discovered ${prs.length} open pull request${prs.length === 1 ? "" : "s"}.`);
+  console.log(`🔍 Processing ${prs.length} open pull request${prs.length === 1 ? "" : "s"} with concurrency ${config.concurrency}`);
 
   const existingWorktrees = await getExistingWorktreePaths(config.repoRoot);
   const createdWorktrees = new Set<string>();
@@ -402,12 +411,12 @@ async function main() {
           ], { cwd: config.repoRoot });
           existingWorktrees.add(worktreePath);
           createdWorktrees.add(worktreePath);
-          console.log(`[PR ${pr.number}] Created worktree at ${worktreePath}`);
+          console.log(`✓ [PR ${pr.number}] Created worktree`);
           createdWorktree = true;
         } else {
           await runCommand("git", ["reset", "--hard", `refs/remotes/${config.remote}/${pr.headRefName}`], { cwd: worktreePath });
           await runCommand("git", ["clean", "-fdx"], { cwd: worktreePath });
-          console.log(`[PR ${pr.number}] Refreshed existing worktree at ${worktreePath}`);
+          console.log(`✓ [PR ${pr.number}] Refreshed worktree`);
         }
 
         await runCommand("git", ["branch", `--set-upstream-to=${config.remote}/${pr.headRefName}`, localBranch], { cwd: worktreePath });
@@ -434,21 +443,22 @@ async function main() {
 
     if (needsInstall) {
       try {
-        console.log(`[PR ${pr.number}] Running pnpm install...`);
+        console.log(`📦 [PR ${pr.number}] Running pnpm install...`);
         await installMutex.run(async () => {
           await runCommand("pnpm", ["install"], { cwd: worktreePath });
         });
+        console.log(`✓ [PR ${pr.number}] Installation complete`);
       } catch (error) {
-        console.error(`[PR ${pr.number}] pnpm install failed:`, error);
+        console.error(`❌ [PR ${pr.number}] pnpm install failed:`, error);
         return { pr, worktreePath, error };
       }
     }
 
     const runBuildAll = async (): Promise<BuildErrorDetails | null> => {
-      logWithPrefix(basePrefix, "Running pnpm run sdk:build...");
+      console.log(`🔨 [PR ${pr.number}] Building sdk...`);
       try {
         await runCommand("pnpm", ["run", "sdk:build"], { cwd: worktreePath });
-        logWithPrefix(basePrefix, "pnpm run sdk:build completed successfully.");
+        console.log(`✓ [PR ${pr.number}] Build completed successfully`);
         return null;
       } catch (error) {
         const commandError = error as Partial<CommandError> & { code?: number };
@@ -458,13 +468,7 @@ async function main() {
           ? commandError.exitCode
           : commandError.code ?? null;
         const message = commandError.message ?? (error instanceof Error ? error.message : String(error));
-        logWithPrefix(basePrefix, `pnpm run sdk:build failed (exit ${exitCode ?? "unknown"}).`);
-        if (stdout) {
-          logWithPrefix(basePrefix, `stdout:\n${stdout.trimEnd()}`);
-        }
-        if (stderr) {
-          logWithPrefix(basePrefix, `stderr:\n${stderr.trimEnd()}`);
-        }
+        console.log(`❌ [PR ${pr.number}] Build failed (exit ${exitCode ?? "unknown"})`);
         return { stdout, stderr, exitCode, message };
       }
     };
@@ -491,40 +495,41 @@ async function main() {
         makeThreadOptions,
       });
       const buildPrompt = buildBuildFailurePrompt(pr, worktreePath, buildError, buildAttempts);
-      logWithPrefix(buildPrefix, "Starting Codex build remediation turn...");
+      console.log(`\n🛠️  [PR ${pr.number}] Build remediation attempt #${buildAttempts}`);
+      console.log(`────────────────────────────────────────────────────────────────────────────────`);
       let buildFixTurn: CodexTurnSummary;
       try {
         buildFixTurn = await runCodexTurnWithLogging(buildThread, buildPrompt, buildPrefix);
       } finally {
-        await persistThreadIdWithWarning(threadRegistry, pr.number, "build", buildThread.id, buildPrefix);
+        await persistThreadIdWithWarning(threadRegistry, pr.number, "build", buildThread.id);
       }
       buildFixTurns.push(buildFixTurn);
-      logWithPrefix(buildPrefix, "Build remediation summary:");
-      logWithPrefix(buildPrefix, buildFixTurn.finalResponse.trim());
+      console.log(`\n📝 Build remediation summary:`);
+      console.log(buildFixTurn.finalResponse.trim());
       logTurnHighlights(buildPrefix, buildFixTurn.items);
 
       if (pushAllowed) {
         try {
           await ensurePushed(pr, worktreePath, config.remote, localBranch);
           pushStatuses.push({ success: true, skipped: false, reason: `post-build-${buildAttempts}`, source: "build" });
-          logWithPrefix(buildPrefix, "Post-build push completed successfully.");
+          console.log(`🚀 [PR ${pr.number}] Pushed build fixes`);
         } catch (pushError) {
           pushStatuses.push({ success: false, skipped: false, reason: `post-build-${buildAttempts}-failed`, source: "build", error: pushError });
-          logWithPrefix(buildPrefix, `Post-build push failed: ${formatCommandError(pushError)}`);
+          console.log(`❌ [PR ${pr.number}] Push failed: ${formatCommandError(pushError)}`);
         }
       } else {
-        logWithPrefix(buildPrefix, "Push permissions unavailable; skipping automated push after build remediation.");
+        console.log(`⚠️  [PR ${pr.number}] Push unavailable (external fork)`);
       }
 
       buildError = await runBuildAll();
     }
 
     if (buildError) {
-      logWithPrefix(basePrefix, `Build remains failing after ${buildAttempts} remediation attempt(s). Proceeding with remaining automation.`);
+      console.log(`⚠️  [PR ${pr.number}] Build still failing after ${buildAttempts} attempt(s)`);
     }
 
     if (config.dryRun) {
-      console.log(`[PR ${pr.number}] Dry run enabled; skipping Codex automation.`);
+      console.log(`🏃 [PR ${pr.number}] Dry run mode; skipping automation`);
       return { pr, worktreePath, dryRun: true };
     }
 
@@ -548,16 +553,17 @@ async function main() {
         makeThreadOptions,
       });
       const mergePrompt = buildMergePrompt(pr, worktreePath);
-      logWithPrefix(mergePrefix, "Starting Codex merge turn...");
+      console.log(`\n🔀 [PR ${pr.number}] Merging main branch`);
+      console.log(`────────────────────────────────────────────────────────────────────────────────`);
       let mergeTurn: CodexTurnSummary;
       try {
         mergeTurn = await runCodexTurnWithLogging(mergeThread, mergePrompt, mergePrefix);
       } finally {
-        await persistThreadIdWithWarning(threadRegistry, pr.number, "merge", mergeThread.id, mergePrefix);
+        await persistThreadIdWithWarning(threadRegistry, pr.number, "merge", mergeThread.id);
       }
 
-      logWithPrefix(mergePrefix, "Merge summary:");
-      logWithPrefix(mergePrefix, mergeTurn.finalResponse.trim());
+      console.log(`\n📝 Merge summary:`);
+      console.log(mergeTurn.finalResponse.trim());
       logTurnHighlights(mergePrefix, mergeTurn.items);
 
       const newExamples = await detectNewExamples(worktreePath, config.remote);
@@ -573,14 +579,14 @@ async function main() {
         try {
           await ensurePushed(pr, worktreePath, config.remote, localBranch);
           pushStatuses.push({ success: true, skipped: false, reason: "post-merge", source: "merge" });
-          logWithPrefix(basePrefix, "Post-merge push completed successfully.");
+          console.log(`🚀 [PR ${pr.number}] Pushed merge changes`);
         } catch (pushError) {
           pushStatuses.push({ success: false, skipped: false, reason: "post-merge-failed", source: "merge", error: pushError });
-          logWithPrefix(basePrefix, `Post-merge push failed: ${formatCommandError(pushError)}`);
+          console.log(`❌ [PR ${pr.number}] Push failed: ${formatCommandError(pushError)}`);
           throw pushError;
         }
       } else {
-        logWithPrefix(basePrefix, "Push permissions unavailable; skipping automated push before checks.");
+        console.log(`⚠️  [PR ${pr.number}] Push unavailable (external fork)`);
       }
 
       let attempts = 0;
@@ -597,43 +603,44 @@ async function main() {
           makeThreadOptions,
         });
         const fixPrompt = buildFixPrompt(pr, worktreePath, newExamples, ghChecksResult, attempts);
-        logWithPrefix(fixPrefix, "Starting Codex remediation turn...");
+        console.log(`\n🛠️  [PR ${pr.number}] CI remediation attempt #${attempts}`);
+        console.log(`────────────────────────────────────────────────────────────────────────────────`);
 
         let fixTurn: CodexTurnSummary;
         try {
           fixTurn = await runCodexTurnWithLogging(fixThread, fixPrompt, fixPrefix);
         } finally {
-          await persistThreadIdWithWarning(threadRegistry, pr.number, "fix", fixThread.id, fixPrefix);
+          await persistThreadIdWithWarning(threadRegistry, pr.number, "fix", fixThread.id);
         }
         fixTurns.push(fixTurn);
 
-        logWithPrefix(fixPrefix, "Remediation summary:");
-        logWithPrefix(fixPrefix, fixTurn.finalResponse.trim());
+        console.log(`\n📝 Remediation summary:`);
+        console.log(fixTurn.finalResponse.trim());
         logTurnHighlights(fixPrefix, fixTurn.items);
 
         if (pushAllowed) {
           try {
             await ensurePushed(pr, worktreePath, config.remote, localBranch);
             pushStatuses.push({ success: true, skipped: false, reason: `post-fix-${attempts}`, source: "fix" });
-            logWithPrefix(fixPrefix, "Post-fix push completed successfully.");
+            console.log(`🚀 [PR ${pr.number}] Pushed CI fixes`);
           } catch (pushError) {
             pushStatuses.push({ success: false, skipped: false, reason: `post-fix-${attempts}-failed`, source: "fix", error: pushError });
-            logWithPrefix(fixPrefix, `Post-fix push failed: ${formatCommandError(pushError)}`);
+            console.log(`❌ [PR ${pr.number}] Push failed: ${formatCommandError(pushError)}`);
             throw pushError;
           }
         } else {
-          logWithPrefix(fixPrefix, "Push permissions unavailable; unable to push remediation changes.");
+          console.log(`⚠️  [PR ${pr.number}] Push unavailable (external fork)`);
         }
 
         ghChecksResult = await runGhPrChecks(pr, worktreePath, basePrefix);
       }
 
       if (!ghChecksResult.success) {
-        logWithPrefix(basePrefix, `gh pr checks --watch is still failing after ${attempts} remediation attempt(s).`);
+        console.log(`⚠️  [PR ${pr.number}] CI checks still failing after ${attempts} attempt(s)`);
       } else if (!pushAllowed) {
-        logWithPrefix(basePrefix, "gh pr checks --watch completed successfully, but push permissions are unavailable; skipping automated PR merge.");
+        console.log(`✅ [PR ${pr.number}] CI checks passed (manual merge required for external fork)`);
       } else {
-        logWithPrefix(basePrefix, "gh pr checks --watch completed successfully; preparing to merge the PR.");
+        console.log(`✅ [PR ${pr.number}] CI checks passed; preparing to merge`);
 
         const mergePrPrefix = `${basePrefix} [pr-merge]`;
         const mergePrThread = await acquireThreadForKind({
@@ -645,16 +652,17 @@ async function main() {
           makeThreadOptions,
         });
         const mergePrPrompt = buildPrMergePrompt(pr, worktreePath);
-        logWithPrefix(mergePrPrefix, "Starting Codex PR merge turn...");
+        console.log(`\n🎯 [PR ${pr.number}] Merging pull request`);
+        console.log(`────────────────────────────────────────────────────────────────────────────────`);
 
         try {
           mergePrTurn = await runCodexTurnWithLogging(mergePrThread, mergePrPrompt, mergePrPrefix);
         } finally {
-          await persistThreadIdWithWarning(threadRegistry, pr.number, "merge_pr", mergePrThread.id, mergePrPrefix);
+          await persistThreadIdWithWarning(threadRegistry, pr.number, "merge_pr", mergePrThread.id);
         }
 
-        logWithPrefix(mergePrPrefix, "PR merge summary:");
-        logWithPrefix(mergePrPrefix, mergePrTurn.finalResponse.trim());
+        console.log(`\n📝 PR merge summary:`);
+        console.log(mergePrTurn.finalResponse.trim());
         logTurnHighlights(mergePrPrefix, mergePrTurn.items);
 
         try {
@@ -671,13 +679,13 @@ async function main() {
           mergeVerification = { state };
           if (state && state.toUpperCase() === "MERGED") {
             prMerged = true;
-            logWithPrefix(mergePrPrefix, "Verified: PR is merged.");
+            console.log(`🎉 [PR ${pr.number}] Successfully merged!`);
           } else {
-            logWithPrefix(mergePrPrefix, `Post-merge PR state: ${state || "unknown"}`);
+            console.log(`⚠️  [PR ${pr.number}] Post-merge state: ${state || "unknown"}`);
           }
         } catch (verifyError) {
           mergeVerification = { error: verifyError };
-          logWithPrefix(mergePrPrefix, `Failed to verify PR merge state: ${formatCommandError(verifyError)}`);
+          console.log(`❌ [PR ${pr.number}] Failed to verify merge: ${formatCommandError(verifyError)}`);
         }
       }
 
@@ -1095,23 +1103,7 @@ function isNothingToCommit(error: unknown): boolean {
 }
 
 function formatPrefix(pr: PullRequestInfo): string {
-  return `[PR ${pr.number} ${pr.headRefName}]`;
-}
-
-function logWithPrefix(prefix: string, message: string) {
-  if (message.length === 0) {
-    return;
-  }
-  console.log(`${prefix} ${message}`);
-}
-
-function logStream(prefix: string, data: Buffer | string) {
-  const text = typeof data === "string" ? data : data.toString();
-  if (text.length === 0) {
-    return;
-  }
-  const trimmed = text.endsWith("\n") ? text.slice(0, -1) : text;
-  console.log(`${prefix} ${trimmed}`);
+  return `[PR ${pr.number}]`;
 }
 
 function logTurnHighlights(prefix: string, items: ThreadItem[]) {
@@ -1120,25 +1112,25 @@ function logTurnHighlights(prefix: string, items: ThreadItem[]) {
   }
   const summary = summarizeTurnItems(items);
   if (summary.commands.length > 0) {
-    logWithPrefix(prefix, formatCommandSummary(summary.commands));
+    console.log(formatCommandSummary(summary.commands));
   }
   if (summary.toolCalls.length > 0) {
-    logWithPrefix(prefix, formatToolSummary(summary.toolCalls));
+    console.log(formatToolSummary(summary.toolCalls));
   }
   if (summary.filesChanged > 0) {
-    logWithPrefix(prefix, `Files changed: ${summary.filesChanged}`);
+    console.log(`📄 Files changed: ${summary.filesChanged}`);
   }
 }
 
 type CommandExecutionSummary = {
   command: string;
-  status?: string;
+  status: CommandExecutionStatus;
 };
 
 type ToolCallSummary = {
-  server?: string | null;
-  tool?: string | null;
-  status?: string | null;
+  server: string;
+  tool: string;
+  status: McpToolCallStatus;
 };
 
 type TurnItemsSummary = {
@@ -1152,17 +1144,13 @@ function summarizeTurnItems(items: ThreadItem[]): TurnItemsSummary {
   for (const item of items) {
     switch (item.type) {
       case "command_execution":
-        if (typeof item.command === "string") {
-          summary.commands.push({ command: item.command, status: item.status });
-        }
+        summary.commands.push({ command: item.command, status: item.status });
         break;
       case "mcp_tool_call":
         summary.toolCalls.push({ server: item.server, tool: item.tool, status: item.status });
         break;
       case "file_change":
-        if (Array.isArray((item as { changes?: unknown[] }).changes)) {
-          summary.filesChanged += (item as { changes?: unknown[] }).changes?.length ?? 0;
-        }
+        summary.filesChanged += item.changes.length;
         break;
       default:
         break;
@@ -1172,7 +1160,7 @@ function summarizeTurnItems(items: ThreadItem[]): TurnItemsSummary {
 }
 
 function formatCommandSummary(commands: CommandExecutionSummary[]): string {
-  const aggregate = new Map<string, { command: string; status?: string; priority: number }>();
+  const aggregate = new Map<string, { command: string; status: CommandExecutionStatus; priority: number }>();
   for (const entry of commands) {
     const command = entry.command.trim();
     if (!command) {
@@ -1191,13 +1179,13 @@ function formatCommandSummary(commands: CommandExecutionSummary[]): string {
 }
 
 function formatToolSummary(toolCalls: ToolCallSummary[]): string {
-  const aggregate = new Map<string, { label: string; status?: string; priority: number }>();
+  const aggregate = new Map<string, { label: string; status: McpToolCallStatus; priority: number }>();
   for (const entry of toolCalls) {
-    const label = [entry.server, entry.tool].filter(Boolean).join("::") || "tool";
+    const label = `${entry.server}::${entry.tool}`;
     const priority = statusPriority(entry.status);
     const existing = aggregate.get(label);
     if (!existing || priority > existing.priority) {
-      aggregate.set(label, { label, status: entry.status ?? undefined, priority });
+      aggregate.set(label, { label, status: entry.status, priority });
     }
   }
   const formatted = Array.from(aggregate.values())
@@ -1206,31 +1194,25 @@ function formatToolSummary(toolCalls: ToolCallSummary[]): string {
   return `Tools (${formatted.length}): ${formatted.join(', ')}`;
 }
 
-function statusPriority(status?: string | null): number {
+function statusPriority(status: CommandExecutionStatus | McpToolCallStatus): number {
   switch (status) {
     case "failed":
-    case "error":
       return 3;
     case "completed":
       return 2;
     case "in_progress":
       return 1;
-    default:
-      return 0;
   }
 }
 
-function statusSymbol(status?: string | null): string {
+function statusSymbol(status: CommandExecutionStatus | McpToolCallStatus): string {
   switch (status) {
     case "completed":
       return "✓";
     case "failed":
-    case "error":
       return "✖";
     case "in_progress":
       return "…";
-    default:
-      return "•";
   }
 }
 
@@ -1328,7 +1310,7 @@ async function runCodexTurnWithLogging(thread: Thread, prompt: string, prefix: s
       }
     }
   } catch (error) {
-    logWithPrefix(prefix, `Codex stream aborted: ${error instanceof Error ? error.message : String(error)}`);
+    console.log(`❌ Codex stream aborted: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
   }
 
@@ -1342,31 +1324,31 @@ async function runCodexTurnWithLogging(thread: Thread, prompt: string, prefix: s
 function handleEventLogging(event: ThreadEvent, prefix: string) {
   switch (event.type) {
     case "thread.started":
-      logWithPrefix(prefix, `Thread started (${event.thread_id})`);
+      console.log(`🔗 Session: ${event.thread_id.slice(0, 8)}`);
       break;
     case "turn.started":
-      logWithPrefix(prefix, "Turn started");
+      // Suppress verbose turn started messages
       break;
     case "turn.completed":
-      logWithPrefix(prefix, formatUsage(event.usage));
+      console.log(`${formatUsage(event.usage)}`);
       break;
     case "turn.failed":
-      logWithPrefix(prefix, `Turn failed: ${event.error?.message ?? "unknown error"}`);
+      console.log(`❌ Turn failed: ${event.error?.message ?? "unknown error"}`);
       break;
     case "item.started":
-      logWithPrefix(prefix, formatItem("started", event.item));
+      logItemEvent("started", event.item);
       break;
     case "item.updated":
-      logWithPrefix(prefix, formatItem("updated", event.item));
+      // Suppress verbose item updates
       break;
     case "item.completed":
-      logWithPrefix(prefix, formatItem("completed", event.item));
+      logItemEvent("completed", event.item);
       break;
     case "error":
-      logWithPrefix(prefix, `Stream error: ${event.message}`);
+      console.log(`❌ Stream error: ${event.message}`);
       break;
     case "exited_review_mode":
-      logWithPrefix(prefix, "Exited review mode");
+      console.log(`🔄 Exited review mode`);
       break;
     default:
       break;
@@ -1375,33 +1357,77 @@ function handleEventLogging(event: ThreadEvent, prefix: string) {
 
 function formatUsage(usage: Usage | null) {
   if (!usage) {
-    return "Turn completed";
+    return "✓ Turn completed";
   }
-  return `Turn completed (usage: in=${usage.input_tokens ?? 0}, cached=${usage.cached_input_tokens ?? 0}, out=${usage.output_tokens ?? 0})`;
+  return `✓ Turn completed (in=${usage.input_tokens ?? 0}, cached=${usage.cached_input_tokens ?? 0}, out=${usage.output_tokens ?? 0})`;
 }
 
-function formatItem(phase: string, item?: ThreadItem) {
+function logItemEvent(phase: string, item?: ThreadItem) {
   if (!item) {
-    return `Item ${phase}`;
+    return;
   }
 
   switch (item.type) {
     case "agent_message":
-      return `Item ${phase} — agent_message: ${truncate(item.text, 200)}`;
+      if (phase === "started" && item.text) {
+        console.log(`💭 ${truncate(item.text, 150)}`);
+      }
+      break;
+    case "reasoning":
+      if (phase === "started" && item.text) {
+        console.log(`🧠 Reasoning: ${truncate(item.text, 150)}`);
+      }
+      break;
     case "command_execution":
-      return `Item ${phase} — command: ${item.command} [${item.status}]`;
+      if (phase === "started") {
+        console.log(`🔧 Bash: ${item.command}`);
+      } else if (phase === "completed") {
+        if (item.status === "failed") {
+          console.log(`❌ Tool error: Exit ${item.exit_code ?? "unknown"}`);
+        } else {
+          console.log(`✓ Tool completed`);
+        }
+      }
+      break;
     case "file_change":
-      return `Item ${phase} — file_change: ${item.changes.length} files (${item.status})`;
+      if (phase === "completed") {
+        if (item.status === "failed") {
+          console.log(`❌ File changes failed: ${item.changes.length} file(s)`);
+        } else {
+          console.log(`✓ File changes: ${item.changes.length} file(s)`);
+        }
+      }
+      break;
     case "mcp_tool_call":
-      return `Item ${phase} — mcp ${item.server}::${item.tool} [${item.status}]`;
+      if (phase === "started") {
+        console.log(`🔧 ${item.server}::${item.tool}`);
+      } else if (phase === "completed") {
+        if (item.status === "failed") {
+          const errorMsg = item.error?.message || "unknown error";
+          console.log(`❌ Tool error: ${errorMsg}`);
+        } else {
+          console.log(`✓ Tool completed`);
+        }
+      }
+      break;
     case "todo_list":
-      return `Item ${phase} — todo_list (${item.items.length} entries)`;
+      if (phase === "started" || phase === "completed") {
+        const completed = item.items.filter(i => i.completed).length;
+        console.log(`📝 Todo: ${completed}/${item.items.length} completed`);
+      }
+      break;
     case "error":
-      return `Item ${phase} — error: ${item.message}`;
+      console.log(`❌ Error: ${item.message}`);
+      break;
     case "web_search":
-      return `Item ${phase} — web_search: ${item.query}`;
+      if (phase === "started") {
+        console.log(`🔍 Web search: ${item.query}`);
+      } else if (phase === "completed") {
+        console.log(`✓ Search completed`);
+      }
+      break;
     default:
-      return `Item ${phase} — ${item.type}`;
+      break;
   }
 }
 
@@ -1490,12 +1516,10 @@ async function isGhAuthenticated(): Promise<boolean> {
 }
 
 async function runGhPrChecks(pr: PullRequestInfo, worktreePath: string, basePrefix: string): Promise<GhChecksResult> {
-  const prefix = `${basePrefix} [gh-checks]`;
-
   // Check if gh is authenticated first
   const isAuthenticated = await isGhAuthenticated();
   if (!isAuthenticated) {
-    logWithPrefix(prefix, "Skipping gh pr checks (gh CLI not authenticated - run 'gh auth login' or set GH_TOKEN)");
+    console.log(`⚠️  [PR ${pr.number}] Skipping CI checks (gh not authenticated)`);
     return {
       success: false,
       stdout: "",
@@ -1504,7 +1528,7 @@ async function runGhPrChecks(pr: PullRequestInfo, worktreePath: string, basePref
     };
   }
 
-  logWithPrefix(prefix, "Running gh pr checks --watch ...");
+  console.log(`🔍 [PR ${pr.number}] Watching CI checks...`);
 
   try {
       const result = await runCommandWithOutput("gh", [
@@ -1516,24 +1540,24 @@ async function runGhPrChecks(pr: PullRequestInfo, worktreePath: string, basePref
         String(pr.number),
       ], {
       cwd: worktreePath,
-      onStdout: (data) => logStream(prefix, data),
-      onStderr: (data) => logStream(prefix, data),
+      onStdout: (data) => {
+        const text = typeof data === "string" ? data : data.toString();
+        if (text.trim()) process.stdout.write(text);
+      },
+      onStderr: (data) => {
+        const text = typeof data === "string" ? data : data.toString();
+        if (text.trim()) process.stderr.write(text);
+      },
     });
 
-    logWithPrefix(prefix, "gh pr checks --watch exited successfully.");
+    console.log(`✅ [PR ${pr.number}] CI checks passed`);
     return { success: true, stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
   } catch (error) {
     const commandError = error as Partial<CommandError> & { code?: number };
     const stdout = normalizeCommandOutput(commandError.stdout);
     const stderr = normalizeCommandOutput(commandError.stderr);
     const exitCode = typeof commandError.exitCode === "number" ? commandError.exitCode : commandError.code ?? null;
-    logWithPrefix(prefix, `gh pr checks --watch failed (exit ${exitCode ?? "unknown"}).`);
-    if (stdout) {
-      logWithPrefix(prefix, `stdout:\n${stdout.trimEnd()}`);
-    }
-    if (stderr) {
-      logWithPrefix(prefix, `stderr:\n${stderr.trimEnd()}`);
-    }
+    console.log(`❌ [PR ${pr.number}] CI checks failed (exit ${exitCode ?? "unknown"})`);
     return { success: false, stdout, stderr, exitCode };
   }
 }
@@ -1634,81 +1658,85 @@ function summarizeResults(results: RunResult[], pushOutcomes: PushOutcome[], cle
     }
   }
 
-  console.log("\n=== Summary ===");
+  console.log("\n" + "=".repeat(80));
+  console.log("📊 Summary");
+  console.log("=".repeat(80));
 
   if (agentSuccesses.length) {
-    console.log(`Codex processed PRs: ${agentSuccesses.join(", ")}`);
+    console.log(`✅ Successfully processed ${agentSuccesses.length} PR(s): ${agentSuccesses.join(", ")}`);
   }
 
   if (dryRuns.length) {
-    console.log(`Dry run only (no Codex execution): ${dryRuns.join(", ")}`);
+    console.log(`🏃 Dry run only (no Codex execution): ${dryRuns.join(", ")}`);
   }
 
   if (agentFailures.length) {
-    console.log("Codex failures:");
+    console.log(`\n❌ Codex failures (${agentFailures.length}):`);
     for (const failure of agentFailures) {
-      console.log(`- PR ${failure.number}: ${failure.message}`);
+      console.log(`   - PR #${failure.number}: ${failure.message}`);
     }
   }
 
   if (ghFailures.length) {
-    console.log("gh pr checks failures (before Codex remediation):");
+    console.log(`\n⚠️  CI check failures (${ghFailures.length}):`);
     for (const failure of ghFailures) {
-      console.log(`- PR ${failure.number}: exit ${failure.output.exitCode ?? "unknown"}`);
+      console.log(`   - PR #${failure.number}: exit ${failure.output.exitCode ?? "unknown"}`);
     }
   }
 
   if (mergedPrs.length) {
-    console.log(`PRs merged automatically: ${mergedPrs.join(", ")}`);
+    console.log(`\n🎉 Automatically merged ${mergedPrs.length} PR(s): ${mergedPrs.join(", ")}`);
   }
 
   if (buildAttempts.length) {
-    console.log("PRs requiring build remediation attempts:");
+    console.log(`\n🔨 Build remediation attempts:`);
     for (const entry of buildAttempts) {
-      console.log(`- PR ${entry.number}: ${entry.attempts} attempt(s)`);
+      console.log(`   - PR #${entry.number}: ${entry.attempts} attempt(s)`);
     }
   }
 
   if (remediationAttempts.length) {
-    console.log("PRs requiring remediation attempts:");
+    console.log(`\n🛠️  CI remediation attempts:`);
     for (const entry of remediationAttempts) {
-      console.log(`- PR ${entry.number}: ${entry.attempts} attempt(s)`);
+      console.log(`   - PR #${entry.number}: ${entry.attempts} attempt(s)`);
     }
   }
 
   if (mergeIssues.length) {
-    console.log("PR merge verification issues:");
+    console.log(`\n⚠️  Merge verification issues:`);
     for (const issue of mergeIssues) {
-      console.log(`- PR ${issue.number}: ${issue.message}`);
+      console.log(`   - PR #${issue.number}: ${issue.message}`);
     }
   }
 
   const pushFailures = pushOutcomes.filter((outcome) => !outcome.success && !outcome.skipped);
   const pushSkipped = pushOutcomes.filter((outcome) => outcome.skipped);
   if (pushFailures.length) {
-    console.log("Push failures:");
+    console.log(`\n❌ Push failures (${pushFailures.length}):`);
     for (const failure of pushFailures) {
       const message = failure.error instanceof Error ? failure.error.message : String(failure.error);
-      console.log(`- PR ${failure.pr.number}: ${message}`);
+      console.log(`   - PR #${failure.pr.number}: ${message}`);
     }
   }
 
   if (pushSkipped.length) {
-    console.log("Push skipped:");
+    console.log(`\n⚠️  Push skipped (${pushSkipped.length}):`);
     for (const skipped of pushSkipped) {
       const reasonText = skipped.reason ? ` (${skipped.reason})` : "";
-      console.log(`- PR ${skipped.pr.number}${reasonText}`);
+      console.log(`   - PR #${skipped.pr.number}${reasonText}`);
     }
   }
 
   const cleanupFailures = cleanupOutcomes.filter((outcome) => !outcome.success);
   if (cleanupFailures.length) {
-    console.log("Cleanup failures:");
+    console.log(`\n🗑️  Cleanup failures (${cleanupFailures.length}):`);
     for (const failure of cleanupFailures) {
       const message = failure.error instanceof Error ? failure.error.message : String(failure.error);
-      console.log(`- ${failure.path}: ${message}`);
+      console.log(`   - ${failure.path}: ${message}`);
     }
   }
+  
+  console.log("\n" + "=".repeat(80));
 }
 
 main().catch((error) => {
