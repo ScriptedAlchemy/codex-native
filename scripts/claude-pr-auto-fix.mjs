@@ -383,13 +383,81 @@ async function runClaudeForFailure(pr, failureLog) {
   const result = await runCommand(CLAUDE_CMD, args, { 
     env: process.env,
     onData: ({ type, data }) => {
-      // DEBUG: Always show raw data to understand format
+      // Parse stream-json JSONL format
       if (type === "stdout") {
-        // Just print stdout directly - don't try to parse yet
-        process.stdout.write(data);
+        buffer += data;
+        const lines = buffer.split("\n");
+        // Keep the last incomplete line in buffer
+        buffer = lines.pop() || "";
+        
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          
+          try {
+            const msg = JSON.parse(line);
+            
+            // Handle different message types
+            if (msg.type === "system" && msg.subtype === "init") {
+              // Session initialized - show basic info
+              process.stdout.write(`🔗 Session: ${msg.session_id.slice(0, 8)}\n`);
+            } 
+            else if (msg.type === "assistant" && msg.message?.content) {
+              // Assistant message with content blocks
+              for (const block of msg.message.content) {
+                if (block.type === "text") {
+                  // Claude's reasoning/explanation
+                  const text = block.text.trim();
+                  if (text) {
+                    process.stdout.write(`💭 ${text}\n`);
+                  }
+                } else if (block.type === "tool_use") {
+                  // Tool being called
+                  process.stdout.write(`🔧 ${block.name}`);
+                  
+                  // Show command for Bash tool
+                  if (block.name === "Bash" && block.input?.command) {
+                    process.stdout.write(`: ${block.input.command}`);
+                    if (block.input.description) {
+                      process.stdout.write(` (${block.input.description})`);
+                    }
+                  } 
+                  // Show file path for file operations
+                  else if ((block.name === "Read" || block.name === "Write" || block.name === "Edit") && block.input?.target_file) {
+                    process.stdout.write(`: ${block.input.target_file}`);
+                  }
+                  // Show other tool inputs more compactly
+                  else if (block.input && Object.keys(block.input).length > 0) {
+                    const params = JSON.stringify(block.input).slice(0, 80);
+                    process.stdout.write(`: ${params}${params.length >= 80 ? "..." : ""}`);
+                  }
+                  
+                  process.stdout.write("\n");
+                }
+              }
+            }
+            else if (msg.type === "user" && msg.message?.content) {
+              // Tool results - only show errors or important info
+              for (const block of msg.message.content) {
+                if (block.type === "tool_result") {
+                  if (block.is_error) {
+                    process.stdout.write(`❌ Tool error: ${block.content?.slice(0, 200)}\n`);
+                  } else {
+                    process.stdout.write(`✓ Tool completed\n`);
+                  }
+                }
+              }
+            }
+            else if (msg.type === "result") {
+              // Final result with stats
+              finalStats = msg;
+            }
+          } catch (error) {
+            // Not valid JSON - ignore silently
+          }
+        }
       } else if (type === "stderr") {
-        // Print stderr directly
-        process.stderr.write(data);
+        // Print errors/warnings
+        process.stderr.write(`⚠️  ${data}`);
       }
     }
   });
