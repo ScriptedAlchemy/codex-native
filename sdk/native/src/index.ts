@@ -16,10 +16,16 @@ export type {
   AgentMessageItem,
   ReasoningItem,
   CommandExecutionItem,
+  CommandExecutionStatus,
   FileChangeItem,
+  PatchApplyStatus,
+  PatchChangeKind,
+  FileUpdateChange,
   McpToolCallItem,
+  McpToolCallStatus,
   WebSearchItem,
   TodoListItem,
+  TodoItem,
   ErrorItem,
 } from "./items";
 

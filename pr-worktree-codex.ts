@@ -6,7 +6,18 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { Codex, type SandboxMode, type Thread, type ThreadEvent, type ThreadItem, type ThreadOptions, type Usage } from "@codex-native/sdk";
+import { 
+  Codex, 
+  type SandboxMode, 
+  type Thread, 
+  type ThreadEvent, 
+  type ThreadItem, 
+  type ThreadOptions, 
+  type Usage,
+  type CommandExecutionStatus,
+  type McpToolCallStatus,
+  type PatchApplyStatus,
+} from "@codex-native/sdk";
 type CommandResult = { stdout: string; stderr: string };
 type CommandWithOutputResult = { stdout: string; stderr: string; exitCode: number };
 type CommandError = ExecFileException & {
@@ -1113,13 +1124,13 @@ function logTurnHighlights(prefix: string, items: ThreadItem[]) {
 
 type CommandExecutionSummary = {
   command: string;
-  status?: string;
+  status: CommandExecutionStatus;
 };
 
 type ToolCallSummary = {
-  server?: string | null;
-  tool?: string | null;
-  status?: string | null;
+  server: string;
+  tool: string;
+  status: McpToolCallStatus;
 };
 
 type TurnItemsSummary = {
@@ -1149,7 +1160,7 @@ function summarizeTurnItems(items: ThreadItem[]): TurnItemsSummary {
 }
 
 function formatCommandSummary(commands: CommandExecutionSummary[]): string {
-  const aggregate = new Map<string, { command: string; status?: string; priority: number }>();
+  const aggregate = new Map<string, { command: string; status: CommandExecutionStatus; priority: number }>();
   for (const entry of commands) {
     const command = entry.command.trim();
     if (!command) {
@@ -1168,13 +1179,13 @@ function formatCommandSummary(commands: CommandExecutionSummary[]): string {
 }
 
 function formatToolSummary(toolCalls: ToolCallSummary[]): string {
-  const aggregate = new Map<string, { label: string; status?: string; priority: number }>();
+  const aggregate = new Map<string, { label: string; status: McpToolCallStatus; priority: number }>();
   for (const entry of toolCalls) {
-    const label = [entry.server, entry.tool].filter(Boolean).join("::") || "tool";
+    const label = `${entry.server}::${entry.tool}`;
     const priority = statusPriority(entry.status);
     const existing = aggregate.get(label);
     if (!existing || priority > existing.priority) {
-      aggregate.set(label, { label, status: entry.status ?? undefined, priority });
+      aggregate.set(label, { label, status: entry.status, priority });
     }
   }
   const formatted = Array.from(aggregate.values())
@@ -1183,31 +1194,25 @@ function formatToolSummary(toolCalls: ToolCallSummary[]): string {
   return `Tools (${formatted.length}): ${formatted.join(', ')}`;
 }
 
-function statusPriority(status?: string | null): number {
+function statusPriority(status: CommandExecutionStatus | McpToolCallStatus): number {
   switch (status) {
     case "failed":
-    case "error":
       return 3;
     case "completed":
       return 2;
     case "in_progress":
       return 1;
-    default:
-      return 0;
   }
 }
 
-function statusSymbol(status?: string | null): string {
+function statusSymbol(status: CommandExecutionStatus | McpToolCallStatus): string {
   switch (status) {
     case "completed":
       return "✓";
     case "failed":
-    case "error":
       return "✖";
     case "in_progress":
       return "…";
-    default:
-      return "•";
   }
 }
 
