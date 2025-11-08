@@ -382,76 +382,13 @@ async function runClaudeForFailure(pr, failureLog) {
   const result = await runCommand(CLAUDE_CMD, args, { 
     env: process.env,
     onData: ({ type, data }) => {
-      // Stream Claude's output in real-time (JSONL format)
+      // DEBUG: Always show raw data to understand format
       if (type === "stdout") {
-        buffer += data;
-        const lines = buffer.split("\n");
-        // Keep the last incomplete line in buffer
-        buffer = lines.pop() || "";
-        
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          
-          try {
-            const msg = JSON.parse(line);
-            
-            // Handle different message types
-            switch (msg.type) {
-              case "init":
-                // Initial system message - ignore
-                break;
-                
-              case "user":
-                // User message - ignore (we already know what we asked)
-                break;
-                
-              case "assistant":
-                // Assistant response - parse content blocks
-                if (msg.message && msg.message.content) {
-                  for (const block of msg.message.content) {
-                    if (block.type === "text") {
-                      // Claude's reasoning/explanation
-                      process.stdout.write(`💭 ${block.text}\n`);
-                    } else if (block.type === "tool_use") {
-                      // Tool being called
-                      process.stdout.write(`🔧 ${block.name}`);
-                      if (block.input && Object.keys(block.input).length > 0) {
-                        // Show key parameters
-                        const params = JSON.stringify(block.input).slice(0, 60);
-                        process.stdout.write(` ${params}${params.length >= 60 ? "..." : ""}`);
-                      }
-                      process.stdout.write("\n");
-                    }
-                  }
-                }
-                break;
-                
-              case "tool_result":
-                // Tool execution result
-                process.stdout.write(`✓ Tool completed\n`);
-                break;
-                
-              case "result":
-                // Final result with stats
-                finalStats = msg;
-                break;
-                
-              default:
-                // Unknown message type - print for debugging
-                if (process.env.VERBOSE) {
-                  process.stdout.write(`   [${msg.type}] ${JSON.stringify(msg).slice(0, 100)}...\n`);
-                }
-            }
-          } catch (error) {
-            // Not valid JSON - ignore
-            if (process.env.VERBOSE) {
-              process.stderr.write(`⚠️  Failed to parse JSON: ${line.slice(0, 50)}...\n`);
-            }
-          }
-        }
+        // Just print stdout directly - don't try to parse yet
+        process.stdout.write(data);
       } else if (type === "stderr") {
-        // Print errors/warnings
-        process.stderr.write(`⚠️  ${data}`);
+        // Print stderr directly
+        process.stderr.write(data);
       }
     }
   });
