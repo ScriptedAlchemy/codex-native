@@ -20,17 +20,21 @@
     "cache:start": "sccache --start-server",
     "cache:stop": "sccache --stop-server",
     "cache:warmup": "cd codex-rs && cargo check --all-features && pnpm run cache:stats",
-    "ci:format": "cd codex-rs && cargo fmt -- --config imports_granularity=Item --check",
+    "ci:format": "scripts/run-cargo-ci.sh bash -c 'cd codex-rs && cargo fmt -- --config imports_granularity=Item --check'",
     "ci:codespell": "codespell",
     "ci:mcp-types": "cd codex-rs && ./mcp-types/check_lib_rs.py",
-    "ci:shear": "cd codex-rs && cargo shear",
-    "ci:clippy": "cd codex-rs && CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 cargo clippy --all-features --tests --profile dev -- -D warnings",
-    "ci:build": "cd codex-rs && cargo build",
-    "ci:test": "cd codex-rs && CARGO_INCREMENTAL=0 cargo nextest run --profile ci-test --fail-fast || cargo test --profile ci-test",
-    "ci:test:fallback": "cd codex-rs && cargo test --lib --bins --tests --profile ci-test",
+    "ci:shear": "scripts/run-cargo-ci.sh bash -c 'cd codex-rs && cargo shear'",
+    "ci:clippy": "scripts/run-cargo-ci.sh bash -c 'cd codex-rs && CARGO_PROFILE_DEV_DEBUG=0 cargo clippy --all-features --tests --profile dev -- -D warnings'",
+    "ci:build": "scripts/run-cargo-ci.sh bash -c 'cd codex-rs && cargo build'",
+    "ci:test": "scripts/run-cargo-ci.sh bash -c 'cd codex-rs && cargo nextest run --profile ci-test --fail-fast || cargo test --profile ci-test'",
+    "ci:test:fallback": "scripts/run-cargo-ci.sh bash -c 'cd codex-rs && cargo test --lib --bins --tests --profile ci-test'",
+    "ci:test:fast": "scripts/run-cargo-ci.sh bash -c 'cd codex-rs && cargo test --lib --bins --tests --profile test-cache -- --nocapture'",
+    "ci:test:deps": "scripts/run-cargo-ci.sh bash -c 'cd codex-rs && cargo check --all-targets --profile test-cache'",
+    "ci:prebuild": "scripts/run-cargo-ci.sh bash -c 'cd codex-rs && cargo check --profile test-cache && cargo check --tests --profile test-cache'",
     "ci:checks": "concurrently -n format,spell,mcp,shear \"pnpm run ci:format\" \"pnpm run ci:codespell\" \"pnpm run ci:mcp-types\" \"pnpm run ci:shear\"",
-    "ci:verify": "concurrently -n clippy,test \"pnpm run ci:clippy\" \"pnpm run ci:test\"",
-    "ci": "pnpm run ci:checks && pnpm run ci:verify"
+    "ci:verify": "concurrently -n clippy,test \"pnpm run ci:clippy\" \"pnpm run ci:test:fast\"",
+    "ci": "pnpm run ci:prebuild && pnpm run ci:checks && pnpm run ci:verify",
+    "ci:fast": "pnpm run ci:prebuild && concurrently -n checks,verify \"pnpm run ci:checks\" \"pnpm run ci:verify\""
   },
   "devDependencies": {
     "@codex-native/sdk": "workspace:*",
@@ -50,5 +54,5 @@
     "node": ">=22",
     "pnpm": ">=9.0.0"
   },
-  "packageManager": "pnpm@10.8.1"
+  "packageManager": "pnpm@10.20.0"
 }
