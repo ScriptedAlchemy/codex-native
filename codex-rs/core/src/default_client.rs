@@ -387,9 +387,7 @@ mod tests {
         use regex_lite::escape;
         let user_agent = get_codex_user_agent();
         let originator = escape(originator().value.as_str());
-        let pattern =
-            format!(
-        );
+        let pattern = format!();
         let re = Regex::new(&pattern).unwrap();
         assert!(re.is_match(&user_agent));
     }
