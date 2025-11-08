@@ -490,7 +490,7 @@ async function main() {
       try {
         buildFixTurn = await runCodexTurnWithLogging(buildThread, buildPrompt, buildPrefix);
       } finally {
-        await persistThreadIdWithWarning(threadRegistry, pr.number, "build", buildThread.id, buildPrefix);
+        await persistThreadIdWithWarning(threadRegistry, pr.number, "build", buildThread.id);
       }
       buildFixTurns.push(buildFixTurn);
       console.log(`\n📝 Build remediation summary:`);
@@ -548,7 +548,7 @@ async function main() {
       try {
         mergeTurn = await runCodexTurnWithLogging(mergeThread, mergePrompt, mergePrefix);
       } finally {
-        await persistThreadIdWithWarning(threadRegistry, pr.number, "merge", mergeThread.id, mergePrefix);
+        await persistThreadIdWithWarning(threadRegistry, pr.number, "merge", mergeThread.id);
       }
 
       console.log(`\n📝 Merge summary:`);
@@ -599,7 +599,7 @@ async function main() {
         try {
           fixTurn = await runCodexTurnWithLogging(fixThread, fixPrompt, fixPrefix);
         } finally {
-          await persistThreadIdWithWarning(threadRegistry, pr.number, "fix", fixThread.id, fixPrefix);
+          await persistThreadIdWithWarning(threadRegistry, pr.number, "fix", fixThread.id);
         }
         fixTurns.push(fixTurn);
 
@@ -647,7 +647,7 @@ async function main() {
         try {
           mergePrTurn = await runCodexTurnWithLogging(mergePrThread, mergePrPrompt, mergePrPrefix);
         } finally {
-          await persistThreadIdWithWarning(threadRegistry, pr.number, "merge_pr", mergePrThread.id, mergePrPrefix);
+          await persistThreadIdWithWarning(threadRegistry, pr.number, "merge_pr", mergePrThread.id);
         }
 
         console.log(`\n📝 PR merge summary:`);
