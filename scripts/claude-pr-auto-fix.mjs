@@ -367,6 +367,7 @@ async function runClaudeForFailure(pr, failureLog) {
     userPrompt,
     "--output-format",
     "stream-json",
+    "--verbose",
     "--append-system-prompt",
     systemPrompt,
     "--allowedTools",
