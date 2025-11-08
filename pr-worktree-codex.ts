@@ -301,7 +301,6 @@ async function persistThreadIdWithWarning(
   prNumber: number,
   kind: ThreadKind,
   threadId: string | null,
-  prefix: string,
 ): Promise<void> {
   if (!threadId) {
     return;
@@ -309,7 +308,7 @@ async function persistThreadIdWithWarning(
   try {
     await registry.set(prNumber, kind, threadId);
   } catch (error) {
-    logWithPrefix(prefix, `Warning: failed to persist Codex ${THREAD_KIND_LABELS[kind]} thread id (${threadId}): ${formatErrorMessage(error)}`);
+    console.log(`⚠️  [PR ${prNumber}] Warning: failed to persist thread id: ${formatErrorMessage(error)}`);
   }
 }
 
@@ -317,12 +316,11 @@ async function clearThreadIdWithWarning(
   registry: ThreadRegistry,
   prNumber: number,
   kind: ThreadKind,
-  prefix: string,
 ): Promise<void> {
   try {
     await registry.clear(prNumber, kind);
   } catch (error) {
-    logWithPrefix(prefix, `Warning: failed to clear Codex ${THREAD_KIND_LABELS[kind]} thread id: ${formatErrorMessage(error)}`);
+    console.log(`⚠️  [PR ${prNumber}] Warning: failed to clear thread id: ${formatErrorMessage(error)}`);
   }
 }
 
