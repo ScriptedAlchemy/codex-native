@@ -572,6 +572,28 @@ class CodexModel implements Model {
     } else {
       // Convert AgentInputItem[] to UserInput[]
       for (const item of request.input) {
+        // Check for unsupported types first using property checks
+        if ('file' in item && 'type' in item) {
+          throw new Error(
+            `CodexProvider does not yet support input_file type. ` +
+            `File handling needs to be implemented based on file type and format.`
+          );
+        }
+        if ('audio' in item && 'type' in item) {
+          throw new Error(
+            `CodexProvider does not yet support input_audio type. ` +
+            `Audio handling needs to be implemented.`
+          );
+        }
+        if ('image' in item && 'type' in item && item.type !== "message") {
+          const imageItem = item;
+          const imagePath = await this.handleImageInput(imageItem);
+          if (imagePath) {
+            parts.push({ type: "local_image", path: imagePath });
+          }
+          continue;
+        }
+
         // Handle different item types
         if ((item as any).type === "input_file") {
           throw new Error(
@@ -590,22 +612,30 @@ class CodexModel implements Model {
           }
         } else if (item.type === "function_call_result") {
           // Tool results - for now, convert to text describing the result
-          const result = item as any;
-          parts.push({
-            type: "text",
-            text: `[Tool ${result.name} returned: ${result.result}]`
-          });
+          if ('name' in item && 'result' in item) {
+            parts.push({
+              type: "text",
+              text: `[Tool ${item.name} returned: ${item.result}]`
+            });
+          }
         } else if (item.type === "reasoning") {
           // Reasoning content
-          const reasoning = item as any;
-          parts.push({
-            type: "text",
-            text: `[Reasoning: ${reasoning.content || reasoning.reasoning}]`
-          });
+          let text = '';
+          if ('content' in item && typeof item.content === 'string') {
+            text = item.content;
+          } else if ('reasoning' in item && typeof item.reasoning === 'string') {
+            text = item.reasoning;
+          }
+          if (text) {
+            parts.push({
+              type: "text",
+              text: `[Reasoning: ${text}]`
+            });
+          }
         } else if ((item.type === "message" || item.type === undefined) && 'role' in item) {
           // Message item - extract content
-          const messageItem = item as any;
-          const content = messageItem.content;
+          if (!('content' in item)) continue;
+          const content = item.content;
 
           if (typeof content === "string") {
             parts.push({ type: "text", text: content });
