@@ -19,10 +19,10 @@
     "ci:codespell": "codespell",
     "ci:mcp-types": "cd codex-rs && ./mcp-types/check_lib_rs.py",
     "ci:shear": "cd codex-rs && cargo shear",
-    "ci:clippy": "cd codex-rs && cargo clippy --all-features --tests --profile dev -- -D warnings",
+    "ci:clippy": "cd codex-rs && CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 cargo clippy --all-features --tests --profile dev -- -D warnings",
     "ci:build": "cd codex-rs && cargo build",
-    "ci:test": "cd codex-rs && cargo nextest run --no-fail-fast || cargo test",
-    "ci:test:fallback": "cd codex-rs && cargo test --lib --bins --tests",
+    "ci:test": "cd codex-rs && CARGO_INCREMENTAL=0 cargo nextest run --profile ci-test --fail-fast || cargo test --profile ci-test",
+    "ci:test:fallback": "cd codex-rs && cargo test --lib --bins --tests --profile ci-test",
     "ci:checks": "concurrently -n format,spell,mcp,shear \"pnpm run ci:format\" \"pnpm run ci:codespell\" \"pnpm run ci:mcp-types\" \"pnpm run ci:shear\"",
     "ci:verify": "concurrently -n clippy,test \"pnpm run ci:clippy\" \"pnpm run ci:test\"",
     "ci": "pnpm run ci:checks && pnpm run ci:verify"
