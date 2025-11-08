@@ -364,7 +364,7 @@ async function runClaudeForFailure(pr, failureLog) {
     "-p",
     userPrompt,
     "--output-format",
-    "json",
+    "stream-json",
     "--append-system-prompt",
     systemPrompt,
     "--allowedTools",
@@ -374,31 +374,76 @@ async function runClaudeForFailure(pr, failureLog) {
   process.stdout.write(`\n🧠 Claude is working on PR #${pr.number}...\n`);
   process.stdout.write(`${"─".repeat(80)}\n`);
 
+  let finalStats = null;
+  let buffer = "";
+
   const result = await runCommand(CLAUDE_CMD, args, { 
     env: process.env,
     onData: ({ type, data }) => {
-      // Stream Claude's output in real-time
+      // Stream Claude's output in real-time (JSONL format)
       if (type === "stdout") {
-        // Parse JSON lines if possible, otherwise just print raw
-        const lines = data.split("\n");
+        buffer += data;
+        const lines = buffer.split("\n");
+        // Keep the last incomplete line in buffer
+        buffer = lines.pop() || "";
+        
         for (const line of lines) {
-          if (line.trim()) {
-            try {
-              const json = JSON.parse(line);
-              // Format structured output nicely
-              if (json.type === "text") {
-                process.stdout.write(`💭 ${json.text}\n`);
-              } else if (json.type === "tool_use") {
-                process.stdout.write(`🔧 Using tool: ${json.name}\n`);
-              } else if (json.type === "tool_result") {
+          if (!line.trim()) continue;
+          
+          try {
+            const msg = JSON.parse(line);
+            
+            // Handle different message types
+            switch (msg.type) {
+              case "init":
+                // Initial system message - ignore
+                break;
+                
+              case "user":
+                // User message - ignore (we already know what we asked)
+                break;
+                
+              case "assistant":
+                // Assistant response - parse content blocks
+                if (msg.message && msg.message.content) {
+                  for (const block of msg.message.content) {
+                    if (block.type === "text") {
+                      // Claude's reasoning/explanation
+                      process.stdout.write(`💭 ${block.text}\n`);
+                    } else if (block.type === "tool_use") {
+                      // Tool being called
+                      process.stdout.write(`🔧 ${block.name}`);
+                      if (block.input && Object.keys(block.input).length > 0) {
+                        // Show key parameters
+                        const params = JSON.stringify(block.input).slice(0, 60);
+                        process.stdout.write(` ${params}${params.length >= 60 ? "..." : ""}`);
+                      }
+                      process.stdout.write("\n");
+                    }
+                  }
+                }
+                break;
+                
+              case "tool_result":
+                // Tool execution result
                 process.stdout.write(`✓ Tool completed\n`);
-              } else {
-                // Print other JSON as-is
-                process.stdout.write(`   ${line}\n`);
-              }
-            } catch {
-              // Not JSON, print raw output
-              process.stdout.write(data);
+                break;
+                
+              case "result":
+                // Final result with stats
+                finalStats = msg;
+                break;
+                
+              default:
+                // Unknown message type - print for debugging
+                if (process.env.VERBOSE) {
+                  process.stdout.write(`   [${msg.type}] ${JSON.stringify(msg).slice(0, 100)}...\n`);
+                }
+            }
+          } catch (error) {
+            // Not valid JSON - ignore
+            if (process.env.VERBOSE) {
+              process.stderr.write(`⚠️  Failed to parse JSON: ${line.slice(0, 50)}...\n`);
             }
           }
         }
@@ -415,7 +460,22 @@ async function runClaudeForFailure(pr, failureLog) {
     throw new Error(`Claude CLI exited with ${result.exitCode}\n${result.stderr || result.stdout}`);
   }
   
-  process.stdout.write(`✅ Claude finished working on PR #${pr.number}\n\n`);
+  // Show final stats if available
+  if (finalStats) {
+    process.stdout.write(`✅ Claude finished working on PR #${pr.number}\n`);
+    if (finalStats.total_cost_usd !== undefined) {
+      process.stdout.write(`   💰 Cost: $${finalStats.total_cost_usd.toFixed(4)}\n`);
+    }
+    if (finalStats.duration_ms !== undefined) {
+      process.stdout.write(`   ⏱️  Duration: ${(finalStats.duration_ms / 1000).toFixed(1)}s\n`);
+    }
+    if (finalStats.num_turns !== undefined) {
+      process.stdout.write(`   🔄 Turns: ${finalStats.num_turns}\n`);
+    }
+    process.stdout.write("\n");
+  } else {
+    process.stdout.write(`✅ Claude finished working on PR #${pr.number}\n\n`);
+  }
 }
 
 async function commitAndPushIfNeeded(pr) {
