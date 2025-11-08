@@ -1133,17 +1133,13 @@ function summarizeTurnItems(items: ThreadItem[]): TurnItemsSummary {
   for (const item of items) {
     switch (item.type) {
       case "command_execution":
-        if (typeof item.command === "string") {
-          summary.commands.push({ command: item.command, status: item.status });
-        }
+        summary.commands.push({ command: item.command, status: item.status });
         break;
       case "mcp_tool_call":
         summary.toolCalls.push({ server: item.server, tool: item.tool, status: item.status });
         break;
       case "file_change":
-        if (Array.isArray((item as { changes?: unknown[] }).changes)) {
-          summary.filesChanged += (item as { changes?: unknown[] }).changes?.length ?? 0;
-        }
+        summary.filesChanged += item.changes.length;
         break;
       default:
         break;
@@ -1372,12 +1368,17 @@ function logItemEvent(phase: string, item?: ThreadItem) {
         console.log(`💭 ${truncate(item.text, 150)}`);
       }
       break;
+    case "reasoning":
+      if (phase === "started" && item.text) {
+        console.log(`🧠 Reasoning: ${truncate(item.text, 150)}`);
+      }
+      break;
     case "command_execution":
       if (phase === "started") {
         console.log(`🔧 Bash: ${item.command}`);
       } else if (phase === "completed") {
-        if (item.status === "failed" || item.status === "error") {
-          console.log(`❌ Tool error: ${item.command}`);
+        if (item.status === "failed") {
+          console.log(`❌ Tool error: Exit ${item.exit_code ?? "unknown"}`);
         } else {
           console.log(`✓ Tool completed`);
         }
@@ -1385,23 +1386,29 @@ function logItemEvent(phase: string, item?: ThreadItem) {
       break;
     case "file_change":
       if (phase === "completed") {
-        console.log(`✓ File changes: ${item.changes.length} file(s)`);
+        if (item.status === "failed") {
+          console.log(`❌ File changes failed: ${item.changes.length} file(s)`);
+        } else {
+          console.log(`✓ File changes: ${item.changes.length} file(s)`);
+        }
       }
       break;
     case "mcp_tool_call":
       if (phase === "started") {
         console.log(`🔧 ${item.server}::${item.tool}`);
       } else if (phase === "completed") {
-        if (item.status === "failed" || item.status === "error") {
-          console.log(`❌ Tool error: ${item.server}::${item.tool}`);
+        if (item.status === "failed") {
+          const errorMsg = item.error?.message || "unknown error";
+          console.log(`❌ Tool error: ${errorMsg}`);
         } else {
           console.log(`✓ Tool completed`);
         }
       }
       break;
     case "todo_list":
-      if (phase === "completed") {
-        console.log(`✓ Todo list: ${item.items.length} item(s)`);
+      if (phase === "started" || phase === "completed") {
+        const completed = item.items.filter(i => i.completed).length;
+        console.log(`📝 Todo: ${completed}/${item.items.length} completed`);
       }
       break;
     case "error":
