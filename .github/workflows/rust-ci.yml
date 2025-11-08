@@ -80,7 +80,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.91
-      - uses: taiki-e/install-action@6f9c7cc51aa54b13cbcbd12f8bbf69d8ba405b4b # v2
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e # v2
         with:
           tool: cargo-shear
           version: 1.5.1
@@ -174,7 +174,7 @@ jobs:
 
       # Install and restore sccache cache
       - name: Install sccache
-        uses: taiki-e/install-action@6f9c7cc51aa54b13cbcbd12f8bbf69d8ba405b4b # v2
+        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e # v2
         with:
           tool: sccache@0.7.5
 
@@ -231,7 +231,7 @@ jobs:
 
       - name: Install cargo-chef
         if: ${{ matrix.profile == 'release' }}
-        uses: taiki-e/install-action@6f9c7cc51aa54b13cbcbd12f8bbf69d8ba405b4b # v2
+        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e # v2
         with:
           tool: cargo-chef
           version: 0.1.71
@@ -373,7 +373,7 @@ jobs:
             cargo-home-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-
 
       - name: Install sccache
-        uses: taiki-e/install-action@6f9c7cc51aa54b13cbcbd12f8bbf69d8ba405b4b # v2
+        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e # v2
         with:
           tool: sccache
           version: 0.7.5
@@ -402,7 +402,7 @@ jobs:
             sccache-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-${{ hashFiles('**/Cargo.lock') }}-
             sccache-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-
 
-      - uses: taiki-e/install-action@6f9c7cc51aa54b13cbcbd12f8bbf69d8ba405b4b # v2
+      - uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e # v2
         with:
           tool: nextest
           version: 0.9.103
