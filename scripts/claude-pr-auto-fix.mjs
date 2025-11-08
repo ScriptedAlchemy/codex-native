@@ -110,12 +110,22 @@ async function runCommand(command, args, options = {}) {
     let stdout = "";
     let stderr = "";
 
+    const onData = options.onData;
+
     child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      if (onData) {
+        onData({ type: "stdout", data: text, accumulated: stdout });
+      }
     });
 
     child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
+      const text = chunk.toString();
+      stderr += text;
+      if (onData) {
+        onData({ type: "stderr", data: text, accumulated: stderr });
+      }
     });
 
     child.on("error", (error) => {
@@ -161,10 +171,28 @@ async function fetchOpenPullRequests() {
   }
 }
 
+function detectFailureInOutput(output) {
+  const failurePatterns = [
+    /\bfail(ed|ing|ure)?\b/i,
+    /\berror\b/i,
+    /\b❌\b/,
+    /\bx\s+\w+/i,  // "X some-check-name" pattern from gh
+    /check.*failed/i,
+    /test.*failed/i,
+    /build.*failed/i,
+    /\bexit code [1-9]/i,
+    /compilation failed/i,
+    /\bpanic\b/i,
+  ];
+  
+  return failurePatterns.some(pattern => pattern.test(output));
+}
+
 async function monitorPrChecks(prs, failureProcessor) {
   const queue = [...prs];
   const workers = [];
   let failureCount = 0;
+  const earlyFailureDetected = new Map(); // Track which PRs have been queued early
 
   async function worker() {
     while (queue.length > 0) {
@@ -172,12 +200,52 @@ async function monitorPrChecks(prs, failureProcessor) {
       if (!pr) {
         break;
       }
+      
       const watchArgs = ["pr", "checks", String(pr.number), "--watch"];
-      const outcome = await runCommand(GH_CMD, watchArgs);
+      
+      const outcome = await runCommand(GH_CMD, watchArgs, {
+        onData: ({ type, data, accumulated }) => {
+          // Stream output to console for visibility
+          if (type === "stdout") {
+            process.stdout.write(data);
+          } else if (type === "stderr") {
+            process.stderr.write(data);
+          }
+          
+          // Check for failure indicators in real-time
+          if (!earlyFailureDetected.get(pr.number) && detectFailureInOutput(accumulated)) {
+            earlyFailureDetected.set(pr.number, true);
+            
+            process.stdout.write(
+              `\n⚡ Early failure detected for PR #${pr.number}, starting remediation while checks continue...\n`
+            );
+            
+            // Enqueue for remediation immediately
+            failureProcessor.enqueueFailure({ 
+              pr, 
+              outcome: { 
+                stdout: accumulated, 
+                stderr: "", 
+                exitCode: 1,
+                early: true 
+              }
+            });
+          }
+        }
+      });
+      
       logCheckResult(pr, outcome);
+      
+      // Only count as new failure if we haven't already queued it
       if (outcome.exitCode !== 0) {
-        failureCount += 1;
-        failureProcessor.enqueueFailure({ pr, outcome });
+        if (!earlyFailureDetected.get(pr.number)) {
+          failureCount += 1;
+          failureProcessor.enqueueFailure({ pr, outcome });
+        } else {
+          // Already queued early, just increment counter
+          failureCount += 1;
+          process.stdout.write(`   (Already processing this failure early)\n`);
+        }
       }
     }
   }
