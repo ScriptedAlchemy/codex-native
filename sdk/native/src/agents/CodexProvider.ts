@@ -862,14 +862,10 @@ class CodexModel implements Model {
         this.streamedTurnItems.push(event.item);
 
         if (event.item.type === "agent_message") {
-          // Use "model" type for custom output_text_done events
           events.push({
-            type: "model",
-            event: {
-              type: "output_text_done",
-              text: event.item.text,
-            },
-          } as StreamEvent);
+            type: "output_text_done",
+            text: event.item.text,
+          } as any);
           textAccumulator.delete("agent_message");
           this.lastStreamedMessage = event.item.text;
         } else if (event.item.type === "reasoning") {
