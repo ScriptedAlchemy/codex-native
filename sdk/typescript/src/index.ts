@@ -36,5 +36,10 @@ export { Codex } from "./codex";
 
 export type { CodexOptions } from "./codexOptions";
 
-export type { ThreadOptions, ApprovalMode, SandboxMode } from "./threadOptions";
+export type {
+  ThreadOptions,
+  ApprovalMode,
+  SandboxMode,
+  ModelReasoningEffort,
+} from "./threadOptions";
 export type { TurnOptions } from "./turnOptions";
