@@ -41,3 +41,15 @@ jobs:
 
       - name: Test SDK packages
         run: pnpm -r --filter ./sdk/typescript run test
+
+      - name: Install native SDK dependencies
+        working-directory: sdk/native
+        run: pnpm install
+
+      - name: Build native SDK
+        working-directory: sdk/native
+        run: pnpm run build
+
+      - name: Test native SDK
+        working-directory: sdk/native
+        run: pnpm test

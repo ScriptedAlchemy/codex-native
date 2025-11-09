@@ -15,6 +15,26 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
+/// Build a ToolSpec::Function from a raw JSON schema value.
+/// The schema is sanitized to fit our limited JsonSchema enum.
+pub fn create_function_tool_spec_from_schema(
+    name: String,
+    description: Option<String>,
+    mut schema: JsonValue,
+    strict: bool,
+) -> Result<ToolSpec, serde_json::Error> {
+    // Sanitize incoming schema for compatibility
+    sanitize_json_schema(&mut schema);
+    let parameters = serde_json::from_value::<JsonSchema>(schema)?;
+    let tool = ResponsesApiTool {
+        name,
+        description: description.unwrap_or_default(),
+        strict,
+        parameters,
+    };
+    Ok(ToolSpec::Function(tool))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ConfigShellToolType {
     Default,
@@ -982,6 +1002,22 @@ pub(crate) fn build_specs(
                     tracing::error!("Failed to convert {name:?} MCP tool to OpenAI tool: {e:?}");
                 }
             }
+        }
+    }
+
+    // Incorporate any pending external tool registrations/interceptors provided by native bindings.
+    {
+        use crate::tools::registry::take_pending_external_interceptors;
+        use crate::tools::registry::take_pending_external_tools;
+        let externals = take_pending_external_tools();
+        for reg in externals {
+            // Push spec and register handler (overwrites builtin if same name).
+            builder.push_spec_with_parallel_support(reg.spec.clone(), reg.supports_parallel_tool_calls);
+            builder.register_handler(reg.spec.name().to_string(), reg.handler.clone());
+        }
+        let interceptors = take_pending_external_interceptors();
+        for ext in interceptors {
+            builder.register_interceptor(ext.name, ext.handler);
         }
     }
 

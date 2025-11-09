@@ -83,6 +83,13 @@ mod tasks;
 mod user_notification;
 pub mod util;
 
+// Minimal public re-exports required by native bindings
+pub use function_tool::FunctionCallError;
+pub use tools::context::{ToolInvocation, ToolOutput, ToolPayload};
+pub use tools::registry::{
+    ExternalInterceptorRegistration, ExternalToolRegistration, ToolHandler, ToolKind,
+    set_pending_external_interceptors, set_pending_external_tools,
+};
 pub use apply_patch::CODEX_APPLY_PATCH_ARG1;
 pub use command_safety::is_safe_command;
 pub use safety::get_platform_sandbox;
