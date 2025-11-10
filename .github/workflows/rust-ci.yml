@@ -99,8 +99,10 @@ jobs:
       run:
         working-directory: codex-rs
     env:
-      # Keep incremental builds disabled for reproducibility across CI runs.
+      # Speed up repeated builds across CI runs by caching compiled objects.
+      RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
+      SCCACHE_CACHE_SIZE: 10G
 
     strategy:
       fail-fast: false
@@ -327,7 +329,10 @@ jobs:
       run:
         working-directory: codex-rs
     env:
+      # Speed up repeated builds across CI runs by caching compiled objects.
+      RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
+      SCCACHE_CACHE_SIZE: 10G
 
     strategy:
       fail-fast: false
