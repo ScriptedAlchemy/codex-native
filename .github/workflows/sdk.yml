@@ -8,7 +8,7 @@ on:
 jobs:
   sdks:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       CARGO_INCREMENTAL: "0"
     steps:
