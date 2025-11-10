@@ -114,6 +114,7 @@ import { Agent, run } from '@openai/agents';
 import { CodexProvider } from '../../src/index';
 import { runExampleStep, ensureResult } from '../utils';
 
+
 async function main() {
   console.log('📋 Structured Output with CodexProvider\n');
   console.log('This example demonstrates JSON schema validation for agent responses.\n');
@@ -158,6 +159,7 @@ async function main() {
 
   const result1 = await runExampleStep('Simple schema run', () =>
     run(agentWithSchema, 'Analyze the current repository status', {
+      outputType: simpleSchema,
       outputSchema: simpleSchema,
     })
   );
@@ -192,6 +194,8 @@ async function main() {
           priority: { type: 'string', enum: ['low', 'medium', 'high'] },
           status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
         },
+        required: ['id', 'title', 'description', 'priority', 'status'],
+        additionalProperties: false,
         required: ['id', 'title', 'priority', 'status'],
       },
       steps: {
@@ -204,6 +208,7 @@ async function main() {
             completed: { type: 'boolean' },
           },
           required: ['step', 'action', 'completed'],
+          additionalProperties: false,
         },
       },
       metadata: {
@@ -212,6 +217,11 @@ async function main() {
           createdAt: { type: 'string' },
           estimatedTime: { type: 'number' },
         },
+        required: ['createdAt', 'estimatedTime'],
+        additionalProperties: false,
+      },
+    },
+    required: ['task', 'steps', 'metadata'],
       },
     },
     required: ['task', 'steps'],
@@ -231,6 +241,7 @@ async function main() {
       taskAgent,
       'Create a task plan for implementing user authentication',
       {
+        outputType: complexSchema,
         outputSchema: complexSchema,
       }
     )
@@ -309,6 +320,7 @@ async function main() {
       zodAgent,
       'Create a feature request for adding dark mode',
       {
+        outputType: jsonSchemaFromZod,
         outputSchema: jsonSchemaFromZod,
       }
     )
@@ -340,6 +352,25 @@ async function main() {
   console.log('─'.repeat(60));
 
   const arraySchema = {
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'number' },
+            title: { type: 'string' },
+            completed: { type: 'boolean' },
+          },
+          required: ['id', 'title', 'completed'],
+          additionalProperties: false,
+        },
+        minItems: 1,
+      },
+    },
+    required: ['items'],
+    additionalProperties: false,
     type: 'array',
     items: {
       type: 'object',
@@ -362,6 +393,7 @@ async function main() {
 
   const result4 = await runExampleStep('Array schema run', () =>
     run(listAgent, 'List 3 common programming best practices', {
+      outputType: arraySchema,
       outputSchema: arraySchema,
     })
   );
@@ -370,6 +402,12 @@ async function main() {
     console.log('\n[Structured Response]');
     try {
       const parsed = JSON.parse(result4.finalOutput);
+      if (parsed && parsed.items && Array.isArray(parsed.items)) {
+        console.log(JSON.stringify(parsed.items, null, 2));
+        console.log(`\n✓ Response contains an array with ${parsed.items.length} items`);
+      } else {
+        console.log('⚠ Response does not contain a valid items array');
+        console.log(JSON.stringify(parsed, null, 2));
       if (Array.isArray(parsed)) {
         console.log(JSON.stringify(parsed, null, 2));
         console.log(`\n✓ Response is an array with ${parsed.length} items`);

@@ -1,6 +1,13 @@
 import { CodexOptions, NativeToolDefinition } from "./codexOptions";
 import { CodexExec } from "./exec";
-import { NativeBinding, getNativeBinding } from "./nativeBinding";
+import {
+  NativeBinding,
+  getNativeBinding,
+  NativeToolInvocation,
+  NativeToolResult,
+  NativeToolInterceptorNativeContext,
+  ApprovalRequest,
+} from "./nativeBinding";
 import type { StreamedTurn, Turn } from "./thread";
 import { Thread } from "./thread";
 import { ThreadOptions } from "./threadOptions";
@@ -9,6 +16,11 @@ import { ThreadEvent, ThreadError, Usage } from "./events";
 import { ThreadItem } from "./items";
 import { createOutputSchemaFile, normalizeOutputSchema } from "./outputSchemaFile";
 import { buildReviewPrompt, type ReviewInvocationOptions } from "./reviewOptions";
+
+export type NativeToolInterceptorContext = {
+  invocation: NativeToolInvocation;
+  callBuiltin: (invocation?: NativeToolInvocation) => Promise<NativeToolResult>;
+};
 
 /**
  * Codex is the main class for interacting with the Codex agent.
@@ -60,6 +72,40 @@ export class Codex {
   }
 
   /**
+   * Register a tool interceptor for Codex. Interceptors can modify tool invocations
+   * and results, and can call the built-in implementation.
+   */
+  registerToolInterceptor(
+    toolName: string,
+    handler: (context: NativeToolInterceptorContext) => Promise<NativeToolResult> | NativeToolResult,
+  ): void {
+    if (!this.nativeBinding) {
+      throw new Error("Native tool interceptor registration requires the NAPI binding");
+    }
+    // registerToolInterceptor may not be available in all builds
+    if (
+      typeof this.nativeBinding.registerToolInterceptor !== 'function' ||
+      typeof this.nativeBinding.callToolBuiltin !== 'function'
+    ) {
+      console.warn("registerToolInterceptor is not available in this build - interceptor feature may be incomplete");
+      return;
+    }
+    this.nativeBinding.registerToolInterceptor(toolName, async (...args: unknown[]) => {
+      const context = (args.length === 1 ? args[0] : args[1]) as
+        | NativeToolInterceptorNativeContext
+        | null
+        | undefined;
+      if (!context || typeof context !== "object") {
+        throw new Error("Native interceptor callback did not receive a context object");
+      }
+      const { invocation, token } = context;
+      const callBuiltin = (override?: NativeToolInvocation) =>
+        this.nativeBinding!.callToolBuiltin(token, override ?? invocation);
+      return handler({ invocation, callBuiltin });
+    });
+  }
+
+  /**
    * Clear all registered tools, restoring built-in defaults.
    */
   clearTools(): void {
@@ -72,6 +118,20 @@ export class Codex {
     if (this.options.tools) {
       this.options.tools = [];
     }
+  }
+
+  /**
+   * Register a programmatic approval callback that Codex will call before executing
+   * sensitive operations (e.g., shell commands, file writes).
+   */
+  setApprovalCallback(
+    handler: (request: ApprovalRequest) => boolean | Promise<boolean>,
+  ): void {
+    if (!this.nativeBinding || typeof this.nativeBinding.registerApprovalCallback !== 'function') {
+      console.warn("Approval callback is not available in this build");
+      return;
+    }
+    this.nativeBinding.registerApprovalCallback(handler);
   }
 
   /**
@@ -168,7 +228,10 @@ export class Codex {
       baseUrl: this.options.baseUrl,
       apiKey: this.options.apiKey,
       model: threadOptions.model,
+      oss: threadOptions.oss,
       sandboxMode: threadOptions.sandboxMode,
+      approvalMode: threadOptions.approvalMode,
+      workspaceWriteOptions: threadOptions.workspaceWriteOptions,
       workingDirectory: threadOptions.workingDirectory,
       skipGitRepoCheck: threadOptions.skipGitRepoCheck,
       outputSchemaFile: schemaFile.schemaPath,

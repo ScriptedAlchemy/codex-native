@@ -1,11 +1,8 @@
 # Cargo configuration for codex-rs workspace
 
 [build]
-# Use sccache for compilation caching
-# This significantly speeds up rebuilds by caching compiled artifacts
-# Install sccache: cargo install sccache
-# Or via homebrew: brew install sccache
-rustc-wrapper = "sccache"
+# Compilation caching disabled for reproducibility across environments
+# Individual CI workflows may enable additional caching strategies
 
 [env]
 # Disable incremental compilation in CI for better cache hits

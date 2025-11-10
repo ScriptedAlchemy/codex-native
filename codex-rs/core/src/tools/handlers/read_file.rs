@@ -39,8 +39,9 @@ struct ReadFileArgs {
     indentation: Option<IndentationArgs>,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 enum ReadMode {
     #[default]
     Slice,
@@ -453,6 +454,7 @@ fn trim_empty_lines(out: &mut VecDeque<&LineRecord>) {
 mod defaults {
     use super::*;
 
+    #[allow(clippy::derivable_impls)]
     impl Default for IndentationArgs {
         fn default() -> Self {
             Self {

@@ -11,6 +11,9 @@ fn test_run_request_into_internal_default_values() {
     thread_id: None,
     images: None,
     model: None,
+    approval_mode: None,
+    workspace_write_options: None,
+    oss: None,
     sandbox_mode: None,
     working_directory: None,
     skip_git_repo_check: None,
@@ -42,6 +45,9 @@ fn test_run_request_with_images() {
       "/path/to/image2.jpg".to_string(),
     ]),
     model: None,
+    approval_mode: None,
+    workspace_write_options: None,
+    oss: None,
     sandbox_mode: None,
     working_directory: None,
     skip_git_repo_check: None,
@@ -74,6 +80,9 @@ fn test_run_request_sandbox_mode_conversions() {
       thread_id: None,
       images: None,
       model: None,
+      approval_mode: None,
+      workspace_write_options: None,
+      oss: None,
       sandbox_mode: Some(mode_str.to_string()),
       working_directory: None,
       skip_git_repo_check: None,
@@ -98,6 +107,9 @@ fn test_run_request_invalid_sandbox_mode() {
     thread_id: None,
     images: None,
     model: None,
+    approval_mode: None,
+    workspace_write_options: None,
+    oss: None,
     sandbox_mode: Some("invalid-mode".to_string()),
     working_directory: None,
     skip_git_repo_check: None,
@@ -113,6 +125,10 @@ fn test_run_request_invalid_sandbox_mode() {
   let result = req.into_internal();
   assert!(result.is_err());
   let err = result.unwrap_err();
+  #[cfg(feature = "napi-bindings")]
+  assert!(err.reason.contains("Unsupported sandbox mode"));
+  #[cfg(not(feature = "napi-bindings"))]
+  assert!(err.contains("Unsupported sandbox mode"));
   assert!(err.reason.contains("Unsupported sandbox mode"));
 }
 
@@ -123,6 +139,9 @@ fn test_run_request_review_mode_with_empty_prompt() {
     thread_id: None,
     images: None,
     model: None,
+    approval_mode: None,
+    workspace_write_options: None,
+    oss: None,
     sandbox_mode: None,
     working_directory: None,
     skip_git_repo_check: None,
@@ -138,11 +157,14 @@ fn test_run_request_review_mode_with_empty_prompt() {
   let result = req.into_internal();
   assert!(result.is_err());
   let err = result.unwrap_err();
+  #[cfg(feature = "napi-bindings")]
   assert!(
     err
       .reason
       .contains("Review mode requires a non-empty prompt")
   );
+  #[cfg(not(feature = "napi-bindings"))]
+  assert!(err.contains("Review mode requires a non-empty prompt"));
 }
 
 #[test]
@@ -152,6 +174,9 @@ fn test_run_request_review_mode_with_prompt() {
     thread_id: None,
     images: None,
     model: None,
+    approval_mode: None,
+    workspace_write_options: None,
+    oss: None,
     sandbox_mode: None,
     working_directory: None,
     skip_git_repo_check: None,
@@ -178,6 +203,9 @@ fn test_run_request_review_mode_default_hint() {
     thread_id: None,
     images: None,
     model: None,
+    approval_mode: None,
+    workspace_write_options: None,
+    oss: None,
     sandbox_mode: None,
     working_directory: None,
     skip_git_repo_check: None,
@@ -210,6 +238,9 @@ fn test_run_request_with_output_schema() {
     thread_id: None,
     images: None,
     model: None,
+    approval_mode: None,
+    workspace_write_options: None,
+    oss: None,
     sandbox_mode: None,
     working_directory: None,
     skip_git_repo_check: None,

@@ -12,20 +12,34 @@ export function normalizeOutputSchema(schema: unknown): Record<string, unknown> 
     return undefined;
   }
 
-  if (!isJsonObject(schema)) {
-    throw new Error("outputSchema must be a plain JSON object");
+  // OpenAI Responses-style wrapper:
+  // { type: "json_schema", json_schema: { name, schema, strict } }
+  if (
+    isJsonObject(schema) &&
+    (schema.type === "json_schema" || schema.type === "json-schema") &&
+    isJsonObject(schema.json_schema) &&
+    isJsonObject(schema.json_schema.schema)
+  ) {
+    const strict =
+      typeof schema.json_schema.strict === "boolean" ? schema.json_schema.strict : true;
+    return normalizeJsonSchemaObject(schema.json_schema.schema, strict);
   }
 
-  const record = { ...schema } as Record<string, unknown> & {
-    additionalProperties?: unknown;
-  };
-  const additionalProperties =
-    typeof record.additionalProperties === "boolean" ? record.additionalProperties : false;
+  // Lenient wrapper we also accept:
+  // { schema, strict?, name? }
+  if (isJsonObject(schema) && isJsonObject(schema.schema)) {
+    const strict = typeof schema.strict === "boolean" ? schema.strict : true;
+    return normalizeJsonSchemaObject(schema.schema, strict);
+  }
 
-  return {
-    ...record,
-    additionalProperties,
-  };
+  // Back-compat: plain JSON schema object
+  if (!isJsonObject(schema)) {
+    throw new Error(
+      "outputSchema must be a plain JSON object or an OpenAI-style json_schema wrapper",
+    );
+  }
+
+  return normalizeJsonSchemaObject(schema, true);
 }
 
 export async function createOutputSchemaFile(schema: unknown): Promise<OutputSchemaFile> {
@@ -55,4 +69,25 @@ export async function createOutputSchemaFile(schema: unknown): Promise<OutputSch
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeJsonSchemaObject(
+  schema: Record<string, unknown>,
+  strict: boolean,
+): Record<string, unknown> {
+  const record = { ...schema } as Record<string, unknown> & {
+    additionalProperties?: unknown;
+  };
+  const hasExplicitAdditional =
+    typeof record.additionalProperties === "boolean" ||
+    typeof record.additionalProperties === "object";
+  // If strict=true, default additionalProperties to false unless explicitly provided.
+  // If strict=false, preserve as-is and do not force false.
+  const additionalProperties =
+    hasExplicitAdditional ? record.additionalProperties : strict ? false : record.additionalProperties;
+
+  return {
+    ...record,
+    ...(hasExplicitAdditional || strict ? { additionalProperties } : {}),
+  };
 }
