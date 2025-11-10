@@ -1,5 +1,4 @@
 import { Codex } from "../codex";
-import type { Codex } from "../codex";
 import type { Thread } from "../thread";
 import type { ThreadEvent, Usage as CodexUsage } from "../events";
 import type { ThreadItem } from "../items";
@@ -99,16 +98,6 @@ export class CodexProvider implements ModelProvider {
           apiKey: this.options.apiKey,
           baseUrl: this.options.baseUrl,
         });
-        // Dynamic import to avoid circular dependencies
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { Codex: CodexClass } = require("../codex");
-        if (!CodexClass) {
-          throw new Error("Codex class not found in module");
-        }
-        this.codex = new CodexClass({
-          apiKey: this.options.apiKey,
-          baseUrl: this.options.baseUrl,
-        }) as Codex;
       } catch (error) {
         throw new Error(
           `Failed to initialize Codex: ${error instanceof Error ? error.message : String(error)}`
@@ -202,7 +191,6 @@ class CodexModel implements Model {
       // Run Codex (tools are now registered and will be available)
       const turn = await thread.run(input, {
         outputSchema: normalizeAgentsOutputType(request.outputType),
-        outputSchema: typeof request.outputType === 'object' ? request.outputType.schema : undefined,
       });
 
       // Convert Codex response to ModelResponse format
@@ -232,7 +220,6 @@ class CodexModel implements Model {
 
       const { events } = await thread.runStreamed(input, {
         outputSchema: normalizeAgentsOutputType(request.outputType),
-        outputSchema: typeof request.outputType === 'object' ? request.outputType.schema : undefined,
       });
 
       // Track text accumulation for delta calculation
@@ -623,22 +610,6 @@ class CodexModel implements Model {
 
         // Handle different item types
         if (item.type === "function_call_result") {
-        if ((item as any).type === "input_file") {
-          throw new Error(
-            `CodexProvider does not yet support input_file type. ` +
-            `File handling needs to be implemented based on file type and format.`
-          );
-        } else if ((item as any).type === "input_audio") {
-          throw new Error(
-            `CodexProvider does not yet support input_audio type. ` +
-            `Audio handling needs to be implemented.`
-          );
-        } else if ((item as any).type === "input_image") {
-          const imagePath = await this.handleImageInput(item as any);
-          if (imagePath) {
-            parts.push({ type: "local_image", path: imagePath });
-          }
-        } else if (item.type === "function_call_result") {
           // Tool results - for now, convert to text describing the result
           if ('name' in item && 'result' in item) {
             parts.push({
@@ -759,18 +730,6 @@ class CodexModel implements Model {
         // For final output, omit internal "reasoning" items. Streaming already surfaces reasoning events.
         case "reasoning":
           break;
-        case "reasoning": {
-          output.push({
-            type: "reasoning",
-            content: [
-              {
-                type: "input_text" as const,
-                text: item.text,
-              },
-            ],
-          } as any);
-          break;
-        }
 
         // Codex handles tools internally, so we don't expose them as function calls
         // The results are already incorporated into the agent_message
@@ -815,7 +774,6 @@ class CodexModel implements Model {
     usage: any;
     output: AgentOutputItem[];
   } {
-  ): any {
     const messageItems = items.filter(
       (item): item is Extract<ThreadItem, { type: "agent_message" }> => item.type === "agent_message"
     );
@@ -859,9 +817,6 @@ class CodexModel implements Model {
         } as unknown as StreamEvent);
         break;
       }
-      case "thread.started":
-        events.push({ type: "response_started" });
-        break;
 
       case "turn.started":
         // No equivalent in StreamEvent - skip
@@ -931,10 +886,6 @@ class CodexModel implements Model {
 
         if (event.item.type === "agent_message") {
           // Final text is available in response_done; we only clear accumulator here.
-          events.push({
-            type: "output_text_done",
-            text: event.item.text,
-          } as any);
           textAccumulator.delete("agent_message");
           this.lastStreamedMessage = event.item.text;
         } else if (event.item.type === "reasoning") {
@@ -950,7 +901,6 @@ class CodexModel implements Model {
         break;
 
       case "turn.completed": {
-      case "turn.completed":
         // Emit response done with full response
         const usage = this.convertUsage(event.usage);
         const responseId = this.thread?.id ?? "codex-stream-response";
@@ -1092,12 +1042,4 @@ function normalizeAgentsOutputType(outputType: unknown): unknown | undefined {
     if (isObject(schema)) return outputType;
   }
   return undefined;
-}
-      default:
-        // Unknown event type - skip
-        break;
-    }
-
-    return events;
-  }
 }

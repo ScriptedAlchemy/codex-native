@@ -25,10 +25,5 @@ export type ThreadOptions = {
   workingDirectory?: string;
   skipGitRepoCheck?: boolean;
   /** @deprecated Use sandboxMode and approvalMode instead */
-export type ThreadOptions = {
-  model?: string;
-  sandboxMode?: SandboxMode;
-  workingDirectory?: string;
-  skipGitRepoCheck?: boolean;
   fullAuto?: boolean;
 };

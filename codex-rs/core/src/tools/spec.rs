@@ -872,22 +872,6 @@ fn sanitize_json_schema(value: &mut JsonValue) {
     }
 }
 
-pub fn create_function_tool_spec_from_schema(
-    name: String,
-    description: Option<String>,
-    mut parameters: JsonValue,
-    strict: bool,
-) -> Result<ToolSpec, serde_json::Error> {
-    sanitize_json_schema(&mut parameters);
-    let schema = serde_json::from_value::<JsonSchema>(parameters)?;
-    Ok(ToolSpec::Function(ResponsesApiTool {
-        name,
-        description: description.unwrap_or_default(),
-        strict,
-        parameters: schema,
-    }))
-}
-
 /// Builds the tool registry builder while collecting tool specs for later serialization.
 pub(crate) fn build_specs(
     config: &ToolsConfig,

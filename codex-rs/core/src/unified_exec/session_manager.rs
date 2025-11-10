@@ -64,12 +64,7 @@ impl UnifiedExecSessionManager {
         // Determine exit and liveness before deciding whether to persist a session.
         let exit_code = session.exit_code();
         let session_finished = exit_code.is_some() || session.has_exited();
-        // Heuristic: Only persist sessions for explicitly interactive shells (e.g. "bash -i").
-        let interactive = request
-            .command
-            .split_whitespace()
-            .any(|arg| arg == "-i" || arg == "--interactive");
-        let session_id = if session_finished || !interactive {
+        let session_id = if session_finished {
             None
         } else {
             Some(
