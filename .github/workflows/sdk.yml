@@ -53,13 +53,14 @@ jobs:
 
       - name: Restore sccache cache (fallback)
         if: ${{ env.SCCACHE_GHA_ENABLED != 'true' }}
+        id: cache_sccache_restore
         uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/.sccache/
-          key: sccache-sdk-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
+          key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
           restore-keys: |
-            sccache-sdk-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-
-            sccache-sdk-${{ runner.os }}-
+            sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-
+            sccache-${{ runner.os }}-
 
       # Match rust-ci: split cargo home vs target, so large target dir is separable.
       - name: Restore cargo home cache
@@ -71,18 +72,19 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-          key: sdk-cargo-home-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-home-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('codex-rs/rust-toolchain.toml') }}
           restore-keys: |
-            sdk-cargo-home-${{ runner.os }}-
+            cargo-home-${{ runner.os }}-
 
       - name: Restore cargo target cache
         id: cache_cargo_target_restore
         uses: actions/cache/restore@v4
         with:
           path: codex-rs/target/
-          key: sdk-cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}
+          key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
           restore-keys: |
-            sdk-cargo-target-${{ runner.os }}-
+            cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
+            cargo-target-${{ runner.os }}-
 
       - name: build codex
         run: cargo build --bin codex
@@ -118,7 +120,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ github.workspace }}/.sccache/
-          key: sccache-sdk-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
+          key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
 
       - name: sccache stats
         if: always()
@@ -126,7 +128,8 @@ jobs:
         run: sccache --show-stats || true
 
       - name: Save cargo home cache
-        if: always() && !cancelled()
+        if: always() && !cancelled() && steps.cache_cargo_home_restore.outputs.cache-hit != 'true'
+        continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: |
@@ -134,11 +137,12 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-          key: sdk-cargo-home-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
+          key: cargo-home-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('codex-rs/rust-toolchain.toml') }}
 
       - name: Save cargo target cache
-        if: always() && !cancelled()
+        if: always() && !cancelled() && steps.cache_cargo_target_restore.outputs.cache-hit != 'true'
+        continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: codex-rs/target/
-          key: sdk-cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+          key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
