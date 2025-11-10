@@ -287,8 +287,13 @@ mod tests {
     use super::*;
     use crate::markdown_render::render_markdown_text;
     use crate::test_backend::VT100Backend;
+    use crossterm::style::Colored;
     use ratatui::layout::Rect;
     use ratatui::style::Color;
+
+    fn enable_colors() {
+        Colored::set_ansi_color_disabled(false);
+    }
 
     #[test]
     fn writes_bold_then_regular_spans() {
@@ -320,6 +325,7 @@ mod tests {
 
     #[test]
     fn vt100_blockquote_line_emits_green_fg() {
+        enable_colors();
         // Set up a small off-screen terminal
         let width: u16 = 40;
         let height: u16 = 10;
@@ -355,6 +361,7 @@ mod tests {
 
     #[test]
     fn vt100_blockquote_wrap_preserves_color_on_all_wrapped_lines() {
+        enable_colors();
         // Force wrapping by using a narrow viewport width and a long blockquote line.
         let width: u16 = 20;
         let height: u16 = 8;
@@ -421,6 +428,7 @@ mod tests {
 
     #[test]
     fn vt100_colored_prefix_then_plain_text_resets_color() {
+        enable_colors();
         let width: u16 = 40;
         let height: u16 = 6;
         let backend = VT100Backend::new(width, height);
@@ -479,6 +487,7 @@ mod tests {
 
     #[test]
     fn vt100_deep_nested_mixed_list_third_level_marker_is_colored() {
+        enable_colors();
         // Markdown with five levels (ordered → unordered → ordered → unordered → unordered).
         let md = "1. First\n   - Second level\n     1. Third level (ordered)\n        - Fourth level (bullet)\n          - Fifth level to test indent consistency\n";
         let text = render_markdown_text(md);

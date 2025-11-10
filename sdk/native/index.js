@@ -572,7 +572,21 @@ if (!nativeBinding) {
 }
 
 module.exports = nativeBinding
+module.exports.callToolBuiltin = nativeBinding.callToolBuiltin
 module.exports.clearRegisteredTools = nativeBinding.clearRegisteredTools
+module.exports.cloudTasksApply = nativeBinding.cloudTasksApply
+module.exports.cloudTasksApplyPreflight = nativeBinding.cloudTasksApplyPreflight
+module.exports.cloudTasksCreate = nativeBinding.cloudTasksCreate
+module.exports.cloudTasksGetDiff = nativeBinding.cloudTasksGetDiff
+module.exports.cloudTasksList = nativeBinding.cloudTasksList
+module.exports.compactThread = nativeBinding.compactThread
+module.exports.evAssistantMessage = nativeBinding.evAssistantMessage
+module.exports.evCompleted = nativeBinding.evCompleted
+module.exports.evFunctionCall = nativeBinding.evFunctionCall
+module.exports.evResponseCreated = nativeBinding.evResponseCreated
+module.exports.registerApprovalCallback = nativeBinding.registerApprovalCallback
 module.exports.registerTool = nativeBinding.registerTool
+module.exports.registerToolInterceptor = nativeBinding.registerToolInterceptor
 module.exports.runThread = nativeBinding.runThread
 module.exports.runThreadStream = nativeBinding.runThreadStream
+module.exports.sse = nativeBinding.sse
