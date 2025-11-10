@@ -10,6 +10,7 @@ node_modules
 # build
 dist/
 dist-examples/
+sdk/native/dist-examples/
 build/
 out/
 storybook-static/
