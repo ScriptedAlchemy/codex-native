@@ -57,6 +57,26 @@ export type ItemCompletedEvent = {
   item: ThreadItem;
 };
 
+/** Unstructured raw event emitted by the executor; primarily for diagnostics. */
+export type RawEvent = {
+  type: "raw_event";
+  raw: unknown;
+};
+
+/** Token usage snapshot emitted during a turn. */
+export type TokenCountEvent = {
+  type: "token_count";
+  info?: unknown;
+  rate_limits?: unknown;
+};
+
+/** Additional token usage event emitted at shutdown. */
+export type TokenUsageEvent = {
+  type: "token_usage";
+  info?: unknown;
+  rate_limits?: unknown;
+};
+
 /** Fatal error emitted by the stream. */
 export type ThreadError = {
   message: string;
@@ -77,4 +97,7 @@ export type ThreadEvent =
   | ItemStartedEvent
   | ItemUpdatedEvent
   | ItemCompletedEvent
+  | RawEvent
+  | TokenCountEvent
+  | TokenUsageEvent
   | ThreadErrorEvent;
