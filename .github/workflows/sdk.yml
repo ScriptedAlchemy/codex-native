@@ -25,6 +25,8 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@1.90
+        with:
+          components: rustfmt, clippy
 
       - name: build codex
         run: cargo build --bin codex
