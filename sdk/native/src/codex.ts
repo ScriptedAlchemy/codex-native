@@ -8,6 +8,7 @@ import {
   NativeToolInterceptorNativeContext,
   ApprovalRequest,
 } from "./nativeBinding";
+import { NativeBinding, getNativeBinding } from "./nativeBinding";
 import type { StreamedTurn, Turn } from "./thread";
 import { Thread } from "./thread";
 import { ThreadOptions } from "./threadOptions";
@@ -232,6 +233,7 @@ export class Codex {
       sandboxMode: threadOptions.sandboxMode,
       approvalMode: threadOptions.approvalMode,
       workspaceWriteOptions: threadOptions.workspaceWriteOptions,
+      sandboxMode: threadOptions.sandboxMode,
       workingDirectory: threadOptions.workingDirectory,
       skipGitRepoCheck: threadOptions.skipGitRepoCheck,
       outputSchemaFile: schemaFile.schemaPath,

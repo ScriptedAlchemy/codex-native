@@ -129,6 +129,7 @@ fn test_run_request_invalid_sandbox_mode() {
   assert!(err.reason.contains("Unsupported sandbox mode"));
   #[cfg(not(feature = "napi-bindings"))]
   assert!(err.contains("Unsupported sandbox mode"));
+  assert!(err.reason.contains("Unsupported sandbox mode"));
 }
 
 #[test]

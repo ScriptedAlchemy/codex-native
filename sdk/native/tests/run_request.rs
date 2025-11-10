@@ -13,6 +13,7 @@ fn test_run_request_default_values() {
     sandbox_mode: None,
     approval_mode: None,
     workspace_write_options: None,
+    sandbox_mode: None,
     working_directory: None,
     skip_git_repo_check: None,
     output_schema: None,
@@ -49,6 +50,8 @@ fn test_run_request_with_all_fields() {
     sandbox_mode: Some("workspace-write".to_string()),
     approval_mode: Some("never".to_string()),
     workspace_write_options: None,
+    model: Some("gpt-4".to_string()),
+    sandbox_mode: Some("workspace-write".to_string()),
     working_directory: Some("/workspace".to_string()),
     skip_git_repo_check: Some(true),
     output_schema: Some(schema.clone()),
@@ -67,6 +70,8 @@ fn test_run_request_with_all_fields() {
   assert_eq!(req.sandbox_mode, Some("workspace-write".to_string()));
   assert_eq!(req.oss, Some(true));
   assert_eq!(req.approval_mode, Some("never".to_string()));
+  assert_eq!(req.model, Some("gpt-4".to_string()));
+  assert_eq!(req.sandbox_mode, Some("workspace-write".to_string()));
   assert_eq!(req.full_auto, Some(true));
   assert_eq!(req.output_schema, Some(schema));
 }
@@ -82,6 +87,7 @@ fn test_run_request_review_mode() {
     sandbox_mode: None,
     approval_mode: None,
     workspace_write_options: None,
+    sandbox_mode: None,
     working_directory: None,
     skip_git_repo_check: None,
     output_schema: None,
@@ -200,6 +206,7 @@ fn test_sandbox_mode_values() {
       sandbox_mode: Some(mode.to_string()),
       approval_mode: None,
       workspace_write_options: None,
+      sandbox_mode: Some(mode.to_string()),
       working_directory: None,
       skip_git_repo_check: None,
       output_schema: None,

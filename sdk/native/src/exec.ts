@@ -1,4 +1,5 @@
 import { ApprovalMode, SandboxMode, WorkspaceWriteOptions } from "./threadOptions";
+import { SandboxMode } from "./threadOptions";
 import { NativeBinding, NativeRunRequest, getNativeBinding } from "./nativeBinding";
 
 export type CodexExecArgs = {
@@ -13,6 +14,7 @@ export type CodexExecArgs = {
   sandboxMode?: SandboxMode;
   approvalMode?: ApprovalMode;
   workspaceWriteOptions?: WorkspaceWriteOptions;
+  sandboxMode?: SandboxMode;
   workingDirectory?: string;
   skipGitRepoCheck?: boolean;
   outputSchemaFile?: string;
@@ -63,6 +65,7 @@ export class CodexExec {
       sandboxMode: args.sandboxMode,
       approvalMode: args.approvalMode,
       workspaceWriteOptions: args.workspaceWriteOptions,
+      sandboxMode: args.sandboxMode,
       workingDirectory: args.workingDirectory,
       skipGitRepoCheck: args.skipGitRepoCheck,
       outputSchema: args.outputSchema,

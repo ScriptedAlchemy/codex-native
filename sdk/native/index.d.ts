@@ -38,6 +38,8 @@ export interface JsToolInterceptorContext {
   token: string
 }
 
+export declare function clearRegisteredTools(): void
+
 export interface JsToolInvocation {
   callId: string
   toolName: string
@@ -64,6 +66,7 @@ export declare function registerApprovalCallback(handler: (request: JsApprovalRe
 export declare function registerTool(info: NativeToolInfo, handler: (call: JsToolInvocation) => NativeToolResponse | Promise<NativeToolResponse>): void
 
 export declare function registerToolInterceptor(toolName: string, handler: (context: JsToolInterceptorContext) => NativeToolResponse | Promise<NativeToolResponse>): void
+export declare function registerTool(info: NativeToolInfo, handler: (arg: JsToolInvocation) => NativeToolResponse): void
 
 export interface RunRequest {
   prompt: string
@@ -78,6 +81,7 @@ export interface RunRequest {
   reviewMode?: boolean
   /** Optional user-facing hint for the review flow. */
   reviewHint?: string
+  sandboxMode?: string
   workingDirectory?: string
   skipGitRepoCheck?: boolean
   outputSchema?: JsonValue
@@ -100,3 +104,4 @@ export interface WorkspaceWriteOptions {
   excludeTmpdirEnvVar?: boolean
   excludeSlashTmp?: boolean
 }
+export declare function runThreadStream(req: RunRequest, onEvent: ((err: Error | null, arg: JsonValue) => any)): Promise<void>

@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ApprovalMode, SandboxMode, WorkspaceWriteOptions } from "./threadOptions";
+import type { SandboxMode } from "./threadOptions";
 
 export type NativeRunRequest = {
   prompt: string;
@@ -13,6 +14,7 @@ export type NativeRunRequest = {
   sandboxMode?: SandboxMode;
   approvalMode?: ApprovalMode;
   workspaceWriteOptions?: WorkspaceWriteOptions;
+  sandboxMode?: SandboxMode;
   workingDirectory?: string;
   skipGitRepoCheck?: boolean;
   outputSchema?: unknown;
@@ -74,6 +76,8 @@ export type NativeBinding = {
     baseUrl?: string,
     apiKey?: string,
   ): Promise<string>;
+  clearRegisteredTools(): void;
+  registerTool(info: NativeToolInfo, handler: (call: NativeToolInvocation) => Promise<NativeToolResult> | NativeToolResult): void;
 };
 
 export type NativeToolInfo = {

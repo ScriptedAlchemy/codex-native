@@ -40,6 +40,20 @@ export function normalizeOutputSchema(schema: unknown): Record<string, unknown> 
   }
 
   return normalizeJsonSchemaObject(schema, true);
+  if (!isJsonObject(schema)) {
+    throw new Error("outputSchema must be a plain JSON object");
+  }
+
+  const record = { ...schema } as Record<string, unknown> & {
+    additionalProperties?: unknown;
+  };
+  const additionalProperties =
+    typeof record.additionalProperties === "boolean" ? record.additionalProperties : false;
+
+  return {
+    ...record,
+    additionalProperties,
+  };
 }
 
 export async function createOutputSchemaFile(schema: unknown): Promise<OutputSchemaFile> {

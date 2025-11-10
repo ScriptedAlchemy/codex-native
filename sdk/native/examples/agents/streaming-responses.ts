@@ -166,6 +166,11 @@ function quickSort(arr) {
           break;
 
         // No separate output_text_done event; finalize on response_done
+        case 'output_text_done':
+          console.log('\n\n📝 Analysis complete');
+          console.log('\nFull response:');
+          console.log(event.text);
+          break;
 
         case 'response_done':
           console.log('\n✓ Done!');
@@ -249,6 +254,9 @@ function calculateAverage(numbers) {
           break;
 
         // No separate output_text_done event; finalize on response_done
+        case 'output_text_done':
+          console.log('\n\n✓ Solution provided');
+          break;
 
         case 'response_done':
           console.log('\nDebug session complete!');
@@ -307,6 +315,7 @@ function calculateAverage(numbers) {
           if (event.type === 'output_text_delta') {
             output += event.delta;
           } else if (event.type === 'response_done') {
+          } else if (event.type === 'output_text_done') {
             console.log('[Summarizer] Complete:', output.substring(0, 100) + '...');
           }
         }
@@ -318,6 +327,7 @@ function calculateAverage(numbers) {
           if (event.type === 'output_text_delta') {
             output += event.delta;
           } else if (event.type === 'response_done') {
+          } else if (event.type === 'output_text_done') {
             console.log('[QuestionGenerator] Complete:', output.substring(0, 100) + '...');
           }
         }

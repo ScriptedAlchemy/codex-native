@@ -1,4 +1,17 @@
 /**
+ * Example: Guardrails with CodexProvider and OpenAI Agents
+ *
+ * Demonstrates how to combine CodexProvider with the OpenAI Agents SDK to
+ * enforce both input and output guardrails. The example configures a global
+ * input guardrail that blocks secrets before Codex is called as well as an
+ * output guardrail that verifies the model follows a required response format.
+ *
+ * The flow intentionally triggers the input guardrail to show how the
+ * framework surfaces structured error details.
+ *
+ * Installation:
+ * ```bash
+ * pnpm install
  * Example: Input Guardrails with CodexProvider
  *
  * This example demonstrates how to use guardrails in the OpenAI Agents framework
@@ -17,6 +30,171 @@
  * ```bash
  * npx tsx examples/agents/agents-guardrails.ts
  * ```
+ */
+
+import type { AgentInputItem } from '@openai/agents';
+import {
+  Agent,
+  Runner,
+  InputGuardrailTripwireTriggered,
+  OutputGuardrailTripwireTriggered,
+  type InputGuardrail,
+  type OutputGuardrail,
+} from '@openai/agents';
+import { CodexProvider } from '../../src/index';
+
+type GuardrailInfo = Record<string, unknown> | undefined;
+
+function flattenInputText(input: string | AgentInputItem[]): string {
+  if (typeof input === 'string') {
+    return input;
+  }
+
+  return input
+    .map((item) => {
+      if ('role' in item && item.role === 'user') {
+        if (Array.isArray(item.content)) {
+          return item.content
+            .map((contentPart) => {
+              if (typeof contentPart === 'string') {
+                return contentPart;
+              }
+
+              if ('text' in contentPart) {
+                return (contentPart as { text: string }).text;
+              }
+
+              return '';
+            })
+            .filter(Boolean)
+            .join(' ');
+        }
+
+        if (typeof item.content === 'string') {
+          return item.content;
+        }
+      }
+
+      if ('role' in item && item.role === 'system' && typeof item.content === 'string') {
+        return item.content;
+      }
+
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+const sensitiveInputGuardrail: InputGuardrail = {
+  name: 'BlockSensitiveSecrets',
+  execute: async ({ input }) => {
+    const text = flattenInputText(input).toLowerCase();
+    const banned = ['password', 'ssn', 'secret', 'api key'];
+    const matched = banned.find((word) => text.includes(word));
+
+    const outputInfo: GuardrailInfo = matched ? { matchedWord: matched } : undefined;
+
+    return {
+      tripwireTriggered: Boolean(matched),
+      outputInfo,
+    };
+  },
+};
+
+const shortSummaryOutputGuardrail: OutputGuardrail = {
+  name: 'RequireSummaryPrefix',
+  execute: async ({ agentOutput }) => {
+    const outputText = typeof agentOutput === 'string' ? agentOutput : JSON.stringify(agentOutput);
+    const isFormatted = outputText.trim().toLowerCase().startsWith('summary:');
+
+    return {
+      tripwireTriggered: !isFormatted,
+      outputInfo: isFormatted
+        ? undefined
+        : { message: 'Responses must start with "Summary:" to pass review.' },
+    };
+  },
+};
+
+async function runSafePrompt(runner: Runner, agent: Agent) {
+  const safePrompt = 'Summarize the benefits of writing unit tests in one sentence.';
+  console.log(`Safe prompt: ${safePrompt}\n`);
+
+  const result = await runner.run(agent, safePrompt);
+
+  console.log('[Safe final output]');
+  console.log(result.finalOutput);
+}
+
+async function runGuardrailViolation(runner: Runner, agent: Agent) {
+  const riskyPrompt = 'My password is hunter2. Please rewrite it more securely.';
+
+  console.log('\nRisky prompt (should trigger input guardrail) ...');
+
+  try {
+    await runner.run(agent, riskyPrompt);
+  } catch (error) {
+    if (error instanceof InputGuardrailTripwireTriggered) {
+      console.error('Input guardrail blocked the request:');
+      console.error(JSON.stringify(error.result.output.outputInfo ?? {}, null, 2));
+      return;
+    }
+
+    if (error instanceof OutputGuardrailTripwireTriggered) {
+      console.error('Output guardrail blocked the response:');
+      console.error(JSON.stringify(error.result.output.outputInfo ?? {}, null, 2));
+      return;
+    }
+
+    console.error('Unexpected error:', error);
+  }
+}
+
+async function main() {
+  console.log('🛡️  Guardrails with CodexProvider and OpenAI Agents\n');
+
+  const provider = new CodexProvider({
+    defaultModel: 'gpt-5-codex',
+    workingDirectory: process.cwd(),
+    skipGitRepoCheck: true,
+  });
+
+  const runner = new Runner({
+    modelProvider: provider,
+    inputGuardrails: [sensitiveInputGuardrail],
+    outputGuardrails: [shortSummaryOutputGuardrail],
+  });
+
+  const agent = new Agent({
+    name: 'SecureSummarizer',
+    model: 'gpt-5-codex',
+    instructions:
+      'You summarize requests in one concise sentence. Always start your response with "Summary:".',
+    inputGuardrails: [
+      {
+        name: 'LimitPromptLength',
+        execute: async ({ input }) => {
+          const text = flattenInputText(input);
+          const tooLong = text.length > 400;
+          return {
+            tripwireTriggered: tooLong,
+            outputInfo: tooLong ? { message: 'Prompts longer than 400 characters are not allowed.' } : undefined,
+          };
+        },
+      },
+    ],
+  });
+
+  await runSafePrompt(runner, agent);
+  await runGuardrailViolation(runner, agent);
+
+  console.log('\n✓ Guardrail demo complete.');
+}
+
+if (require.main === module) {
+  main()
+    .then(() => {
+      setTimeout(() => process.exit(0), 100);
  *
  * Key features demonstrated:
  * - Input validation guardrails
@@ -67,6 +245,27 @@ function guardrailFailure(reason: string) {
     outputInfo: { reason },
   };
 }
+import * as Agents from '@openai/agents';
+import { setDefaultModelProvider } from '@openai/agents-core';
+import { CodexProvider } from '../../src/index';
+
+const { Agent, run } = Agents;
+
+type GuardrailValidationResult = { valid: boolean; reason?: string };
+type GuardrailConfig = {
+  name: string;
+  validate: (input: string) => Promise<GuardrailValidationResult> | GuardrailValidationResult;
+};
+
+function hasGuardrail(
+  module: typeof Agents
+): module is typeof Agents & { guardrail: (config: GuardrailConfig) => GuardrailConfig } {
+  return typeof (module as { guardrail?: unknown }).guardrail === 'function';
+}
+
+const guardrail: (config: GuardrailConfig) => GuardrailConfig = hasGuardrail(Agents)
+  ? Agents.guardrail
+  : (config) => config; // Fallback for SDK versions without guardrail helper
 
 async function main() {
   console.log('🛡️  Input Guardrails with CodexProvider\n');
@@ -84,6 +283,7 @@ async function main() {
   });
 
   const codexModel = await codexProvider.getModel();
+  setDefaultModelProvider(codexProvider);
 
   // ============================================================================
   // Example 1: Input Validation Guardrail
@@ -124,6 +324,9 @@ async function main() {
     instructions: 'You are a helpful assistant that only processes validated inputs.',
     inputGuardrails: [inputValidationGuardrail],
   });
+    instructions: 'You are a helpful assistant that only processes validated inputs.',
+    guardrails: [inputValidationGuardrail],
+  } as any);
 
   console.log('\nTest 1: Valid input');
   console.log('Input: "This is a valid question that meets the length requirements."\n');
@@ -178,6 +381,9 @@ async function main() {
     instructions: 'You are a helpful assistant with content filtering enabled.',
     inputGuardrails: [contentFilterGuardrail],
   });
+    instructions: 'You are a helpful assistant with content filtering enabled.',
+    guardrails: [contentFilterGuardrail],
+  } as any);
 
   console.log('\nTest 1: Clean input');
   console.log('Input: "What is the weather today?"\n');
@@ -236,6 +442,9 @@ async function main() {
     instructions: 'You are a helpful assistant with security checks enabled.',
     inputGuardrails: [securityGuardrail],
   });
+    instructions: 'You are a helpful assistant with security checks enabled.',
+    guardrails: [securityGuardrail],
+  } as any);
 
   console.log('\nTest 1: Safe input');
   console.log('Input: "List all files in the current directory"\n');
@@ -269,11 +478,14 @@ async function main() {
     model: codexModel,
     instructions: 'You are a helpful assistant with multiple guardrails enabled.',
     inputGuardrails: [
+    instructions: 'You are a helpful assistant with multiple guardrails enabled.',
+    guardrails: [
       inputValidationGuardrail,
       contentFilterGuardrail,
       securityGuardrail,
     ],
   });
+  } as any);
 
   console.log('\nTest: Input that passes all guardrails');
   console.log('Input: "Can you help me understand how to write better code?"\n');

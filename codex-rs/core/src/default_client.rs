@@ -260,19 +260,34 @@ fn sanitize_user_agent(candidate: String, fallback: &str) -> String {
 pub fn create_client() -> CodexHttpClient {
     use reqwest::header::HeaderMap;
 
-    let mut headers = HeaderMap::new();
-    headers.insert("originator", originator().header_value.clone());
+    let mut default_headers = HeaderMap::new();
+    default_headers.insert("originator", originator().header_value.clone());
     let ua = get_codex_user_agent();
 
-    let mut builder = reqwest::Client::builder()
-        // Set UA via dedicated helper to avoid header validation pitfalls
-        .user_agent(ua)
-        .default_headers(headers);
-    if is_sandboxed() {
-        builder = builder.no_proxy();
-    }
+    let build_client = || {
+        let mut builder = reqwest::Client::builder()
+            .use_rustls_tls()
+            // Set UA via dedicated helper to avoid header validation pitfalls
+            .user_agent(ua.clone())
+            .default_headers(default_headers.clone());
+        if is_sandboxed() {
+            builder = builder.no_proxy();
+        }
+        builder.build()
+    };
 
-    let inner = builder.build().unwrap_or_else(|_| reqwest::Client::new());
+    let inner = match build_client() {
+        Ok(client) => client,
+        Err(error) => {
+            tracing::error!(?error, "Failed to build reqwest client with rustls");
+            match build_client() {
+                Ok(client) => client,
+                Err(error) => {
+                    panic!("failed to build reqwest client with rustls: {error}");
+                }
+            }
+        }
+    };
     CodexHttpClient::new(inner)
 }
 
@@ -288,7 +303,8 @@ mod tests {
     #[test]
     fn test_get_codex_user_agent() {
         let user_agent = get_codex_user_agent();
-        assert!(user_agent.starts_with("codex_cli_rs/"));
+        let prefix = format!("{}/", originator().value.as_str());
+        assert!(user_agent.starts_with(&prefix));
     }
 
     #[tokio::test]
@@ -329,7 +345,10 @@ mod tests {
         let originator_header = headers
             .get("originator")
             .expect("originator header missing");
-        assert_eq!(originator_header.to_str().unwrap(), "codex_cli_rs");
+        assert_eq!(
+            originator_header.to_str().unwrap(),
+            originator().value.as_str(),
+        );
 
         // User-Agent matches the computed Codex UA for that originator
         let expected_ua = get_codex_user_agent();
@@ -365,11 +384,12 @@ mod tests {
     #[cfg(target_os = "macos")]
     fn test_macos() {
         use regex_lite::Regex;
+        use regex_lite::escape;
         let user_agent = get_codex_user_agent();
-        let re = Regex::new(
-            r"^codex_cli_rs/\d+\.\d+\.\d+ \(Mac OS \d+\.\d+\.\d+; (x86_64|arm64)\) (\S+)$",
-        )
-        .unwrap();
+        let originator = escape(originator().value.as_str());
+        let pattern =
+            format!(r"^{originator}/\d+\.\d+\.\d+ \(Mac OS \d+\.\d+\.\d+; (x86_64|arm64)\) (\S+)$");
+        let re = Regex::new(&pattern).unwrap();
         assert!(re.is_match(&user_agent));
     }
 }

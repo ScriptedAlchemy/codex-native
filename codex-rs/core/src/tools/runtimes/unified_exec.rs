@@ -62,7 +62,7 @@ impl UnifiedExecRequest {
 }
 
 impl<'a> UnifiedExecRuntime<'a> {
-    pub fn new(manager: &'a UnifiedExecSessionManager) -> Self {
+    pub(crate) fn new(manager: &'a UnifiedExecSessionManager) -> Self {
         Self { manager }
     }
 }

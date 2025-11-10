@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+
+use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
 
@@ -40,6 +42,19 @@ use napi::bindgen_prelude::{Env, Function, Status};
 #[cfg(feature = "napi-bindings")]
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 #[cfg(feature = "napi-bindings")]
+use codex_core::function_tool::FunctionCallError;
+use codex_core::tools::context::ToolInvocation;
+use codex_core::tools::context::ToolOutput;
+use codex_core::tools::context::ToolPayload;
+use codex_core::tools::registry::{
+  ExternalToolRegistration, ToolHandler, ToolKind, set_pending_external_tools,
+};
+use codex_core::tools::spec::create_function_tool_spec_from_schema;
+use codex_exec::exec_events::ThreadEvent as ExecThreadEvent;
+use codex_exec::run_with_thread_event_callback;
+use codex_exec::{Cli, Color, Command, ResumeArgs};
+use napi::bindgen_prelude::{Function, Status};
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
 use serde_json::json;
@@ -72,6 +87,9 @@ use serde_json::json as serde_json_json; // avoid name clash with existing json 
 #[cfg(target_os = "linux")]
 fn io_to_napi(err: std::io::Error) -> napi::Error {
   napi_err(err.to_string())
+#[cfg(target_os = "linux")]
+fn io_to_napi(err: std::io::Error) -> napi::Error {
+  napi::Error::from_reason(err.to_string())
 }
 
 #[cfg(target_os = "linux")]
@@ -231,6 +249,7 @@ pub fn clear_registered_tools() -> napi::Result<()> {
   pending_builtin_calls()
     .lock()
     .map_err(|e| napi::Error::from_reason(format!("pending builtin mutex poisoned: {e}")))?
+    .map_err(|e| napi::Error::from_reason(format!("tools mutex poisoned: {e}")))?
     .clear();
   Ok(())
 }
@@ -274,6 +293,9 @@ pub fn register_tool(
   #[napi(
     ts_arg_type = "(call: JsToolInvocation) => NativeToolResponse | Promise<NativeToolResponse>"
   )]
+#[napi]
+pub fn register_tool(
+  info: NativeToolInfo,
   handler: Function<JsToolInvocation, NativeToolResponse>,
 ) -> napi::Result<()> {
   let schema = info.parameters.unwrap_or_else(|| {
@@ -297,6 +319,12 @@ pub fn register_tool(
   // Do not keep the Node event loop alive solely due to this TSFN
   #[allow(deprecated)]
   let _ = tsfn.unref(&env);
+  .map_err(|err| napi::Error::from_reason(format!("invalid tool schema: {err}")))?;
+
+  let tsfn = handler
+    .build_threadsafe_function::<JsToolInvocation>()
+    .callee_handled::<true>()
+    .build()?;
 
   let registration = ExternalToolRegistration {
     spec,
@@ -307,6 +335,7 @@ pub fn register_tool(
   registered_native_tools()
     .lock()
     .map_err(|e| napi_err(format!("tools mutex poisoned: {e}")))?
+    .map_err(|e| napi::Error::from_reason(format!("tools mutex poisoned: {e}")))?
     .push(registration);
 
   Ok(())
@@ -407,6 +436,7 @@ pub struct JsToolInterceptorContext {
 
 #[derive(Clone)]
 #[cfg(feature = "napi-bindings")]
+#[derive(Clone)]
 #[napi(object)]
 pub struct JsToolInvocation {
   #[napi(js_name = "callId")]
@@ -592,6 +622,7 @@ impl ToolInterceptor for JsToolInterceptor {
 
 #[async_trait]
 #[cfg(feature = "napi-bindings")]
+#[async_trait]
 impl ToolHandler for JsToolHandler {
   fn kind(&self) -> ToolKind {
     ToolKind::Function
@@ -706,6 +737,62 @@ pub struct InternalRunRequest {
 
 impl RunRequest {
   pub fn into_internal(self) -> napi::Result<InternalRunRequest> {
+
+    if let Some(error) = response.error {
+      return Err(FunctionCallError::RespondToModel(error));
+    }
+
+    let output = response.output.unwrap_or_default();
+    Ok(ToolOutput::Function {
+      content: output,
+      content_items: None,
+      success: response.success,
+    })
+  }
+}
+
+#[napi(object)]
+pub struct RunRequest {
+  pub prompt: String,
+  #[napi(js_name = "threadId")]
+  pub thread_id: Option<String>,
+  pub images: Option<Vec<String>>,
+  pub model: Option<String>,
+  #[napi(js_name = "sandboxMode")]
+  pub sandbox_mode: Option<String>,
+  #[napi(js_name = "workingDirectory")]
+  pub working_directory: Option<String>,
+  #[napi(js_name = "skipGitRepoCheck")]
+  pub skip_git_repo_check: Option<bool>,
+  #[napi(js_name = "outputSchema")]
+  pub output_schema: Option<JsonValue>,
+  #[napi(js_name = "baseUrl")]
+  pub base_url: Option<String>,
+  #[napi(js_name = "apiKey")]
+  pub api_key: Option<String>,
+  #[napi(js_name = "linuxSandboxPath")]
+  pub linux_sandbox_path: Option<String>,
+  #[napi(js_name = "fullAuto")]
+  pub full_auto: Option<bool>,
+}
+
+struct InternalRunRequest {
+  prompt: String,
+  thread_id: Option<String>,
+  images: Vec<PathBuf>,
+  model: Option<String>,
+  sandbox_mode: Option<SandboxModeCliArg>,
+  working_directory: Option<PathBuf>,
+  skip_git_repo_check: bool,
+  output_schema: Option<JsonValue>,
+  base_url: Option<String>,
+  api_key: Option<String>,
+  linux_sandbox_path: Option<PathBuf>,
+  full_auto: bool,
+}
+
+impl RunRequest {
+  fn into_internal(self) -> napi::Result<InternalRunRequest> {
     let sandbox_mode = match self.sandbox_mode.as_deref() {
       None => None,
       Some("read-only") => Some(SandboxModeCliArg::ReadOnly),
@@ -746,6 +833,12 @@ impl RunRequest {
       None
     };
 
+        return Err(napi::Error::from_reason(format!(
+          "Unsupported sandbox mode: {other}",
+        )));
+      }
+    };
+
     let images = self
       .images
       .unwrap_or_default()
@@ -782,6 +875,7 @@ impl RunRequest {
       approval_mode,
       workspace_write_options: self.workspace_write_options,
       review_request,
+      sandbox_mode,
       working_directory,
       skip_git_repo_check: self.skip_git_repo_check.unwrap_or(false),
       output_schema: self.output_schema,
@@ -789,6 +883,7 @@ impl RunRequest {
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
       full_auto: self.full_auto.unwrap_or(false),
+      full_auto: self.full_auto.unwrap_or(true),
     })
   }
 }
@@ -802,6 +897,16 @@ pub fn prepare_schema(schema: Option<JsonValue>) -> napi::Result<Option<TempSche
   if let Some(schema_value) = schema {
     let mut file = NamedTempFile::new().map_err(|e| napi_err(e.to_string()))?;
     serde_json::to_writer(&mut file, &schema_value).map_err(|e| napi_err(e.to_string()))?;
+struct TempSchemaFile {
+  path: PathBuf,
+  _guard: tempfile::TempPath,
+}
+
+fn prepare_schema(schema: Option<JsonValue>) -> napi::Result<Option<TempSchemaFile>> {
+  if let Some(schema_value) = schema {
+    let mut file = NamedTempFile::new().map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    serde_json::to_writer(&mut file, &schema_value)
+      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let path = file.path().to_path_buf();
     let temp_path = file.into_temp_path();
     Ok(Some(TempSchemaFile {
@@ -814,16 +919,19 @@ pub fn prepare_schema(schema: Option<JsonValue>) -> napi::Result<Option<TempSche
 }
 
 pub struct EnvOverride {
+struct EnvOverride {
   key: &'static str,
   previous: Option<String>,
 }
 
 pub struct EnvOverrides {
+struct EnvOverrides {
   entries: Vec<EnvOverride>,
 }
 
 impl EnvOverrides {
   pub fn apply(pairs: Vec<(&'static str, Option<String>, bool)>) -> Self {
+  fn apply(pairs: Vec<(&'static str, Option<String>, bool)>) -> Self {
     let mut entries = Vec::new();
     for (key, value, force) in pairs {
       if !force && value.is_none() {
@@ -1020,6 +1128,7 @@ pub fn build_cli(
   schema_path: Option<PathBuf>,
   force_compact: bool,
 ) -> Cli {
+fn build_cli(options: &InternalRunRequest, schema_path: Option<PathBuf>) -> Cli {
   let sandbox_mode = options.sandbox_mode;
   let wants_danger = matches!(sandbox_mode, Some(SandboxModeCliArg::DangerFullAccess));
   let cli_full_auto = options.full_auto && !wants_danger;
@@ -1079,6 +1188,7 @@ pub fn build_cli(
     images: options.images.clone(),
     model: options.model.clone(),
     oss: options.oss,
+    oss: false,
     sandbox_mode,
     config_profile: None,
     full_auto: cli_full_auto,
@@ -1087,6 +1197,9 @@ pub fn build_cli(
     skip_git_repo_check: options.skip_git_repo_check,
     output_schema: schema_path,
     config_overrides: CliConfigOverrides { raw_overrides },
+    config_overrides: CliConfigOverrides {
+      raw_overrides: Vec::new(),
+    },
     color: Color::Never,
     json: false,
     last_message_file: None,
@@ -1113,6 +1226,10 @@ pub fn event_to_json(event: &ExecThreadEvent) -> napi::Result<JsonValue> {
 }
 
 #[cfg(feature = "napi-bindings")]
+fn event_to_json(event: &ExecThreadEvent) -> napi::Result<JsonValue> {
+  serde_json::to_value(event).map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
 fn run_internal_sync<F>(options: InternalRunRequest, handler: F) -> napi::Result<()>
 where
   F: FnMut(ExecThreadEvent) + Send + 'static,
@@ -1120,6 +1237,7 @@ where
   let schema_file = prepare_schema(options.output_schema.clone())?;
   let schema_path = schema_file.as_ref().map(|file| file.path.clone());
   let cli = build_cli(&options, schema_path, false);
+  let cli = build_cli(&options, schema_path);
 
   let pending_tools = {
     let guard = registered_native_tools()
@@ -1142,6 +1260,10 @@ where
       .collect::<Vec<_>>()
   };
   set_pending_external_interceptors(pending_interceptors);
+      .map_err(|e| napi::Error::from_reason(format!("tools mutex poisoned: {e}")))?;
+    guard.clone()
+  };
+  set_pending_external_tools(pending_tools);
 
   let mut env_pairs: Vec<(&'static str, Option<String>, bool)> = Vec::new();
   if std::env::var(ORIGINATOR_ENV).is_err() {
@@ -1178,6 +1300,7 @@ where
   // Create a new Tokio runtime for this execution to avoid Send issues
   let runtime = tokio::runtime::Runtime::new()
     .map_err(|e| napi_err(format!("Failed to create runtime: {}", e)))?;
+    .map_err(|e| napi::Error::from_reason(format!("Failed to create runtime: {}", e)))?;
 
   runtime.block_on(async {
     run_with_thread_event_callback(cli, linux_sandbox_path, move |event| {
@@ -1191,6 +1314,10 @@ where
 }
 
 #[cfg(feature = "napi-bindings")]
+    .map_err(|e| napi::Error::from_reason(e.to_string()))
+  })
+}
+
 #[napi]
 pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
   let options = req.into_internal()?;
@@ -1210,6 +1337,7 @@ pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
             Err(err) => {
               if let Ok(mut error_guard) = error_clone.lock() {
                 *error_guard = Some(napi_err(err.to_string()));
+                *error_guard = Some(napi::Error::from_reason(err.to_string()));
               }
             }
           }
@@ -1224,6 +1352,7 @@ pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
   })
   .await
   .map_err(|e| napi_err(format!("Task join error: {}", e)))??;
+  .map_err(|e| napi::Error::from_reason(format!("Task join error: {}", e)))??;
 
   if let Some(err) = error_holder.lock().unwrap().take() {
     return Err(err);
@@ -1323,6 +1452,10 @@ pub async fn run_thread_stream(
   #[napi(ts_arg_type = "(err: unknown, eventJson?: string) => void")] on_event: ThreadsafeFunction<
     JsonValue,
   >,
+#[napi]
+pub async fn run_thread_stream(
+  req: RunRequest,
+  on_event: ThreadsafeFunction<JsonValue>,
 ) -> napi::Result<()> {
   let options = req.into_internal()?;
   let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
@@ -1341,6 +1474,7 @@ pub async fn run_thread_stream(
             && let Ok(mut guard) = error_clone.lock()
           {
             *guard = Some(napi_err(format!("napi status: {:?}", status)));
+            *guard = Some(napi::Error::from_status(status));
           }
         }
         Err(err) => {

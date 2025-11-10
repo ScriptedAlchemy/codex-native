@@ -223,6 +223,9 @@ export class Thread {
       workspaceWriteOptions: options?.workspaceWriteOptions,
       workingDirectory: options?.workingDirectory,
       skipGitRepoCheck,
+      sandboxMode: options?.sandboxMode,
+      workingDirectory: options?.workingDirectory,
+      skipGitRepoCheck: options?.skipGitRepoCheck,
       outputSchemaFile: schemaFile.schemaPath,
       outputSchema: normalizedSchema,
       fullAuto: options?.fullAuto,
@@ -249,6 +252,16 @@ export class Thread {
           this._id = threadEvent.thread_id;
         }
         yield threadEvent;
+        let parsed: ThreadEvent;
+        try {
+          parsed = JSON.parse(item) as ThreadEvent;
+        } catch (error) {
+          throw new Error(`Failed to parse item: ${item}`, { cause: error });
+        }
+        if (parsed.type === "thread.started") {
+          this._id = parsed.thread_id;
+        }
+        yield parsed;
       }
     } finally {
       await schemaFile.cleanup();

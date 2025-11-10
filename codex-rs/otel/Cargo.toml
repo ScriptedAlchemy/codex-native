@@ -15,7 +15,7 @@ workspace = true
 # Compile-time gate for OTLP support; disabled by default.
 # Downstream crates can enable via `features = ["otel"]`.
 default = []
-otel = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "tonic"]
+otel = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp"]
 
 [dependencies]
 chrono = { workspace = true }
@@ -35,10 +35,9 @@ opentelemetry_sdk = { workspace = true, features = [
     "logs",
     "rt-tokio",
 ], optional = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, default-features = false, features = ["rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 strum_macros = { workspace = true }
 tokio = { workspace = true }
-tonic = { workspace = true, optional = true }
 tracing = { workspace = true }

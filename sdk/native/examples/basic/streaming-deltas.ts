@@ -79,8 +79,17 @@ async function streamingTextExample() {
         break;
 
       case 'output_text_delta':
+        // Note: Delta events are not currently emitted by the backend
+        // Text is provided as a complete block in output_text_done
         process.stdout.write(event.delta);
         fullText += event.delta;
+        break;
+
+      case 'output_text_done':
+        // Text is provided here as a complete block
+        fullText = event.text;
+        console.log(event.text);
+        console.log('\n[Text generation complete]');
         break;
 
       case 'reasoning_delta':
@@ -165,6 +174,12 @@ async function streamingWithImageExample() {
         responseText += event.delta;
         break;
 
+      case 'output_text_done':
+        responseText = event.text;
+        console.log(event.text);
+        console.log('\n[Text generation complete]');
+        break;
+
       case 'reasoning_done':
         if (event.reasoning) {
           console.log(`[Extended thinking complete: ${event.reasoning.length} chars]`);
@@ -207,6 +222,14 @@ async function detailedStreamEventExample() {
   console.log('  • reasoning_done - Reasoning complete (includes full reasoning)');
   console.log('  • response_done - Full response complete with usage stats');
   console.log('  • error - An error occurred\n');
+  console.log('  • output_text_delta - Incremental text chunk (not currently emitted)');
+  console.log('  • output_text_done - Text generation complete (includes full text)');
+  console.log('  • reasoning_delta - Incremental reasoning (not currently emitted)');
+  console.log('  • reasoning_done - Reasoning complete (includes full reasoning)');
+  console.log('  • response_done - Full response complete with usage stats');
+  console.log('  • error - An error occurred\n');
+  console.log('Note: Currently only complete blocks are emitted (reasoning_done, output_text_done)');
+  console.log('      rather than incremental deltas.\n');
 
   console.log('─'.repeat(70));
   console.log('Event stream:\n');
@@ -235,11 +258,16 @@ async function detailedStreamEventExample() {
         break;
 
       case 'output_text_delta':
+        // Delta events are not currently emitted, but handler is here for future compatibility
         if (count < 3) {
           console.log(`[${event.type}] delta="${event.delta}"`);
         } else if (count === 3) {
           console.log(`[${event.type}] ... (${count} more delta events) ...`);
         }
+        break;
+
+      case 'output_text_done':
+        console.log(`[${event.type}] text length=${event.text.length}`);
         break;
 
       case 'reasoning_delta':

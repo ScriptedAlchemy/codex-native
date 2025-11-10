@@ -21,4 +21,5 @@
   },
   "include": ["src", "tests", "tsup.config.ts", "samples"],
   "exclude": ["dist", "dist-examples", "examples", "node_modules"]
+  "exclude": ["dist", "node_modules"]
 }

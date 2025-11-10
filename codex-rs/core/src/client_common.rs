@@ -283,7 +283,7 @@ pub(crate) struct ResponsesApiRequest<'a> {
     pub(crate) text: Option<TextControls>,
 }
 
-pub(crate) mod tools {
+pub mod tools {
     use crate::tools::spec::JsonSchema;
     use serde::Deserialize;
     use serde::Serialize;

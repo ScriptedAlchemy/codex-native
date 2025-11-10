@@ -103,6 +103,9 @@ class CodeRefactoringPipeline {
 - Suggest specific improvements
 - Determine if refactoring is needed
 Be thorough but constructive. Focus on actionable improvements.`,
+
+Be thorough but constructive. Focus on actionable improvements.`,
+      outputSchema: AnalysisResultSchema,
     });
 
     // Step 2: Refactorer - Implements improvements
@@ -116,6 +119,9 @@ Be thorough but constructive. Focus on actionable improvements.`,
 - Preserve existing functionality
 - Document all changes clearly
 Provide clear before/after examples for each change.`,
+
+Provide clear before/after examples for each change.`,
+      outputSchema: RefactoringResultSchema,
     });
 
     // Step 3: Tester - Validates changes
@@ -128,6 +134,9 @@ Provide clear before/after examples for each change.`,
 - Suggest test cases to validate changes
 - Estimate test coverage
 Be thorough in identifying edge cases and potential issues.`,
+
+Be thorough in identifying edge cases and potential issues.`,
+      outputSchema: TestResultSchema,
     });
 
     // Step 4: Documenter - Updates documentation
@@ -163,6 +172,7 @@ Write clear, concise documentation for developers.`,
         this.analyzerAgent,
         `Analyze this code file:\n\nFilename: ${filename}\n\n${code}`,
         { outputType: AnalysisResultSchema }
+        `Analyze this code file:\n\nFilename: ${filename}\n\n${code}`
       );
 
       let analysis;
@@ -188,6 +198,7 @@ Write clear, concise documentation for developers.`,
         this.refactorerAgent,
         `Refactor this code based on the analysis:\n\nOriginal Code:\n${code}\n\nAnalysis:\n${JSON.stringify(analysis, null, 2)}`,
         { outputType: RefactoringResultSchema }
+        `Refactor this code based on the analysis:\n\nOriginal Code:\n${code}\n\nAnalysis:\n${JSON.stringify(analysis, null, 2)}`
       );
 
       let refactoring;
@@ -211,6 +222,7 @@ Write clear, concise documentation for developers.`,
         this.testerAgent,
         `Validate this refactoring:\n\nOriginal:\n${code}\n\nRefactored:\n${refactoring.newCode}\n\nChanges:\n${JSON.stringify(refactoring.changes, null, 2)}`,
         { outputType: TestResultSchema }
+        `Validate this refactoring:\n\nOriginal:\n${code}\n\nRefactored:\n${refactoring.newCode}\n\nChanges:\n${JSON.stringify(refactoring.changes, null, 2)}`
       );
 
       let testing;

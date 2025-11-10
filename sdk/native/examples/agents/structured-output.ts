@@ -146,6 +146,7 @@ async function main() {
     instructions: `You are a code analysis expert. Analyze code for complexity,
 maintainability, and issues. Provide structured output with specific metrics
 and actionable suggestions.`,
+    outputSchema: CodeAnalysisSchema,
   });
 
   await withTrace('Code Analysis', async () => {
@@ -173,6 +174,7 @@ function processUserData(users) {
       analysisAgent,
       `Analyze this JavaScript function:\n\n${sampleCode}`,
       { outputType: CodeAnalysisSchema }
+      `Analyze this JavaScript function:\n\n${sampleCode}`
     );
 
     // The output is now structured according to our schema
@@ -208,6 +210,7 @@ function processUserData(users) {
     model: codexModel,
     instructions: `You are a test planning expert. Create comprehensive test plans
 with detailed test cases, coverage goals, and dependencies.`,
+    outputSchema: TestPlanSchema,
   });
 
   await withTrace('Test Planning', async () => {
@@ -219,6 +222,7 @@ with detailed test cases, coverage goals, and dependencies.`,
       testPlannerAgent,
       `Create a comprehensive test plan for: ${feature}`,
       { outputType: TestPlanSchema }
+      `Create a comprehensive test plan for: ${feature}`
     );
 
     try {
@@ -253,6 +257,7 @@ with detailed test cases, coverage goals, and dependencies.`,
     model: codexModel,
     instructions: `You are an API documentation expert. Generate comprehensive
 API documentation with endpoints, parameters, and response formats.`,
+    outputSchema: APIDocSchema,
   });
 
   await withTrace('API Documentation', async () => {
@@ -272,6 +277,7 @@ router.delete('/users/:id', deleteUser);
       apiDocAgent,
       `Generate API documentation for these endpoints:\n\n${apiCode}`,
       { outputType: APIDocSchema }
+      `Generate API documentation for these endpoints:\n\n${apiCode}`
     );
 
     try {
@@ -305,6 +311,7 @@ router.delete('/users/:id', deleteUser);
     model: codexModel,
     instructions: `You are a performance optimization expert. Analyze code for
 complexity, bottlenecks, and optimization opportunities.`,
+    outputSchema: PerformanceAnalysisSchema,
   });
 
   await withTrace('Performance Analysis', async () => {
@@ -329,6 +336,7 @@ function findDuplicates(array) {
       perfAgent,
       `Analyze the performance of this algorithm:\n\n${algorithmCode}`,
       { outputType: PerformanceAnalysisSchema }
+      `Analyze the performance of this algorithm:\n\n${algorithmCode}`
     );
 
     try {
