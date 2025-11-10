@@ -1,4 +1,4 @@
-import type { Codex } from "../codex";
+import { Codex } from "../codex";
 import type { Thread } from "../thread";
 import type { ThreadEvent, Usage as CodexUsage } from "../events";
 import type { ThreadItem } from "../items";
@@ -32,6 +32,10 @@ export interface CodexProviderOptions extends CodexOptions {
    * Default model to use when none is specified
    */
   defaultModel?: string;
+  /**
+   * Use local OSS provider via Ollama (pulls models as needed)
+   */
+  oss?: boolean;
 
   /**
    * Working directory for Codex operations
@@ -90,16 +94,10 @@ export class CodexProvider implements ModelProvider {
   private getCodex(): Codex {
     if (!this.codex) {
       try {
-        // Dynamic import to avoid circular dependencies
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { Codex: CodexClass } = require("../codex");
-        if (!CodexClass) {
-          throw new Error("Codex class not found in module");
-        }
-        this.codex = new CodexClass({
+        this.codex = new Codex({
           apiKey: this.options.apiKey,
           baseUrl: this.options.baseUrl,
-        }) as Codex;
+        });
       } catch (error) {
         throw new Error(
           `Failed to initialize Codex: ${error instanceof Error ? error.message : String(error)}`
@@ -169,6 +167,7 @@ class CodexModel implements Model {
   private getThreadOptions(): ThreadOptions {
     return {
       model: this.modelName,
+      oss: this.options.oss,
       workingDirectory: this.options.workingDirectory,
       skipGitRepoCheck: this.options.skipGitRepoCheck,
       sandboxMode: this.options.sandboxMode ?? "danger-full-access",
@@ -191,7 +190,7 @@ class CodexModel implements Model {
 
       // Run Codex (tools are now registered and will be available)
       const turn = await thread.run(input, {
-        outputSchema: typeof request.outputType === 'object' ? request.outputType.schema : undefined,
+        outputSchema: normalizeAgentsOutputType(request.outputType),
       });
 
       // Convert Codex response to ModelResponse format
@@ -220,7 +219,7 @@ class CodexModel implements Model {
       const input = await this.convertRequestToInput(request);
 
       const { events } = await thread.runStreamed(input, {
-        outputSchema: typeof request.outputType === 'object' ? request.outputType.schema : undefined,
+        outputSchema: normalizeAgentsOutputType(request.outputType),
       });
 
       // Track text accumulation for delta calculation
@@ -610,22 +609,7 @@ class CodexModel implements Model {
         }
 
         // Handle different item types
-        if ((item as any).type === "input_file") {
-          throw new Error(
-            `CodexProvider does not yet support input_file type. ` +
-            `File handling needs to be implemented based on file type and format.`
-          );
-        } else if ((item as any).type === "input_audio") {
-          throw new Error(
-            `CodexProvider does not yet support input_audio type. ` +
-            `Audio handling needs to be implemented.`
-          );
-        } else if ((item as any).type === "input_image") {
-          const imagePath = await this.handleImageInput(item as any);
-          if (imagePath) {
-            parts.push({ type: "local_image", path: imagePath });
-          }
-        } else if (item.type === "function_call_result") {
+        if (item.type === "function_call_result") {
           // Tool results - for now, convert to text describing the result
           if ('name' in item && 'result' in item) {
             parts.push({
@@ -743,18 +727,9 @@ class CodexModel implements Model {
           break;
         }
 
-        case "reasoning": {
-          output.push({
-            type: "reasoning",
-            content: [
-              {
-                type: "input_text" as const,
-                text: item.text,
-              },
-            ],
-          } as any);
+        // For final output, omit internal "reasoning" items. Streaming already surfaces reasoning events.
+        case "reasoning":
           break;
-        }
 
         // Codex handles tools internally, so we don't expose them as function calls
         // The results are already incorporated into the agent_message
@@ -793,7 +768,12 @@ class CodexModel implements Model {
     responseId: string,
     items: ThreadItem[],
     lastMessage: string | null
-  ): any {
+  ): {
+    id: string;
+    responseId: string;
+    usage: any;
+    output: AgentOutputItem[];
+  } {
     const messageItems = items.filter(
       (item): item is Extract<ThreadItem, { type: "agent_message" }> => item.type === "agent_message"
     );
@@ -827,9 +807,16 @@ class CodexModel implements Model {
     const events: StreamEvent[] = [];
 
     switch (event.type) {
-      case "thread.started":
+      case "thread.started": {
         events.push({ type: "response_started" });
+        // Also emit OpenAI-style start event for Agents Runner
+        const responseId = this.thread?.id ?? "codex-stream-response";
+        events.push({
+          type: "response.created",
+          response: { id: responseId },
+        } as unknown as StreamEvent);
         break;
+      }
 
       case "turn.started":
         // No equivalent in StreamEvent - skip
@@ -862,10 +849,16 @@ class CodexModel implements Model {
             const delta = currentText.slice(previousText.length);
             textAccumulator.set(itemKey, currentText);
 
+            // Codex SDK delta
             events.push({
               type: "output_text_delta",
               delta,
             });
+            // OpenAI Responses-style delta for Agents Runner
+            events.push({
+              type: "response.output_text.delta",
+              delta,
+            } as unknown as StreamEvent);
           }
         } else if (event.item.type === "reasoning") {
           const itemKey = "reasoning";
@@ -892,10 +885,7 @@ class CodexModel implements Model {
         this.streamedTurnItems.push(event.item);
 
         if (event.item.type === "agent_message") {
-          events.push({
-            type: "output_text_done",
-            text: event.item.text,
-          } as any);
+          // Final text is available in response_done; we only clear accumulator here.
           textAccumulator.delete("agent_message");
           this.lastStreamedMessage = event.item.text;
         } else if (event.item.type === "reasoning") {
@@ -910,7 +900,7 @@ class CodexModel implements Model {
         }
         break;
 
-      case "turn.completed":
+      case "turn.completed": {
         // Emit response done with full response
         const usage = this.convertUsage(event.usage);
         const responseId = this.thread?.id ?? "codex-stream-response";
@@ -923,11 +913,50 @@ class CodexModel implements Model {
         this.streamedTurnItems = [];
         this.lastStreamedMessage = null;
 
+        // Emit OpenAI Responses-style completion before the Codex-specific finale
+        // Map usage to snake_case and include final output_text if available
+        events.push({
+          type: "response.completed",
+          response: {
+            id: response.id,
+            usage: {
+              input_tokens: usage.inputTokens,
+              input_tokens_details: usage.inputTokensDetails?.[0] ?? null,
+              output_tokens: usage.outputTokens,
+              output_tokens_details: usage.outputTokensDetails?.[0] ?? null,
+              total_tokens: usage.totalTokens,
+            },
+            ...(response.output && response.output.length > 0
+              ? {
+                  output: response.output.map((item) => {
+                    if (item.type === "message" && item.role === "assistant") {
+                      return {
+                        id: item.id ?? "msg_1",
+                        role: item.role,
+                        content: item.content,
+                      };
+                    }
+                    return item;
+                  }),
+                  output_text:
+                    response.output
+                      .filter((item): item is AssistantMessageItem =>
+                        item.type === "message" && item.role === "assistant"
+                      )[0]?.content?.find(
+                        (c) => c.type === "output_text"
+                      )?.text ?? (this.lastStreamedMessage ?? ""),
+                }
+              : {}),
+          },
+        } as unknown as StreamEvent);
+
+        // Codex SDK stream event (used by formatStream) should remain the terminal event
         events.push({
           type: "response_done",
           response,
         } as StreamEvent);
         break;
+      }
 
       case "turn.failed":
         events.push({
@@ -953,11 +982,66 @@ class CodexModel implements Model {
         } as StreamEvent);
         break;
 
-      default:
-        // Unknown event type - skip
+      case "raw_event":
         break;
+
+      default:
+        break;
+    }
+
+    // Only include raw events for non-raw_event inputs
+    if ((event as Record<string, unknown>)?.type !== "raw_event") {
+      const rawEvent = {
+        type: "raw_event",
+        raw: event,
+      } as unknown as StreamEvent;
+
+      if (events.length === 0) {
+        return [rawEvent];
+      }
+
+      const result = [...events];
+      const insertIndex = Math.min(1, result.length);
+      result.splice(insertIndex, 0, rawEvent);
+      return result;
     }
 
     return events;
   }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Accept OpenAI Agents outputType when it is:
+ * - A plain JSON schema object
+ * - An OpenAI-style wrapper: { type: 'json_schema', json_schema: { name?, strict?, schema } }
+ * - A lenient wrapper: { schema, strict?, name? }
+ * Otherwise, return undefined (text output).
+ */
+function normalizeAgentsOutputType(outputType: unknown): unknown | undefined {
+  if (!isObject(outputType)) return undefined;
+  const outType = outputType as Record<string, unknown>;
+  // Wrapper form
+  const t = typeof outType.type === "string" ? (outType.type as string) : undefined;
+  if (t === "json_schema" || t === "json-schema") {
+    const js = outType.json_schema;
+    if (isObject(js)) {
+      const schema = (js as Record<string, unknown>).schema;
+      if (isObject(schema)) return outputType;
+    }
+    return undefined;
+  }
+  // Plain JSON schema (must look like a schema)
+  if ("type" in outType || "properties" in outType || "required" in outType) {
+    return outputType;
+  }
+  // Lenient wrapper { schema: {...} }
+  if ("schema" in outType) {
+    const schema = outType.schema;
+    if (isObject(schema)) return outputType;
+  }
+  return undefined;
 }

@@ -712,6 +712,9 @@ pub struct TokenUsageInfo {
     pub model_context_window: Option<i64>,
 }
 
+/// Backcompat alias preserved for downstream crates/tests that still refer to
+/// the older name.
+pub type TokenCountInfoEvent = TokenUsageInfo;
 impl TokenUsageInfo {
     pub fn new_or_append(
         info: &Option<TokenUsageInfo>,

@@ -2,47 +2,6 @@
 
 import type { ThreadItem } from "./items";
 
-/** Details identifying a code range referenced in a review finding. */
-export type ReviewLineRange = {
-  start: number;
-  end: number;
-};
-
-/** Absolute file path and range for a review finding. */
-export type ReviewCodeLocation = {
-  absolute_file_path: string;
-  line_range: ReviewLineRange;
-};
-
-/** Structured finding emitted when exiting review mode. */
-export type ReviewFinding = {
-  title: string;
-  body: string;
-  confidence_score: number;
-  priority: number;
-  code_location: ReviewCodeLocation;
-};
-
-/** Summary payload that accompanies an exited review mode event. */
-export type ReviewOutputEvent = {
-  findings: ReviewFinding[];
-  overall_correctness: string;
-  overall_explanation: string;
-  overall_confidence_score: number;
-};
-
-/** Emitted when Codex leaves review mode. */
-export type ExitedReviewModeEvent = {
-  type: "exited_review_mode";
-  review_output?: ReviewOutputEvent;
-};
-
-/** Raw protocol event payload forwarded for consumers that need full fidelity. */
-export type RawEvent = {
-  type: "raw_event";
-  raw: unknown;
-};
-
 /** Emitted when a new thread is started as the first event. */
 export type ThreadStartedEvent = {
   type: "thread.started";
@@ -98,6 +57,26 @@ export type ItemCompletedEvent = {
   item: ThreadItem;
 };
 
+/** Unstructured raw event emitted by the executor; primarily for diagnostics. */
+export type RawEvent = {
+  type: "raw_event";
+  raw: unknown;
+};
+
+/** Token usage snapshot emitted during a turn. */
+export type TokenCountEvent = {
+  type: "token_count";
+  info?: unknown;
+  rate_limits?: unknown;
+};
+
+/** Additional token usage event emitted at shutdown. */
+export type TokenUsageEvent = {
+  type: "token_usage";
+  info?: unknown;
+  rate_limits?: unknown;
+};
+
 /** Fatal error emitted by the stream. */
 export type ThreadError = {
   message: string;
@@ -118,6 +97,7 @@ export type ThreadEvent =
   | ItemStartedEvent
   | ItemUpdatedEvent
   | ItemCompletedEvent
-  | ThreadErrorEvent
-  | ExitedReviewModeEvent
-  | RawEvent;
+  | RawEvent
+  | TokenCountEvent
+  | TokenUsageEvent
+  | ThreadErrorEvent;
