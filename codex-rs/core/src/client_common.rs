@@ -372,13 +372,44 @@ pub(crate) fn create_text_param_for_request(
         .as_ref()
         .map(|schema| {
             match schema {
-                Value::Object(map) => match map.get("additionalProperties") {
-                    // additionalProperties: true (or an object schema) => non-strict
-                    Some(Value::Bool(true)) => false,
-                    Some(v) if !v.is_boolean() => false,
-                    // additionalProperties: false, or absent => strict
-                    _ => true,
-                },
+                Value::Object(map) => {
+                    // 1) If additionalProperties is permissive (true or a schema), relax strict.
+                    let ap_relaxes =
+                        matches!(map.get("additionalProperties"), Some(Value::Bool(true)))
+                            || map
+                                .get("additionalProperties")
+                                .map(|v| !v.is_boolean())
+                                .unwrap_or(false);
+
+                    if ap_relaxes {
+                        return false;
+                    }
+
+                    // 2) If 'required' is missing or does not include all defined properties,
+                    //    relax strict to allow optional fields without erroring.
+                    let props_keys: Option<std::collections::HashSet<&str>> = map
+                        .get("properties")
+                        .and_then(|v| v.as_object())
+                        .map(|props| props.keys().map(std::string::String::as_str).collect());
+                    let required_keys: Option<std::collections::HashSet<&str>> =
+                        map.get("required").and_then(|v| v.as_array()).map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str())
+                                .collect::<std::collections::HashSet<&str>>()
+                        });
+
+                    let required_relaxes = match (props_keys, required_keys) {
+                        // If there are properties but no required list, relax.
+                        (Some(_), None) => true,
+                        // If both exist and required != all properties, relax.
+                        (Some(props), Some(req)) => !props.is_subset(&req),
+                        // Otherwise keep strict (non-object schemas, or no properties).
+                        _ => false,
+                    };
+
+                    // If neither condition relaxes, keep strict.
+                    !required_relaxes
+                }
                 // Non-object roots (e.g., arrays, strings) default to strict
                 _ => true,
             }
