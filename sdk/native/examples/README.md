@@ -139,13 +139,6 @@ npx tsx examples/tools/tool-override-example.ts
 npx tsx examples/agents/agents-integration.ts
 ```
 
-Using `node` (after building):
-
-```bash
-npm run build:ts
-node dist-examples/examples/basic/streaming-deltas.js
-```
-
 ## Example Categories by Feature
 
 ### Getting Started
