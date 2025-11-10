@@ -83,7 +83,9 @@ class FailureProcessor {
         continue;
       }
       this.processed += 1;
-      process.stdout.write(`\n🛠️ Remediating PR #${failure.pr.number} (${failure.pr.title})\n`);
+      const remaining = this.#queue.length;
+      process.stdout.write(`\n🛠️  Processing PR #${failure.pr.number} of ${this.processed + remaining} queued (${remaining} remaining)\n`);
+      process.stdout.write(`📋 ${failure.pr.title}\n`);
       try {
         await processFailure(failure.pr, `${failure.outcome.stdout}\n${failure.outcome.stderr}`);
       } catch (error) {
@@ -110,12 +112,22 @@ async function runCommand(command, args, options = {}) {
     let stdout = "";
     let stderr = "";
 
+    const onData = options.onData;
+
     child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      if (onData) {
+        onData({ type: "stdout", data: text, accumulated: stdout });
+      }
     });
 
     child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
+      const text = chunk.toString();
+      stderr += text;
+      if (onData) {
+        onData({ type: "stderr", data: text, accumulated: stderr });
+      }
     });
 
     child.on("error", (error) => {
@@ -161,10 +173,28 @@ async function fetchOpenPullRequests() {
   }
 }
 
+function detectFailureInOutput(output) {
+  const failurePatterns = [
+    /\bfail(ed|ing|ure)?\b/i,
+    /\berror\b/i,
+    /\b❌\b/,
+    /\bx\s+\w+/i,  // "X some-check-name" pattern from gh
+    /check.*failed/i,
+    /test.*failed/i,
+    /build.*failed/i,
+    /\bexit code [1-9]/i,
+    /compilation failed/i,
+    /\bpanic\b/i,
+  ];
+  
+  return failurePatterns.some(pattern => pattern.test(output));
+}
+
 async function monitorPrChecks(prs, failureProcessor) {
   const queue = [...prs];
   const workers = [];
   let failureCount = 0;
+  const earlyFailureDetected = new Map(); // Track which PRs have been queued early
 
   async function worker() {
     while (queue.length > 0) {
@@ -172,12 +202,45 @@ async function monitorPrChecks(prs, failureProcessor) {
       if (!pr) {
         break;
       }
+      
       const watchArgs = ["pr", "checks", String(pr.number), "--watch"];
-      const outcome = await runCommand(GH_CMD, watchArgs);
+      
+      const outcome = await runCommand(GH_CMD, watchArgs, {
+        onData: ({ type, data, accumulated }) => {
+          // Check for failure indicators in real-time (without printing output)
+          if (type === "stdout" && !earlyFailureDetected.get(pr.number) && detectFailureInOutput(accumulated)) {
+            earlyFailureDetected.set(pr.number, true);
+            
+            process.stdout.write(
+              `\n⚡ Early failure detected for PR #${pr.number}, starting remediation while checks continue...\n`
+            );
+            
+            // Enqueue for remediation immediately
+            failureProcessor.enqueueFailure({ 
+              pr, 
+              outcome: { 
+                stdout: accumulated, 
+                stderr: "", 
+                exitCode: 1,
+                early: true 
+              }
+            });
+          }
+        }
+      });
+      
       logCheckResult(pr, outcome);
+      
+      // Only count as new failure if we haven't already queued it
       if (outcome.exitCode !== 0) {
-        failureCount += 1;
-        failureProcessor.enqueueFailure({ pr, outcome });
+        if (!earlyFailureDetected.get(pr.number)) {
+          failureCount += 1;
+          failureProcessor.enqueueFailure({ pr, outcome });
+        } else {
+          // Already queued early, just increment counter
+          failureCount += 1;
+          process.stdout.write(`   (Already processing this failure early)\n`);
+        }
       }
     }
   }
@@ -303,18 +366,124 @@ async function runClaudeForFailure(pr, failureLog) {
     "-p",
     userPrompt,
     "--output-format",
-    "json",
+    "stream-json",
+    "--verbose",
     "--append-system-prompt",
     systemPrompt,
     "--allowedTools",
     "Bash,Git,Read,gh",
   ];
 
-  const result = await runCommand(CLAUDE_CMD, args, { env: process.env });
+  process.stdout.write(`\n🧠 Claude is working on PR #${pr.number}...\n`);
+  process.stdout.write(`${"─".repeat(80)}\n`);
+
+  let finalStats = null;
+  let buffer = "";
+
+  const result = await runCommand(CLAUDE_CMD, args, { 
+    env: process.env,
+    onData: ({ type, data }) => {
+      // Parse stream-json JSONL format
+      if (type === "stdout") {
+        buffer += data;
+        const lines = buffer.split("\n");
+        // Keep the last incomplete line in buffer
+        buffer = lines.pop() || "";
+        
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          
+          try {
+            const msg = JSON.parse(line);
+            
+            // Handle different message types
+            if (msg.type === "system" && msg.subtype === "init") {
+              // Session initialized - show basic info
+              process.stdout.write(`🔗 Session: ${msg.session_id.slice(0, 8)}\n`);
+            } 
+            else if (msg.type === "assistant" && msg.message?.content) {
+              // Assistant message with content blocks
+              for (const block of msg.message.content) {
+                if (block.type === "text") {
+                  // Claude's reasoning/explanation
+                  const text = block.text.trim();
+                  if (text) {
+                    process.stdout.write(`💭 ${text}\n`);
+                  }
+                } else if (block.type === "tool_use") {
+                  // Tool being called
+                  process.stdout.write(`🔧 ${block.name}`);
+                  
+                  // Show command for Bash tool
+                  if (block.name === "Bash" && block.input?.command) {
+                    process.stdout.write(`: ${block.input.command}`);
+                    if (block.input.description) {
+                      process.stdout.write(` (${block.input.description})`);
+                    }
+                  } 
+                  // Show file path for file operations
+                  else if ((block.name === "Read" || block.name === "Write" || block.name === "Edit") && block.input?.target_file) {
+                    process.stdout.write(`: ${block.input.target_file}`);
+                  }
+                  // Show other tool inputs more compactly
+                  else if (block.input && Object.keys(block.input).length > 0) {
+                    const params = JSON.stringify(block.input).slice(0, 80);
+                    process.stdout.write(`: ${params}${params.length >= 80 ? "..." : ""}`);
+                  }
+                  
+                  process.stdout.write("\n");
+                }
+              }
+            }
+            else if (msg.type === "user" && msg.message?.content) {
+              // Tool results - only show errors or important info
+              for (const block of msg.message.content) {
+                if (block.type === "tool_result") {
+                  if (block.is_error) {
+                    process.stdout.write(`❌ Tool error: ${block.content?.slice(0, 200)}\n`);
+                  } else {
+                    process.stdout.write(`✓ Tool completed\n`);
+                  }
+                }
+              }
+            }
+            else if (msg.type === "result") {
+              // Final result with stats
+              finalStats = msg;
+            }
+          } catch (error) {
+            // Not valid JSON - ignore silently
+          }
+        }
+      } else if (type === "stderr") {
+        // Print errors/warnings
+        process.stderr.write(`⚠️  ${data}`);
+      }
+    }
+  });
+  
+  process.stdout.write(`${"─".repeat(80)}\n`);
+  
   if (result.exitCode !== 0) {
     throw new Error(`Claude CLI exited with ${result.exitCode}\n${result.stderr || result.stdout}`);
   }
-  process.stdout.write(`🧠 Claude response for PR #${pr.number}:\n${indent(result.stdout)}\n`);
+  
+  // Show final stats if available
+  if (finalStats) {
+    process.stdout.write(`✅ Claude finished working on PR #${pr.number}\n`);
+    if (finalStats.total_cost_usd !== undefined) {
+      process.stdout.write(`   💰 Cost: $${finalStats.total_cost_usd.toFixed(4)}\n`);
+    }
+    if (finalStats.duration_ms !== undefined) {
+      process.stdout.write(`   ⏱️  Duration: ${(finalStats.duration_ms / 1000).toFixed(1)}s\n`);
+    }
+    if (finalStats.num_turns !== undefined) {
+      process.stdout.write(`   🔄 Turns: ${finalStats.num_turns}\n`);
+    }
+    process.stdout.write("\n");
+  } else {
+    process.stdout.write(`✅ Claude finished working on PR #${pr.number}\n\n`);
+  }
 }
 
 async function commitAndPushIfNeeded(pr) {
