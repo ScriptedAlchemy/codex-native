@@ -32,6 +32,35 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # Install and configure sccache (align with rust-ci)
+      - name: Install sccache
+        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e # v2
+        with:
+          tool: sccache@0.7.5
+
+      - name: Configure sccache backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${ACTIONS_CACHE_URL:-}" && -n "${ACTIONS_RUNTIME_TOKEN:-}" ]]; then
+            echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+            echo "Using sccache GitHub backend"
+          else
+            echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
+            echo "SCCACHE_DIR=${{ github.workspace }}/.sccache" >> "$GITHUB_ENV"
+            echo "Using sccache local disk + actions/cache fallback"
+          fi
+
+      - name: Restore sccache cache (fallback)
+        if: ${{ env.SCCACHE_GHA_ENABLED != 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.sccache/
+          key: sccache-sdk-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
+          restore-keys: |
+            sccache-sdk-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-
+            sccache-sdk-${{ runner.os }}-
+
       # Match rust-ci: split cargo home vs target, so large target dir is separable.
       - name: Restore cargo home cache
         id: cache_cargo_home_restore
@@ -82,6 +111,19 @@ jobs:
       - name: Test native SDK
         working-directory: sdk/native
         run: pnpm test
+
+      - name: Save sccache cache (fallback)
+        if: always() && !cancelled() && env.SCCACHE_GHA_ENABLED != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.sccache/
+          key: sccache-sdk-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
+
+      - name: sccache stats
+        if: always()
+        continue-on-error: true
+        run: sccache --show-stats || true
 
       - name: Save cargo home cache
         if: always() && !cancelled()
