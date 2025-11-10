@@ -11,7 +11,11 @@
 import { describe, expect, it, beforeAll } from "@jest/globals";
 import { setupNativeBinding } from "./testHelpers";
 
-const testFn = process.env.CI ? it.skip : it;
+const isCI = process.env.CI === "true" || process.env.CI === "1";
+const testFn = isCI ? it.skip : it;
+const mockEnv = process.env.CODEX_NATIVE_RUN_AGENTS_MOCK;
+const shouldRunMockTests = mockEnv !== "0";
+const mockIt = shouldRunMockTests ? it : it.skip;
 
 // Setup native binding for tests
 setupNativeBinding();
@@ -150,11 +154,8 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
     });
   });
 
-  const runRealAgentsTest = process.env.CODEX_NATIVE_REAL_AGENT_TEST === "1";
-
   describe("OpenAI Agents Compatibility (provider streaming)", () => {
-    const mockTest = process.env.CODEX_NATIVE_RUN_AGENTS_MOCK === "1" ? it : it.skip;
-    mockTest("works with provider streaming using mock backend", async () => {
+    mockIt("works with provider streaming using mock backend", async () => {
       const { startResponsesTestProxy, sse, responseStarted, assistantMessage, responseCompleted } = await import("./responsesProxy");
 
       const { url, close, requests } = await startResponsesTestProxy({
@@ -201,7 +202,9 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
       }
     }, 15000);
 
-    const realTest = process.env.CODEX_NATIVE_RUN_AGENTS_REAL === "1" ? testFn : it.skip;
+    const runRealEnv = process.env.CODEX_NATIVE_RUN_AGENTS_REAL;
+    const shouldRunReal = (!isCI && runRealEnv !== "0") || runRealEnv === "1";
+    const realTest = shouldRunReal ? testFn : it.skip;
     realTest("works with real Codex backend", async () => {
       // This test requires a real Codex backend (no API key needed)
 

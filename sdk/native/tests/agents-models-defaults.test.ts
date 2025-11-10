@@ -22,7 +22,10 @@ beforeAll(async () => {
   ({ CodexProvider } = await import("../src/index"));
 });
 
-const mockTest = process.env.CODEX_NATIVE_RUN_AGENTS_MOCK === "1" ? it : it.skip;
+const isCI = process.env.CI === "true" || process.env.CI === "1";
+const mockEnv = process.env.CODEX_NATIVE_RUN_AGENTS_MOCK;
+const shouldRunMockTests = mockEnv !== "0";
+const mockTest = shouldRunMockTests ? it : it.skip;
 describe("Agents models defaults/resolution with CodexProvider", () => {
   mockTest("uses provider defaultModel when agent doesn't specify", async () => {
     const { url, close, requests } = await startResponsesTestProxy({
@@ -104,8 +107,9 @@ describe("Agents models defaults/resolution with CodexProvider", () => {
     }).rejects.toThrow(/Invalid model "gpt-4\.1"/);
   });
 
-  const RUN_OSS = process.env.CODEX_NATIVE_RUN_OSS_TEST === "1";
-  (RUN_OSS ? it : it.skip)("accepts OSS model when provider is configured for OSS", async () => {
+  const ossEnv = process.env.CODEX_NATIVE_RUN_OSS_TEST;
+  const shouldRunOss = (!isCI && ossEnv !== "0") || ossEnv === "1";
+  (shouldRunOss ? it : it.skip)("accepts OSS model when provider is configured for OSS", async () => {
     const { Agent, Runner } = await import("@openai/agents");
     const { url, close } = await startResponsesTestProxy({
       statusCode: 200,
