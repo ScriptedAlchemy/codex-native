@@ -10,12 +10,6 @@ export type {
   ThreadError,
   ThreadErrorEvent,
   Usage,
-  ReviewFinding,
-  ReviewLineRange,
-  ReviewCodeLocation,
-  ReviewOutputEvent,
-  ExitedReviewModeEvent,
-  RawEvent,
 } from "./events";
 export type {
   ThreadItem,

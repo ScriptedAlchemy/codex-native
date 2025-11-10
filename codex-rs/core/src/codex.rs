@@ -107,8 +107,6 @@ use crate::tasks::SessionTaskContext;
 use crate::tools::ToolRouter;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::parallel::ToolCallRuntime;
-use crate::tools::registry::ExternalToolRegistration;
-use crate::tools::registry::take_pending_external_tools;
 use crate::tools::sandboxing::ApprovalStore;
 use crate::tools::spec::ToolsConfig;
 use crate::tools::spec::ToolsConfigParams;
@@ -184,7 +182,6 @@ impl Codex {
             original_config_do_not_use: Arc::clone(&config),
             features: config.features.clone(),
             session_source,
-            external_tools: take_pending_external_tools(),
         };
 
         // Generate a unique ID for the lifetime of this Codex session.
@@ -278,7 +275,6 @@ pub(crate) struct TurnContext {
     pub(crate) sandbox_policy: SandboxPolicy,
     pub(crate) shell_environment_policy: ShellEnvironmentPolicy,
     pub(crate) tools_config: ToolsConfig,
-    pub(crate) external_tools: Vec<ExternalToolRegistration>,
     pub(crate) final_output_json_schema: Option<Value>,
     pub(crate) codex_linux_sandbox_exe: Option<PathBuf>,
     pub(crate) tool_call_gate: Arc<ReadinessFlag>,
@@ -343,7 +339,6 @@ pub(crate) struct SessionConfiguration {
     original_config_do_not_use: Arc<Config>,
     /// Source of the session (cli, vscode, exec, mcp, ...)
     session_source: SessionSource,
-    external_tools: Vec<ExternalToolRegistration>,
 }
 
 impl SessionConfiguration {
@@ -436,7 +431,6 @@ impl Session {
             sandbox_policy: session_configuration.sandbox_policy.clone(),
             shell_environment_policy: config.shell_environment_policy.clone(),
             tools_config,
-            external_tools: session_configuration.external_tools.clone(),
             final_output_json_schema: None,
             codex_linux_sandbox_exe: config.codex_linux_sandbox_exe.clone(),
             tool_call_gate: Arc::new(ReadinessFlag::new()),
@@ -1695,7 +1689,6 @@ async fn spawn_review_thread(
         sub_id: sub_id.to_string(),
         client,
         tools_config,
-        external_tools: parent_turn_context.external_tools.clone(),
         developer_instructions: None,
         user_instructions: None,
         base_instructions: Some(base_instructions.clone()),
@@ -1884,7 +1877,6 @@ async fn run_turn(
     let router = Arc::new(ToolRouter::from_config(
         &turn_context.tools_config,
         Some(mcp_tools),
-        &turn_context.external_tools,
     ));
 
     let model_supports_parallel = turn_context
@@ -2542,7 +2534,6 @@ mod tests {
             original_config_do_not_use: Arc::clone(&config),
             features: Features::default(),
             session_source: SessionSource::Exec,
-            external_tools: Vec::new(),
         };
 
         let state = SessionState::new(session_configuration.clone());
@@ -2619,7 +2610,6 @@ mod tests {
             original_config_do_not_use: Arc::clone(&config),
             features: Features::default(),
             session_source: SessionSource::Exec,
-            external_tools: Vec::new(),
         };
 
         let state = SessionState::new(session_configuration.clone());
@@ -2809,7 +2799,6 @@ mod tests {
         let router = ToolRouter::from_config(
             &turn_context.tools_config,
             Some(session.services.mcp_connection_manager.list_all_tools()),
-            &turn_context.external_tools,
         );
         let item = ResponseItem::CustomToolCall {
             id: None,

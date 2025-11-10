@@ -1,4 +1,4 @@
-import { SandboxMode } from "./threadOptions";
+import { ApprovalMode, SandboxMode, WorkspaceWriteOptions } from "./threadOptions";
 import { NativeBinding, NativeRunRequest, getNativeBinding } from "./nativeBinding";
 
 export type CodexExecArgs = {
@@ -8,11 +8,16 @@ export type CodexExecArgs = {
   threadId?: string | null;
   images?: string[];
   model?: string;
+  /** Use local OSS provider via Ollama (pulls models as needed) */
+  oss?: boolean;
   sandboxMode?: SandboxMode;
+  approvalMode?: ApprovalMode;
+  workspaceWriteOptions?: WorkspaceWriteOptions;
   workingDirectory?: string;
   skipGitRepoCheck?: boolean;
   outputSchemaFile?: string;
   outputSchema?: unknown;
+  /** @deprecated Use sandboxMode and approvalMode instead */
   fullAuto?: boolean;
   review?: ReviewExecOptions | null;
 };
@@ -46,11 +51,17 @@ export class CodexExec {
     const binding = this.native;
     const queue = new AsyncQueue<string>();
 
+    // Validate model selection before crossing the N-API boundary.
+    validateModel(args.model, args.oss === true);
+
     const request: NativeRunRequest = {
       prompt: args.input,
       threadId: args.threadId ?? undefined,
       images: args.images && args.images.length > 0 ? args.images : undefined,
       model: args.model,
+      oss: args.oss,
+      approvalMode: args.approvalMode,
+      workspaceWriteOptions: args.workspaceWriteOptions,
       sandboxMode: args.sandboxMode,
       workingDirectory: args.workingDirectory,
       skipGitRepoCheck: args.skipGitRepoCheck,
@@ -104,6 +115,29 @@ export class CodexExec {
         await runPromise.catch(() => {});
       }
     }
+  }
+
+  async compact(args: CodexExecArgs): Promise<string[]> {
+    validateModel(args.model, args.oss === true);
+    const request: NativeRunRequest = {
+      prompt: args.input,
+      threadId: args.threadId ?? undefined,
+      images: args.images && args.images.length > 0 ? args.images : undefined,
+      model: args.model,
+      oss: args.oss,
+      sandboxMode: args.sandboxMode,
+      approvalMode: args.approvalMode,
+      workspaceWriteOptions: args.workspaceWriteOptions,
+      workingDirectory: args.workingDirectory,
+      skipGitRepoCheck: args.skipGitRepoCheck,
+      outputSchema: args.outputSchema,
+      baseUrl: args.baseUrl,
+      apiKey: args.apiKey,
+      fullAuto: args.fullAuto,
+      reviewMode: args.review ? true : undefined,
+      reviewHint: args.review?.userFacingHint,
+    };
+    return this.native.compactThread(request);
   }
 }
 
@@ -168,5 +202,25 @@ class AsyncQueue<T> implements AsyncIterable<T> {
 
   [Symbol.asyncIterator](): AsyncIterableIterator<T> {
     return this;
+  }
+}
+
+function validateModel(model: string | undefined | null, oss: boolean): void {
+  if (!model) return;
+  const trimmed = String(model).trim();
+  if (oss) {
+    // In OSS mode, only accept gpt-oss:* models
+    if (!trimmed.startsWith("gpt-oss:")) {
+      throw new Error(
+        `Invalid model "${trimmed}" for OSS mode. Use models prefixed with "gpt-oss:", e.g. "gpt-oss:20b".`
+      );
+    }
+    return;
+  }
+  // Non-OSS mode: restrict to supported hosted models
+  if (trimmed !== "gpt-5" && trimmed !== "gpt-5-codex") {
+    throw new Error(
+      `Invalid model "${trimmed}". Supported models are "gpt-5" or "gpt-5-codex".`
+    );
   }
 }
