@@ -590,7 +590,3 @@ module.exports.registerToolInterceptor = nativeBinding.registerToolInterceptor
 module.exports.runThread = nativeBinding.runThread
 module.exports.runThreadStream = nativeBinding.runThreadStream
 module.exports.sse = nativeBinding.sse
-module.exports.clearRegisteredTools = nativeBinding.clearRegisteredTools
-module.exports.registerTool = nativeBinding.registerTool
-module.exports.runThread = nativeBinding.runThread
-module.exports.runThreadStream = nativeBinding.runThreadStream

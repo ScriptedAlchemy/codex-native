@@ -38,7 +38,6 @@ export type { CodexOptions, NativeToolDefinition } from "./codexOptions";
 export type { NativeToolInterceptorContext } from "./codex";
 export type { NativeToolInvocation, NativeToolResult } from "./nativeBinding";
 export type { ApprovalRequest } from "./nativeBinding";
-export type { NativeToolInvocation, NativeToolResult } from "./nativeBinding";
 
 export type { ThreadOptions, ApprovalMode, SandboxMode } from "./threadOptions";
 export type { TurnOptions } from "./turnOptions";

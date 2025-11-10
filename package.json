@@ -34,7 +34,9 @@
     "ci:checks": "concurrently -n format,spell,mcp,shear \"pnpm run ci:format\" \"pnpm run ci:codespell\" \"pnpm run ci:mcp-types\" \"pnpm run ci:shear\"",
     "ci:verify": "concurrently -n clippy,test \"pnpm run ci:clippy\" \"pnpm run ci:test:fast\"",
     "ci": "pnpm run ci:prebuild && pnpm run ci:checks && pnpm run ci:verify",
-    "ci:fast": "pnpm run ci:prebuild && concurrently -n checks,verify \"pnpm run ci:checks\" \"pnpm run ci:verify\""
+    "ci:fast": "pnpm run ci:prebuild && concurrently -n checks,verify \"pnpm run ci:checks\" \"pnpm run ci:verify\"",
+    "test:codex-rs": "cd codex-rs && cargo test --workspace --all-features",
+    "test": "pnpm run test:codex-rs && pnpm run sdk:build && pnpm run sdk:test"
   },
   "devDependencies": {
     "@codex-native/sdk": "workspace:*",

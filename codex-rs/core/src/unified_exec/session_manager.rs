@@ -61,10 +61,8 @@ impl UnifiedExecSessionManager {
         let text = String::from_utf8_lossy(&collected).to_string();
         let (output, original_token_count) = truncate_output_to_tokens(&text, max_tokens);
         let chunk_id = generate_chunk_id();
-        // Determine exit and liveness before deciding whether to persist a session.
         let exit_code = session.exit_code();
-        let session_finished = exit_code.is_some() || session.has_exited();
-        let session_id = if session_finished {
+        let session_id = if session.has_exited() {
             None
         } else {
             Some(

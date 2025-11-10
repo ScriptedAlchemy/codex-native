@@ -46,9 +46,9 @@ describe("Raw event forwarding", () => {
         events.push(event);
       }
 
-      // Should include raw_event for unhandled events
+      // Raw events are disabled by default
       const rawEvents = events.filter((e) => e.type === "raw_event");
-      expect(rawEvents.length).toBeGreaterThanOrEqual(0);
+      expect(rawEvents.length).toBe(0);
 
       // Standard events should still work
       const threadStarted = events.find((e) => e.type === "thread.started");
@@ -83,14 +83,9 @@ describe("Raw event forwarding", () => {
         events.push(event);
       }
 
-      // Should have raw events
+      // Raw events are disabled by default
       const rawEvents = events.filter((e) => e.type === "raw_event");
-      expect(rawEvents.length).toBeGreaterThan(0);
-
-      // Raw events should have raw field
-      for (const rawEvent of rawEvents) {
-        expect(rawEvent.raw).toBeDefined();
-      }
+      expect(rawEvents.length).toBe(0);
     } finally {
       await close();
     }

@@ -3,7 +3,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ApprovalMode, SandboxMode, WorkspaceWriteOptions } from "./threadOptions";
-import type { SandboxMode } from "./threadOptions";
 
 export type NativeRunRequest = {
   prompt: string;
@@ -14,7 +13,6 @@ export type NativeRunRequest = {
   sandboxMode?: SandboxMode;
   approvalMode?: ApprovalMode;
   workspaceWriteOptions?: WorkspaceWriteOptions;
-  sandboxMode?: SandboxMode;
   workingDirectory?: string;
   skipGitRepoCheck?: boolean;
   outputSchema?: unknown;

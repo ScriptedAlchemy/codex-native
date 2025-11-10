@@ -188,12 +188,13 @@ export class Thread {
 
   /** Provides the input to the agent and streams events as they are produced during the turn. */
   async runStreamed(input: Input, turnOptions: TurnOptions = {}): Promise<StreamedTurn> {
-    return { events: this.runStreamedInternal(input, turnOptions) };
+    return { events: this.runStreamedInternal(input, turnOptions, false) };
   }
 
   private async *runStreamedInternal(
     input: Input,
     turnOptions: TurnOptions = {},
+    emitRawEvents: boolean = true,
   ): AsyncGenerator<ThreadEvent> {
     const normalizedSchema = normalizeOutputSchema(turnOptions.outputSchema);
     const needsSchemaFile = this._exec.requiresOutputSchemaFile();
@@ -223,9 +224,6 @@ export class Thread {
       workspaceWriteOptions: options?.workspaceWriteOptions,
       workingDirectory: options?.workingDirectory,
       skipGitRepoCheck,
-      sandboxMode: options?.sandboxMode,
-      workingDirectory: options?.workingDirectory,
-      skipGitRepoCheck: options?.skipGitRepoCheck,
       outputSchemaFile: schemaFile.schemaPath,
       outputSchema: normalizedSchema,
       fullAuto: options?.fullAuto,
@@ -239,29 +237,22 @@ export class Thread {
           throw new Error(`Failed to parse item: ${item}`, { cause: error });
         }
 
-        // Always forward the raw event payload
-        yield {
-          type: "raw_event",
-          raw: parsed,
-        };
+        // Skip null events (used for Raw events that should not be emitted)
+        if (parsed === null) {
+          continue;
+        }
 
-        // Convert Rust event format to ThreadEvent format
+        // Conditionally forward the raw event payload
+        if (emitRawEvents) {
+          // Forward raw
+          yield { type: "raw_event", raw: parsed } as ThreadEvent;
+        }
+        // Convert and forward mapped
         const threadEvent = convertRustEventToThreadEvent(parsed);
-
         if (threadEvent.type === "thread.started") {
           this._id = threadEvent.thread_id;
         }
         yield threadEvent;
-        let parsed: ThreadEvent;
-        try {
-          parsed = JSON.parse(item) as ThreadEvent;
-        } catch (error) {
-          throw new Error(`Failed to parse item: ${item}`, { cause: error });
-        }
-        if (parsed.type === "thread.started") {
-          this._id = parsed.thread_id;
-        }
-        yield parsed;
       }
     } finally {
       await schemaFile.cleanup();
@@ -270,7 +261,7 @@ export class Thread {
 
   /** Provides the input to the agent and returns the completed turn. */
   async run(input: Input, turnOptions: TurnOptions = {}): Promise<Turn> {
-    const generator = this.runStreamedInternal(input, turnOptions);
+    const generator = this.runStreamedInternal(input, turnOptions, true);
     const items: ThreadItem[] = [];
     let finalResponse: string = "";
     let usage: Usage | null = null;

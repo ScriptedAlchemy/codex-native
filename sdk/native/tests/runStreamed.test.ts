@@ -42,7 +42,7 @@ describe("Codex runStreamed with native binding", () => {
       }
 
       // Filter out raw_event types for this test
-      const standardEvents = events.filter((e) => e.type !== "raw_event");
+      const standardEvents = events.filter((e) => e.type !== "Raw" && e.type !== "raw_event");
 
       expect(standardEvents).toEqual([
         {

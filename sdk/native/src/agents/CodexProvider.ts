@@ -989,22 +989,24 @@ class CodexModel implements Model {
         break;
     }
 
-    const rawEvent = {
-      type: "raw_event",
-      raw:
-        (event as Record<string, unknown>)?.type === "raw_event" && "raw" in (event as Record<string, unknown>)
-          ? (event as Record<string, unknown>).raw
-          : event,
-    } as unknown as StreamEvent;
+    // Only include raw events for non-raw_event inputs
+    if ((event as Record<string, unknown>)?.type !== "raw_event") {
+      const rawEvent = {
+        type: "raw_event",
+        raw: event,
+      } as unknown as StreamEvent;
 
-    if (events.length === 0) {
-      return [rawEvent];
+      if (events.length === 0) {
+        return [rawEvent];
+      }
+
+      const result = [...events];
+      const insertIndex = Math.min(1, result.length);
+      result.splice(insertIndex, 0, rawEvent);
+      return result;
     }
 
-    const result = [...events];
-    const insertIndex = Math.min(1, result.length);
-    result.splice(insertIndex, 0, rawEvent);
-    return result;
+    return events;
   }
 }
 

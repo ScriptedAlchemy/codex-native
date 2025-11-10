@@ -9,7 +9,6 @@ use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
 use crate::tools::registry::ConfiguredToolSpec;
-use crate::tools::registry::ExternalToolRegistration;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::spec::ToolsConfig;
 use crate::tools::spec::build_specs;
@@ -31,19 +30,11 @@ pub struct ToolRouter {
 }
 
 impl ToolRouter {
-    pub(crate) fn from_config(
+    pub fn from_config(
         config: &ToolsConfig,
         mcp_tools: Option<HashMap<String, mcp_types::Tool>>,
-        external_tools: &[ExternalToolRegistration],
     ) -> Self {
-        let mut builder = build_specs(config, mcp_tools);
-        for tool in external_tools {
-            let spec = tool.spec.clone();
-            let supports_parallel = tool.supports_parallel_tool_calls;
-            let spec_name = spec.name().to_string();
-            builder.upsert_spec_with_parallel_support(spec, supports_parallel);
-            builder.register_handler(spec_name, Arc::clone(&tool.handler));
-        }
+        let builder = build_specs(config, mcp_tools);
         let (specs, registry) = builder.build();
 
         Self { registry, specs }
@@ -63,7 +54,7 @@ impl ToolRouter {
             .any(|config| config.spec.name() == tool_name)
     }
 
-    pub(crate) fn build_tool_call(
+    pub fn build_tool_call(
         session: &Session,
         item: ResponseItem,
     ) -> Result<Option<ToolCall>, FunctionCallError> {
@@ -138,7 +129,7 @@ impl ToolRouter {
         }
     }
 
-    pub(crate) async fn dispatch_tool_call(
+    pub async fn dispatch_tool_call(
         &self,
         session: Arc<Session>,
         turn: Arc<TurnContext>,
@@ -194,92 +185,5 @@ impl ToolRouter {
                 },
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::client_common::tools::ToolSpec;
-    use crate::features::Features;
-    use crate::model_family::find_family_for_model;
-    use crate::tools::context::ToolOutput;
-    use crate::tools::registry::ExternalToolRegistration;
-    use crate::tools::registry::ToolHandler;
-    use crate::tools::registry::ToolKind;
-    use crate::tools::spec::ToolsConfigParams;
-    use crate::tools::spec::create_function_tool_spec_from_schema;
-    use async_trait::async_trait;
-    use serde_json::json;
-    use std::sync::Arc;
-
-    struct DummyHandler;
-
-    #[async_trait]
-    impl ToolHandler for DummyHandler {
-        fn kind(&self) -> ToolKind {
-            ToolKind::Function
-        }
-
-        async fn handle(
-            &self,
-            _invocation: ToolInvocation,
-        ) -> Result<ToolOutput, FunctionCallError> {
-            Err(FunctionCallError::Fatal("not implemented".to_string()))
-        }
-    }
-
-    #[test]
-    fn external_tool_can_override_builtin_spec() {
-        let model_family = find_family_for_model("codex-mini-latest")
-            .expect("valid model family for codex-mini-latest");
-        let features = Features::with_defaults();
-        let config = ToolsConfig::new(&ToolsConfigParams {
-            model_family: &model_family,
-            features: &features,
-        });
-
-        let custom_spec = create_function_tool_spec_from_schema(
-            "list_mcp_resources".to_string(),
-            Some("custom override".to_string()),
-            json!({
-                "type": "object",
-                "properties": {
-                    "hint": { "type": "string" }
-                },
-                "required": ["hint"],
-                "additionalProperties": false
-            }),
-            true,
-        )
-        .expect("schema converts");
-
-        let external_tools = vec![ExternalToolRegistration {
-            spec: custom_spec,
-            handler: Arc::new(DummyHandler),
-            supports_parallel_tool_calls: false,
-        }];
-
-        let router = ToolRouter::from_config(&config, None, &external_tools);
-        let specs = router.specs();
-
-        let overrides: Vec<_> = specs
-            .iter()
-            .filter(|spec| spec.name() == "list_mcp_resources")
-            .collect();
-        assert_eq!(overrides.len(), 1, "override should replace built-in spec");
-
-        match overrides[0] {
-            ToolSpec::Function(tool) => {
-                assert_eq!(tool.description, "custom override");
-                assert!(tool.strict);
-            }
-            _ => panic!("expected function tool"),
-        }
-
-        assert!(
-            !router.tool_supports_parallel("list_mcp_resources"),
-            "override should control parallel flag"
-        );
     }
 }
