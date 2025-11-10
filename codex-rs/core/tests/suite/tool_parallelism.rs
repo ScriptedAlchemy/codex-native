@@ -64,9 +64,8 @@ async fn build_codex_with_test_tool(server: &wiremock::MockServer) -> anyhow::Re
 
 fn assert_parallel_duration(actual: Duration) {
     // Allow headroom for runtime overhead while still differentiating from serial execution.
-    // Increased from 1000ms to 1500ms to account for CI environment overhead.
     assert!(
-        actual < Duration::from_millis(1500),
+        actual < Duration::from_millis(1_500),
         "expected parallel execution to finish quickly, got {actual:?}"
     );
 }

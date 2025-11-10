@@ -67,7 +67,6 @@ Codex handles tools internally (no framework configuration needed):
 
 Real-time updates during generation:
 - `response_started` - Generation begins
-- `output_text_done` - Text completion
 - `reasoning_done` - Reasoning output
 - `response_done` - Full response with usage
 
@@ -221,11 +220,11 @@ const stream = model.getStreamedResponse({
 
 for await (const event of stream) {
   switch (event.type) {
-    case 'output_text_done':
-      console.log('Text:', event.text);
+    case 'output_text_delta':
+      process.stdout.write(event.delta);
       break;
     case 'response_done':
-      console.log('Usage:', event.response.usage);
+      console.log('\nUsage:', event.response.usage);
       break;
   }
 }

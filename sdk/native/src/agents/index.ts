@@ -30,6 +30,8 @@ export { CodexProvider } from "./CodexProvider";
 export type { CodexProviderOptions } from "./CodexProvider";
 export { codexTool } from "./codexTool";
 export type { CodexToolOptions } from "./codexTool";
+export { formatStream } from "./streamFormatter";
+export type { FormattedStream, FormatStreamOptions, ToolCallEvent } from "./streamFormatter";
 
 // Re-export types for convenience
 export type {

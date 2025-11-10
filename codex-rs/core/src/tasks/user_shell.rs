@@ -92,11 +92,7 @@ impl SessionTask for UserShellCommandTask {
             payload: ToolPayload::LocalShell { params },
         };
 
-        let router = Arc::new(ToolRouter::from_config(
-            &turn_context.tools_config,
-            None,
-            &turn_context.external_tools,
-        ));
+        let router = Arc::new(ToolRouter::from_config(&turn_context.tools_config, None));
         let tracker = Arc::new(Mutex::new(TurnDiffTracker::new()));
         let runtime = ToolCallRuntime::new(
             Arc::clone(&router),

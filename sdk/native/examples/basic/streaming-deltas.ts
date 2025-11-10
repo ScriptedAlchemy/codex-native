@@ -217,6 +217,11 @@ async function detailedStreamEventExample() {
   console.log('This example shows all possible stream event types:\n');
   console.log('Event Types:');
   console.log('  • response_started - Stream begins');
+  console.log('  • output_text_delta - Incremental text chunk');
+  console.log('  • reasoning_delta - Incremental reasoning (if emitted)');
+  console.log('  • reasoning_done - Reasoning complete (includes full reasoning)');
+  console.log('  • response_done - Full response complete with usage stats');
+  console.log('  • error - An error occurred\n');
   console.log('  • output_text_delta - Incremental text chunk (not currently emitted)');
   console.log('  • output_text_done - Text generation complete (includes full text)');
   console.log('  • reasoning_delta - Incremental reasoning (not currently emitted)');
