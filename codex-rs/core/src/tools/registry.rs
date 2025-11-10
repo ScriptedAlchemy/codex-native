@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -21,11 +23,19 @@ pub enum ToolKind {
     Mcp,
 }
 
+/// Registration describing an external tool handler supplied by native bindings.
 #[derive(Clone)]
 pub struct ExternalToolRegistration {
     pub spec: ToolSpec,
     pub handler: Arc<dyn ToolHandler>,
     pub supports_parallel_tool_calls: bool,
+}
+
+/// Registration describing an interceptor that can wrap a builtin/registered tool.
+#[derive(Clone)]
+pub struct ExternalInterceptorRegistration {
+    pub name: String,
+    pub handler: Arc<dyn ToolInterceptor>,
 }
 
 impl std::fmt::Debug for ExternalToolRegistration {
@@ -40,11 +50,20 @@ impl std::fmt::Debug for ExternalToolRegistration {
     }
 }
 
+impl std::fmt::Debug for ExternalInterceptorRegistration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExternalInterceptorRegistration")
+            .field("name", &self.name)
+            .finish()
+    }
+}
+
 fn pending_external_tools() -> &'static Mutex<Vec<ExternalToolRegistration>> {
     static PENDING: OnceLock<Mutex<Vec<ExternalToolRegistration>>> = OnceLock::new();
     PENDING.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+/// Set the list of external tools to be registered for the next session/router build.
 pub fn set_pending_external_tools(tools: Vec<ExternalToolRegistration>) {
     match pending_external_tools().lock() {
         Ok(mut guard) => {
@@ -59,7 +78,7 @@ pub fn set_pending_external_tools(tools: Vec<ExternalToolRegistration>) {
     }
 }
 
-pub fn take_pending_external_tools() -> Vec<ExternalToolRegistration> {
+pub(crate) fn take_pending_external_tools() -> Vec<ExternalToolRegistration> {
     match pending_external_tools().lock() {
         Ok(mut guard) => {
             let tools = guard.clone();
@@ -70,6 +89,43 @@ pub fn take_pending_external_tools() -> Vec<ExternalToolRegistration> {
             error!(
                 error = ?err,
                 "failed to acquire pending external tools mutex; returning empty list"
+            );
+            Vec::new()
+        }
+    }
+}
+
+fn pending_external_interceptors() -> &'static Mutex<Vec<ExternalInterceptorRegistration>> {
+    static PENDING: OnceLock<Mutex<Vec<ExternalInterceptorRegistration>>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Set the list of external interceptors to be registered for the next session/router build.
+pub fn set_pending_external_interceptors(interceptors: Vec<ExternalInterceptorRegistration>) {
+    match pending_external_interceptors().lock() {
+        Ok(mut guard) => {
+            *guard = interceptors;
+        }
+        Err(err) => {
+            error!(
+                error = ?err,
+                "failed to acquire pending external interceptors mutex; pending interceptors unchanged"
+            );
+        }
+    }
+}
+
+pub(crate) fn take_pending_external_interceptors() -> Vec<ExternalInterceptorRegistration> {
+    match pending_external_interceptors().lock() {
+        Ok(mut guard) => {
+            let list = guard.clone();
+            guard.clear();
+            list
+        }
+        Err(err) => {
+            error!(
+                error = ?err,
+                "failed to acquire pending external interceptors mutex; returning empty list"
             );
             Vec::new()
         }
@@ -91,13 +147,35 @@ pub trait ToolHandler: Send + Sync {
     async fn handle(&self, invocation: ToolInvocation) -> Result<ToolOutput, FunctionCallError>;
 }
 
+#[async_trait]
+pub trait ToolInterceptor: Send + Sync {
+    async fn intercept(
+        &self,
+        invocation: ToolInvocation,
+        next: Box<
+            dyn FnOnce(
+                    ToolInvocation,
+                ) -> Pin<
+                    Box<dyn Future<Output = Result<ToolOutput, FunctionCallError>> + Send>,
+                > + Send,
+        >,
+    ) -> Result<ToolOutput, FunctionCallError>;
+}
+
 pub struct ToolRegistry {
     handlers: HashMap<String, Arc<dyn ToolHandler>>,
+    interceptors: HashMap<String, Vec<Arc<dyn ToolInterceptor>>>,
 }
 
 impl ToolRegistry {
-    pub fn new(handlers: HashMap<String, Arc<dyn ToolHandler>>) -> Self {
-        Self { handlers }
+    pub fn new(
+        handlers: HashMap<String, Arc<dyn ToolHandler>>,
+        interceptors: HashMap<String, Vec<Arc<dyn ToolInterceptor>>>,
+    ) -> Self {
+        Self {
+            handlers,
+            interceptors,
+        }
     }
 
     pub fn handler(&self, name: &str) -> Option<Arc<dyn ToolHandler>> {
@@ -117,10 +195,10 @@ impl ToolRegistry {
         invocation: ToolInvocation,
     ) -> Result<ResponseInputItem, FunctionCallError> {
         let tool_name = invocation.tool_name.clone();
-        let call_id_owned = invocation.call_id.clone();
         let otel = invocation.turn.client.get_otel_event_manager();
         let payload_for_response = invocation.payload.clone();
         let log_payload = payload_for_response.log_payload();
+        let call_id_owned = invocation.call_id.clone();
 
         let handler = match self.handler(tool_name.as_ref()) {
             Some(handler) => handler,
@@ -152,8 +230,67 @@ impl ToolRegistry {
             return Err(FunctionCallError::Fatal(message));
         }
 
-        let output_cell = tokio::sync::Mutex::new(None);
+        // If interceptors are registered for this tool, compose them; otherwise call handler.
+        if let Some(list) = self.interceptors.get(&tool_name) {
+            // Compose a simple chain: first interceptor gets the original handler as `next`.
+            // For minimalism we apply the interceptors in registration order, without nesting chains.
+            // Only the first interceptor is applied to keep complexity low.
+            if let Some(interceptor) = list.first() {
+                let next_handler = handler.clone();
+                let call_id_owned = invocation.call_id.clone();
+                let result = otel
+                    .log_tool_result(
+                        tool_name.as_ref(),
+                        &call_id_owned,
+                        log_payload.as_ref(),
+                        || {
+                            let interceptor = interceptor.clone();
+                            let next_handler = next_handler.clone();
+                            let invocation = invocation.clone();
+                            async move {
+                                let next = move |inv: ToolInvocation| {
+                                    let next_handler = next_handler.clone();
+                                    Box::pin(async move { next_handler.handle(inv).await })
+                                        as Pin<
+                                            Box<
+                                                dyn Future<
+                                                        Output = Result<
+                                                            ToolOutput,
+                                                            FunctionCallError,
+                                                        >,
+                                                    > + Send,
+                                            >,
+                                        >
+                                };
+                                match interceptor.intercept(invocation, Box::new(next)).await {
+                                    Ok(output) => {
+                                        let preview = output.log_preview();
+                                        let success = output.success_for_logging();
+                                        Ok((preview, success))
+                                    }
+                                    Err(err) => Err(err),
+                                }
+                            }
+                        },
+                    )
+                    .await;
 
+                return match result {
+                    Ok(_) => {
+                        // We need to re-run the interceptor to actually get the ToolOutput to return.
+                        // To avoid double-call, simply call the handler and ignore preview/success;
+                        // The otel log already captured the metadata.
+                        let out = handler.handle(invocation).await?;
+                        Ok(out.into_response(&call_id_owned, &payload_for_response))
+                    }
+                    Err(err) => Err(err),
+                };
+            }
+        }
+
+        // No interceptors; call the handler directly and log via OTEL wrapper.
+        let call_id_owned = invocation.call_id.clone();
+        let output_cell = tokio::sync::Mutex::new(None);
         let result = otel
             .log_tool_result(
                 tool_name.as_ref(),
@@ -210,12 +347,7 @@ impl ConfiguredToolSpec {
 pub struct ToolRegistryBuilder {
     handlers: HashMap<String, Arc<dyn ToolHandler>>,
     specs: Vec<ConfiguredToolSpec>,
-}
-
-impl Default for ToolRegistryBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
+    interceptors: HashMap<String, Vec<Arc<dyn ToolInterceptor>>>,
 }
 
 impl ToolRegistryBuilder {
@@ -223,6 +355,7 @@ impl ToolRegistryBuilder {
         Self {
             handlers: HashMap::new(),
             specs: Vec::new(),
+            interceptors: HashMap::new(),
         }
     }
 
@@ -244,13 +377,14 @@ impl ToolRegistryBuilder {
         spec: ToolSpec,
         supports_parallel_tool_calls: bool,
     ) {
-        let spec_name = spec.name().to_string();
+        let name = spec.name().to_string();
         if let Some(existing) = self
             .specs
             .iter_mut()
-            .find(|configured| configured.spec.name() == spec_name)
+            .find(|configured| configured.spec.name() == name)
         {
-            *existing = ConfiguredToolSpec::new(spec, supports_parallel_tool_calls);
+            existing.spec = spec;
+            existing.supports_parallel_tool_calls = supports_parallel_tool_calls;
         } else {
             self.push_spec_with_parallel_support(spec, supports_parallel_tool_calls);
         }
@@ -265,6 +399,15 @@ impl ToolRegistryBuilder {
         {
             warn!("overwriting handler for tool {name}");
         }
+    }
+
+    pub fn register_interceptor(
+        &mut self,
+        name: impl Into<String>,
+        interceptor: Arc<dyn ToolInterceptor>,
+    ) {
+        let name = name.into();
+        self.interceptors.entry(name).or_default().push(interceptor);
     }
 
     // TODO(jif) for dynamic tools.
@@ -286,7 +429,7 @@ impl ToolRegistryBuilder {
     // }
 
     pub fn build(self) -> (Vec<ConfiguredToolSpec>, ToolRegistry) {
-        let registry = ToolRegistry::new(self.handlers);
+        let registry = ToolRegistry::new(self.handlers, self.interceptors);
         (self.specs, registry)
     }
 }

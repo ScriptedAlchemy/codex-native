@@ -191,7 +191,6 @@ tokio-test = "0.4"
 tokio-util = "0.7.16"
 toml = "0.9.5"
 toml_edit = "0.23.4"
-tonic = "0.13.1"
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = "0.3.20"
@@ -273,7 +272,7 @@ strip = "symbols"
 codegen-units = 1
 
 [profile.dev]
-# Optimize for better sccache cache hit rates
+# Tune dev profile for faster local iteration while keeping debuginfo manageable.
 codegen-units = 16
 split-debuginfo = "off"
 
@@ -283,17 +282,17 @@ inherits = "test"
 opt-level = 0
 
 [profile.test-cache]
-# Optimized for fast CI test execution with maximum caching
+# Optimized for fast CI test execution with reproducible artifacts.
 inherits = "dev"
-incremental = false  # Disable for better sccache compatibility
+incremental = false
 # Minimal debug info for faster compilation
 debug = 0
 # No optimizations for fastest compilation
 opt-level = 0
 # Balance codegen units: lower = better cache reuse, higher = more parallelism
-# 16 is a good middle ground that works well with sccache
+# 16 remains a good middle ground for the workspace
 codegen-units = 16
-# Disable split debuginfo for better caching
+# Disable split debuginfo to keep artifacts consistent
 split-debuginfo = "off"
 
 [patch.crates-io]
