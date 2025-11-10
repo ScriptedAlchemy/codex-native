@@ -30,18 +30,28 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache Rust dependencies
-        uses: actions/cache@v4
+      # Match rust-ci: split cargo home vs target, so large target dir is separable.
+      - name: Restore cargo home cache
+        id: cache_cargo_home_restore
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            codex-rs/target/
-          key: sdk-cargo-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}
+          key: sdk-cargo-home-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            sdk-cargo-${{ runner.os }}-
+            sdk-cargo-home-${{ runner.os }}-
+
+      - name: Restore cargo target cache
+        id: cache_cargo_target_restore
+        uses: actions/cache/restore@v4
+        with:
+          path: codex-rs/target/
+          key: sdk-cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}
+          restore-keys: |
+            sdk-cargo-target-${{ runner.os }}-
 
       - name: build codex
         run: cargo build --bin codex
@@ -70,3 +80,21 @@ jobs:
       - name: Test native SDK
         working-directory: sdk/native
         run: pnpm test
+
+      - name: Save cargo home cache
+        if: always() && !cancelled()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: sdk-cargo-home-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
+
+      - name: Save cargo target cache
+        if: always() && !cancelled()
+        uses: actions/cache/save@v4
+        with:
+          path: codex-rs/target/
+          key: sdk-cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
