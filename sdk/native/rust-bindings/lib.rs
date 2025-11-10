@@ -835,12 +835,11 @@ pub fn build_cli(
     }
     if let Some(writable_roots) = &ws_opts.writable_roots
       && !writable_roots.is_empty()
+      && let Ok(roots_json) = serde_json::to_string(writable_roots)
     {
-      if let Ok(roots_json) = serde_json::to_string(writable_roots) {
-        raw_overrides.push(format!(
-          "sandbox_workspace_write.writable_roots={roots_json}"
-        ));
-      }
+      raw_overrides.push(format!(
+        "sandbox_workspace_write.writable_roots={roots_json}"
+      ));
     }
     if let Some(exclude_tmpdir) = ws_opts.exclude_tmpdir_env_var {
       raw_overrides.push(format!(
