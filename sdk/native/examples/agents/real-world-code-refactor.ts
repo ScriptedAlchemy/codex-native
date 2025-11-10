@@ -102,6 +102,7 @@ class CodeRefactoringPipeline {
 - Categorize issues by severity
 - Suggest specific improvements
 - Determine if refactoring is needed
+Be thorough but constructive. Focus on actionable improvements.`,
 
 Be thorough but constructive. Focus on actionable improvements.`,
       outputSchema: AnalysisResultSchema,
@@ -117,6 +118,7 @@ Be thorough but constructive. Focus on actionable improvements.`,
 - Optimize performance where beneficial
 - Preserve existing functionality
 - Document all changes clearly
+Provide clear before/after examples for each change.`,
 
 Provide clear before/after examples for each change.`,
       outputSchema: RefactoringResultSchema,
@@ -131,6 +133,7 @@ Provide clear before/after examples for each change.`,
 - Identify potential breaking changes
 - Suggest test cases to validate changes
 - Estimate test coverage
+Be thorough in identifying edge cases and potential issues.`,
 
 Be thorough in identifying edge cases and potential issues.`,
       outputSchema: TestResultSchema,
@@ -167,6 +170,8 @@ Write clear, concise documentation for developers.`,
       console.log('\n[1/4] 📊 Analyzing code quality...');
       const analysisResult = await run(
         this.analyzerAgent,
+        `Analyze this code file:\n\nFilename: ${filename}\n\n${code}`,
+        { outputType: AnalysisResultSchema }
         `Analyze this code file:\n\nFilename: ${filename}\n\n${code}`
       );
 
@@ -191,6 +196,8 @@ Write clear, concise documentation for developers.`,
       console.log('\n[2/4] 🔨 Applying refactoring...');
       const refactoringResult = await run(
         this.refactorerAgent,
+        `Refactor this code based on the analysis:\n\nOriginal Code:\n${code}\n\nAnalysis:\n${JSON.stringify(analysis, null, 2)}`,
+        { outputType: RefactoringResultSchema }
         `Refactor this code based on the analysis:\n\nOriginal Code:\n${code}\n\nAnalysis:\n${JSON.stringify(analysis, null, 2)}`
       );
 
@@ -213,6 +220,8 @@ Write clear, concise documentation for developers.`,
       console.log('\n[3/4] 🧪 Validating changes...');
       const testingResult = await run(
         this.testerAgent,
+        `Validate this refactoring:\n\nOriginal:\n${code}\n\nRefactored:\n${refactoring.newCode}\n\nChanges:\n${JSON.stringify(refactoring.changes, null, 2)}`,
+        { outputType: TestResultSchema }
         `Validate this refactoring:\n\nOriginal:\n${code}\n\nRefactored:\n${refactoring.newCode}\n\nChanges:\n${JSON.stringify(refactoring.changes, null, 2)}`
       );
 
