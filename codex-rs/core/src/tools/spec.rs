@@ -8,6 +8,8 @@ use crate::tools::handlers::apply_patch::ApplyPatchToolType;
 use crate::tools::handlers::apply_patch::create_apply_patch_freeform_tool;
 use crate::tools::handlers::apply_patch::create_apply_patch_json_tool;
 use crate::tools::registry::ToolRegistryBuilder;
+use crate::tools::registry::take_pending_external_interceptors;
+use crate::tools::registry::take_pending_external_tools;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -128,6 +130,21 @@ impl From<JsonSchema> for AdditionalProperties {
     fn from(s: JsonSchema) -> Self {
         Self::Schema(Box::new(s))
     }
+}
+
+pub fn create_function_tool_spec_from_schema(
+    name: impl Into<String>,
+    description: Option<String>,
+    schema: JsonValue,
+    strict: bool,
+) -> Result<ToolSpec, serde_json::Error> {
+    let parameters: JsonSchema = serde_json::from_value(schema)?;
+    Ok(ToolSpec::Function(ResponsesApiTool {
+        name: name.into(),
+        description: description.unwrap_or_default(),
+        strict,
+        parameters,
+    }))
 }
 
 fn create_exec_command_tool() -> ToolSpec {
@@ -852,22 +869,6 @@ fn sanitize_json_schema(value: &mut JsonValue) {
     }
 }
 
-pub fn create_function_tool_spec_from_schema(
-    name: String,
-    description: Option<String>,
-    mut parameters: JsonValue,
-    strict: bool,
-) -> Result<ToolSpec, serde_json::Error> {
-    sanitize_json_schema(&mut parameters);
-    let schema = serde_json::from_value::<JsonSchema>(parameters)?;
-    Ok(ToolSpec::Function(ResponsesApiTool {
-        name,
-        description: description.unwrap_or_default(),
-        strict,
-        parameters: schema,
-    }))
-}
-
 /// Builds the tool registry builder while collecting tool specs for later serialization.
 pub(crate) fn build_specs(
     config: &ToolsConfig,
@@ -999,6 +1000,19 @@ pub(crate) fn build_specs(
                 }
             }
         }
+    }
+
+    for registration in take_pending_external_tools() {
+        let name = registration.spec.name().to_string();
+        let spec = registration.spec;
+        let handler = registration.handler;
+        let supports = registration.supports_parallel_tool_calls;
+        builder.upsert_spec_with_parallel_support(spec, supports);
+        builder.register_handler(name, handler);
+    }
+
+    for interceptor in take_pending_external_interceptors() {
+        builder.register_interceptor(interceptor.name, interceptor.handler);
     }
 
     builder

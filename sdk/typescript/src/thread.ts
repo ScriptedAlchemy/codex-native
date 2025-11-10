@@ -98,6 +98,13 @@ export class Thread {
         } catch (error) {
           throw new Error(`Failed to parse item: ${item}`, { cause: error });
         }
+        if (
+          parsed.type === "raw_event" ||
+          parsed.type === "token_count" ||
+          parsed.type === "token_usage"
+        ) {
+          continue;
+        }
         if (parsed.type === "thread.started") {
           this._id = parsed.thread_id;
         }

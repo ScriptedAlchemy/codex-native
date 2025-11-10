@@ -165,6 +165,7 @@ function quickSort(arr) {
           process.stdout.write('.');
           break;
 
+        // No separate output_text_done event; finalize on response_done
         case 'output_text_done':
           console.log('\n\n📝 Analysis complete');
           console.log('\nFull response:');
@@ -252,6 +253,7 @@ function calculateAverage(numbers) {
           process.stdout.write(event.delta);
           break;
 
+        // No separate output_text_done event; finalize on response_done
         case 'output_text_done':
           console.log('\n\n✓ Solution provided');
           break;
@@ -312,6 +314,7 @@ function calculateAverage(numbers) {
         for await (const event of summaryStream) {
           if (event.type === 'output_text_delta') {
             output += event.delta;
+          } else if (event.type === 'response_done') {
           } else if (event.type === 'output_text_done') {
             console.log('[Summarizer] Complete:', output.substring(0, 100) + '...');
           }
@@ -323,6 +326,7 @@ function calculateAverage(numbers) {
         for await (const event of questionStream) {
           if (event.type === 'output_text_delta') {
             output += event.delta;
+          } else if (event.type === 'response_done') {
           } else if (event.type === 'output_text_done') {
             console.log('[QuestionGenerator] Complete:', output.substring(0, 100) + '...');
           }
