@@ -41,7 +41,9 @@ struct ReadFileArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 enum ReadMode {
+    #[default]
     Slice,
     Indentation,
 }
@@ -452,6 +454,7 @@ fn trim_empty_lines(out: &mut VecDeque<&LineRecord>) {
 mod defaults {
     use super::*;
 
+    #[allow(clippy::derivable_impls)]
     impl Default for IndentationArgs {
         fn default() -> Self {
             Self {
@@ -461,12 +464,6 @@ mod defaults {
                 include_header: include_header(),
                 max_lines: None,
             }
-        }
-    }
-
-    impl Default for ReadMode {
-        fn default() -> Self {
-            Self::Slice
         }
     }
 

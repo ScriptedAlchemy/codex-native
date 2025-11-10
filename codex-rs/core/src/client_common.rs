@@ -283,7 +283,7 @@ pub(crate) struct ResponsesApiRequest<'a> {
     pub(crate) text: Option<TextControls>,
 }
 
-pub(crate) mod tools {
+pub mod tools {
     use crate::tools::spec::JsonSchema;
     use serde::Deserialize;
     use serde::Serialize;
@@ -292,7 +292,7 @@ pub(crate) mod tools {
     /// Responses API.
     #[derive(Debug, Clone, Serialize, PartialEq)]
     #[serde(tag = "type")]
-    pub(crate) enum ToolSpec {
+    pub enum ToolSpec {
         #[serde(rename = "function")]
         Function(ResponsesApiTool),
         #[serde(rename = "local_shell")]

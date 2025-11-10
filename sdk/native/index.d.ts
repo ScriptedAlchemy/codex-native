@@ -16,16 +16,12 @@ export declare function cloudTasksList(envFilter?: string | undefined | null, ba
 
 export declare function compactThread(req: RunRequest): Promise<Array<string>>
 
-/** SSE event for a single assistant message output item. */
 export declare function evAssistantMessage(id: string, text: string): string
 
-/** SSE event for a completed response with a specific id. */
 export declare function evCompleted(id: string): string
 
-/** SSE event for a function call. */
 export declare function evFunctionCall(callId: string, name: string, args: string): string
 
-/** SSE event for a created response with a specific id. */
 export declare function evResponseCreated(id: string): string
 
 export interface JsApprovalRequest {
@@ -74,9 +70,7 @@ export interface RunRequest {
   sandboxMode?: string
   approvalMode?: string
   workspaceWriteOptions?: WorkspaceWriteOptions
-  /** Enable native review mode (mirrors CLI review flow). Optional. */
   reviewMode?: boolean
-  /** Optional user-facing hint for the review flow. */
   reviewHint?: string
   workingDirectory?: string
   skipGitRepoCheck?: boolean
@@ -91,7 +85,6 @@ export declare function runThread(req: RunRequest): Promise<Array<string>>
 
 export declare function runThreadStream(req: RunRequest, onEvent: (err: unknown, eventJson?: string) => void): Promise<void>
 
-/** Create an SSE stream body from a list of event JSON strings. */
 export declare function sse(events: Array<string>): string
 
 export interface WorkspaceWriteOptions {

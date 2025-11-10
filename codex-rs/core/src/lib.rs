@@ -83,6 +83,19 @@ mod tasks;
 mod user_notification;
 pub mod util;
 
+pub use crate::function_tool::FunctionCallError;
+pub use crate::tools::context::ToolInvocation;
+pub use crate::tools::context::ToolOutput;
+pub use crate::tools::context::ToolPayload;
+pub use crate::tools::registry::ExternalInterceptorRegistration;
+pub use crate::tools::registry::ExternalToolRegistration;
+pub use crate::tools::registry::ToolHandler;
+pub use crate::tools::registry::ToolInterceptor;
+pub use crate::tools::registry::ToolKind;
+pub use crate::tools::registry::set_pending_external_interceptors;
+pub use crate::tools::registry::set_pending_external_tools;
+pub use crate::tools::spec::create_function_tool_spec_from_schema;
+
 pub use apply_patch::CODEX_APPLY_PATCH_ARG1;
 pub use command_safety::is_safe_command;
 pub use safety::get_platform_sandbox;
