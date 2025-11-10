@@ -14,7 +14,6 @@ use codex_core::ResponseItem;
 use codex_core::WireApi;
 use codex_core::auth::AuthCredentialsStoreMode;
 use codex_core::built_in_model_providers;
-use codex_core::default_client::originator;
 use codex_core::error::CodexErr;
 use codex_core::model_family::find_family_for_model;
 use codex_core::protocol::EventMsg;
@@ -33,7 +32,6 @@ use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::TestCodex;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
-use core_test_support::wait_for_event_with_timeout;
 use futures::StreamExt;
 use serde_json::json;
 use std::io::Write;
@@ -369,10 +367,7 @@ async fn includes_conversation_id_and_model_headers_in_request() {
         request_conversation_id.to_str().unwrap(),
         conversation_id.to_string()
     );
-    assert_eq!(
-        request_originator.to_str().unwrap(),
-        originator().value.as_str(),
-    );
+    assert_eq!(request_originator.to_str().unwrap(), "codex_cli_rs");
     assert_eq!(
         request_authorization.to_str().unwrap(),
         "Bearer Test API Key"
@@ -489,10 +484,7 @@ async fn chatgpt_auth_sends_correct_request() {
         request_conversation_id.to_str().unwrap(),
         conversation_id.to_string()
     );
-    assert_eq!(
-        request_originator.to_str().unwrap(),
-        originator().value.as_str(),
-    );
+    assert_eq!(request_originator.to_str().unwrap(), "codex_cli_rs");
     assert_eq!(
         request_authorization.to_str().unwrap(),
         "Bearer Access Token"
@@ -1124,26 +1116,20 @@ async fn context_window_error_sets_total_tokens_to_model_window() -> anyhow::Res
         })
         .await?;
 
-    use std::time::Duration;
-
-    let token_event = wait_for_event_with_timeout(
-        &codex,
-        |event| {
-            matches!(
-                event,
-                EventMsg::TokenCount(payload)
-                    if payload.info.as_ref().is_some_and(|info| {
-                        info.model_context_window == Some(info.total_token_usage.total_tokens)
-                            && info.total_token_usage.total_tokens > 0
-                    })
-            )
-        },
-        Duration::from_secs(5),
-    )
+    let token_event = wait_for_event(&codex, |event| {
+        matches!(
+            event,
+            EventMsg::TokenCount(payload)
+                if payload.info.as_ref().is_some_and(|info| {
+                    info.model_context_window == Some(info.total_token_usage.total_tokens)
+                        && info.total_token_usage.total_tokens > 0
+                })
+        )
+    })
     .await;
 
     let EventMsg::TokenCount(token_payload) = token_event else {
-        unreachable!("wait_for_event_with_timeout returned unexpected event");
+        unreachable!("wait_for_event returned unexpected event");
     };
 
     let info = token_payload

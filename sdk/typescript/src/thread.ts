@@ -85,6 +85,10 @@ export class Thread {
       workingDirectory: options?.workingDirectory,
       skipGitRepoCheck: options?.skipGitRepoCheck,
       outputSchemaFile: schemaPath,
+      modelReasoningEffort: options?.modelReasoningEffort,
+      networkAccessEnabled: options?.networkAccessEnabled,
+      webSearchEnabled: options?.webSearchEnabled,
+      approvalPolicy: options?.approvalPolicy,
     });
     try {
       for await (const item of generator) {
@@ -93,6 +97,13 @@ export class Thread {
           parsed = JSON.parse(item) as ThreadEvent;
         } catch (error) {
           throw new Error(`Failed to parse item: ${item}`, { cause: error });
+        }
+        if (
+          parsed.type === "raw_event" ||
+          parsed.type === "token_count" ||
+          parsed.type === "token_usage"
+        ) {
+          continue;
         }
         if (parsed.type === "thread.started") {
           this._id = parsed.thread_id;
