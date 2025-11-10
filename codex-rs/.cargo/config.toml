@@ -1,5 +1,9 @@
-[target.'cfg(all(windows, target_env = "msvc"))']
-rustflags = ["-C", "link-arg=/STACK:8388608"]
+# Cargo configuration for codex-rs workspace
 
-[target.'cfg(all(windows, target_env = "gnu"))']
-rustflags = ["-C", "link-arg=-Wl,--stack,8388608"]
+[build]
+# Compilation caching disabled for reproducibility across environments
+# Individual CI workflows may enable additional caching strategies
+
+[env]
+# Disable incremental compilation in CI for better cache hits
+# CARGO_INCREMENTAL is still controlled per-command in package.json for flexibility

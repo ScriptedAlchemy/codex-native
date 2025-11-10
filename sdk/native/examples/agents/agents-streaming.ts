@@ -94,6 +94,7 @@ async function main() {
           tokenCount += event.delta.split(/\s+/).length;
           break;
 
+        // No separate output_text_done event; finalize on response_done
         case 'output_text_done':
           console.log('\n\n✓ Text output completed');
           break;
@@ -108,6 +109,7 @@ async function main() {
           break;
 
         case 'response_done':
+          console.log('\n\n✓ Text output completed');
           console.log('\n📊 Final Statistics:');
           console.log(`  Total tokens: ${event.response.usage.totalTokens}`);
           console.log(`  Input tokens: ${event.response.usage.inputTokens}`);
@@ -175,6 +177,10 @@ async function main() {
           process.stdout.write(event.delta);
           break;
 
+        // No separate output_text_done event; finalize on response_done
+
+        case 'response_done':
+          console.log(`\n\n✓ Completed (${chunkCount} chunks)`);
         case 'output_text_done':
           console.log(`\n\n✓ Completed (${chunkCount} chunks)`);
           break;
@@ -233,6 +239,21 @@ async function main() {
             const parts = currentLine.split('\n');
             // Add all but the last part (which might be incomplete)
             for (let i = 0; i < parts.length - 1; i++) {
+              if (parts[i]!.trim()) {
+                lines.push(parts[i]!);
+                console.log(`  ${lines.length}. ${parts[i]!.trim()}`);
+              }
+            }
+            currentLine = parts[parts.length - 1]!;
+          }
+          break;
+
+        // No separate output_text_done event; finalize on response_done
+
+        case 'response_done':
+          if (currentLine.trim()) {
+            lines.push(currentLine.trim());
+          }
               lines.push(parts[i]);
               console.log(`• ${parts[i]}`);
   for await (const event of stream3) {

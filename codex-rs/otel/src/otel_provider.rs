@@ -7,6 +7,7 @@ use opentelemetry_otlp::Protocol;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_otlp::WithHttpConfig;
 use opentelemetry_otlp::WithTonicConfig;
+use opentelemetry_otlp::tonic_types::metadata::MetadataMap;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::logs::SdkLoggerProvider;
 use opentelemetry_semantic_conventions as semconv;
@@ -14,7 +15,6 @@ use reqwest::header::HeaderMap;
 use reqwest::header::HeaderName;
 use reqwest::header::HeaderValue;
 use std::error::Error;
-use tonic::metadata::MetadataMap;
 use tracing::debug;
 
 const ENV_ATTRIBUTE: &str = "env";
