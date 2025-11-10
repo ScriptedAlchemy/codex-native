@@ -163,6 +163,7 @@ export class Codex {
     let usage: Usage | null = null;
     let turnFailure: ThreadError | null = null;
     for await (const event of generator) {
+      if (event === null) continue;
       if (event.type === "item.completed") {
         if (event.item.type === "agent_message") {
           finalResponse = event.item.text;

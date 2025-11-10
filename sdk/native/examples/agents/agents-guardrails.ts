@@ -150,7 +150,7 @@ async function runGuardrailViolation(runner: Runner, agent: Agent) {
   }
 }
 
-async function main() {
+async function overviewMain() {
   console.log('🛡️  Guardrails with CodexProvider and OpenAI Agents\n');
 
   const provider = new CodexProvider({
@@ -191,11 +191,7 @@ async function main() {
   console.log('\n✓ Guardrail demo complete.');
 }
 
-if (require.main === module) {
-  main()
-    .then(() => {
-      setTimeout(() => process.exit(0), 100);
- *
+/**
  * Key features demonstrated:
  * - Input validation guardrails
  * - Content filtering guardrails
@@ -249,7 +245,8 @@ import * as Agents from '@openai/agents';
 import { setDefaultModelProvider } from '@openai/agents-core';
 import { CodexProvider } from '../../src/index';
 
-const { Agent, run } = Agents;
+const AgentNS = Agents.Agent;
+const runAgent = Agents.run;
 
 type GuardrailValidationResult = { valid: boolean; reason?: string };
 type GuardrailConfig = {
@@ -318,21 +315,18 @@ async function main() {
     },
   };
 
-  const agentWithValidation = new Agent({
+  const agentWithValidation = new AgentNS({
     name: 'ValidatedAgent',
     model: codexModel,
     instructions: 'You are a helpful assistant that only processes validated inputs.',
     inputGuardrails: [inputValidationGuardrail],
   });
-    instructions: 'You are a helpful assistant that only processes validated inputs.',
-    guardrails: [inputValidationGuardrail],
-  } as any);
 
   console.log('\nTest 1: Valid input');
   console.log('Input: "This is a valid question that meets the length requirements."\n');
 
   try {
-    const result1 = await run(
+    const result1 = await runAgent(
       agentWithValidation,
       'This is a valid question that meets the length requirements.'
     );
@@ -346,7 +340,7 @@ async function main() {
   console.log('Input: "Short"\n');
 
   try {
-    const result2 = await run(agentWithValidation, 'Short');
+    const result2 = await runAgent(agentWithValidation, 'Short');
     console.log('Response:', result2.finalOutput ?? '(no output)');
   } catch (error) {
     console.log('✗ Guardrail blocked:', error instanceof Error ? error.message : String(error));
@@ -375,21 +369,18 @@ async function main() {
     },
   };
 
-  const filteredAgent = new Agent({
+  const filteredAgent = new AgentNS({
     name: 'FilteredAgent',
     model: codexModel,
     instructions: 'You are a helpful assistant with content filtering enabled.',
     inputGuardrails: [contentFilterGuardrail],
   });
-    instructions: 'You are a helpful assistant with content filtering enabled.',
-    guardrails: [contentFilterGuardrail],
-  } as any);
 
   console.log('\nTest 1: Clean input');
   console.log('Input: "What is the weather today?"\n');
 
   try {
-    const result1 = await run(filteredAgent, 'What is the weather today?');
+    const result1 = await runAgent(filteredAgent, 'What is the weather today?');
     console.log('✓ Guardrail passed');
     console.log('Response:', (result1.finalOutput ?? '').substring(0, 100) + '...\n');
   } catch (error) {
@@ -400,7 +391,7 @@ async function main() {
   console.log('Input: "This is spam content"\n');
 
   try {
-    const result2 = await run(filteredAgent, 'This is spam content');
+    const result2 = await runAgent(filteredAgent, 'This is spam content');
     console.log('Response:', result2.finalOutput ?? '(no output)');
   } catch (error) {
     console.log('✗ Guardrail blocked:', error instanceof Error ? error.message : String(error));
@@ -436,21 +427,18 @@ async function main() {
     },
   };
 
-  const secureAgent = new Agent({
+  const secureAgent = new AgentNS({
     name: 'SecureAgent',
     model: codexModel,
     instructions: 'You are a helpful assistant with security checks enabled.',
     inputGuardrails: [securityGuardrail],
   });
-    instructions: 'You are a helpful assistant with security checks enabled.',
-    guardrails: [securityGuardrail],
-  } as any);
 
   console.log('\nTest 1: Safe input');
   console.log('Input: "List all files in the current directory"\n');
 
   try {
-    const result1 = await run(secureAgent, 'List all files in the current directory');
+    const result1 = await runAgent(secureAgent, 'List all files in the current directory');
     console.log('✓ Guardrail passed');
     console.log('Response:', (result1.finalOutput ?? '').substring(0, 100) + '...\n');
   } catch (error) {
@@ -461,7 +449,7 @@ async function main() {
   console.log('Input: "rm -rf /tmp"\n');
 
   try {
-    const result2 = await run(secureAgent, 'rm -rf /tmp');
+    const result2 = await runAgent(secureAgent, 'rm -rf /tmp');
     console.log('Response:', result2.finalOutput ?? '(no output)');
   } catch (error) {
     console.log('✗ Guardrail blocked:', error instanceof Error ? error.message : String(error));
@@ -473,25 +461,22 @@ async function main() {
   console.log('\n\nExample 4: Multiple Guardrails Combined');
   console.log('─'.repeat(60));
 
-  const multiGuardrailAgent = new Agent({
+  const multiGuardrailAgent = new AgentNS({
     name: 'MultiGuardrailAgent',
     model: codexModel,
     instructions: 'You are a helpful assistant with multiple guardrails enabled.',
     inputGuardrails: [
-    instructions: 'You are a helpful assistant with multiple guardrails enabled.',
-    guardrails: [
       inputValidationGuardrail,
       contentFilterGuardrail,
       securityGuardrail,
     ],
   });
-  } as any);
 
   console.log('\nTest: Input that passes all guardrails');
   console.log('Input: "Can you help me understand how to write better code?"\n');
 
   try {
-    const result = await run(
+    const result = await runAgent(
       multiGuardrailAgent,
       'Can you help me understand how to write better code?'
     );
