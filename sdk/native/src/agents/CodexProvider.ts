@@ -1,4 +1,4 @@
-import type { Codex } from "../codex";
+import { Codex } from "../codex";
 import type { Thread } from "../thread";
 import type { ThreadEvent, Usage as CodexUsage } from "../events";
 import type { ThreadItem } from "../items";
@@ -94,16 +94,10 @@ export class CodexProvider implements ModelProvider {
   private getCodex(): Codex {
     if (!this.codex) {
       try {
-        // Dynamic import to avoid circular dependencies
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { Codex: CodexClass } = require("../codex");
-        if (!CodexClass) {
-          throw new Error("Codex class not found in module");
-        }
-        this.codex = new CodexClass({
+        this.codex = new Codex({
           apiKey: this.options.apiKey,
           baseUrl: this.options.baseUrl,
-        }) as Codex;
+        });
       } catch (error) {
         throw new Error(
           `Failed to initialize Codex: ${error instanceof Error ? error.message : String(error)}`
@@ -774,7 +768,12 @@ class CodexModel implements Model {
     responseId: string,
     items: ThreadItem[],
     lastMessage: string | null
-  ): any {
+  ): {
+    id: string;
+    responseId: string;
+    usage: any;
+    output: AgentOutputItem[];
+  } {
     const messageItems = items.filter(
       (item): item is Extract<ThreadItem, { type: "agent_message" }> => item.type === "agent_message"
     );
@@ -808,9 +807,16 @@ class CodexModel implements Model {
     const events: StreamEvent[] = [];
 
     switch (event.type) {
-      case "thread.started":
+      case "thread.started": {
         events.push({ type: "response_started" });
+        // Also emit OpenAI-style start event for Agents Runner
+        const responseId = this.thread?.id ?? "codex-stream-response";
+        events.push({
+          type: "response.created",
+          response: { id: responseId },
+        } as unknown as StreamEvent);
         break;
+      }
 
       case "turn.started":
         // No equivalent in StreamEvent - skip
@@ -843,10 +849,16 @@ class CodexModel implements Model {
             const delta = currentText.slice(previousText.length);
             textAccumulator.set(itemKey, currentText);
 
+            // Codex SDK delta
             events.push({
               type: "output_text_delta",
               delta,
             });
+            // OpenAI Responses-style delta for Agents Runner
+            events.push({
+              type: "response.output_text.delta",
+              delta,
+            } as unknown as StreamEvent);
           }
         } else if (event.item.type === "reasoning") {
           const itemKey = "reasoning";
@@ -888,7 +900,7 @@ class CodexModel implements Model {
         }
         break;
 
-      case "turn.completed":
+      case "turn.completed": {
         // Emit response done with full response
         const usage = this.convertUsage(event.usage);
         const responseId = this.thread?.id ?? "codex-stream-response";
@@ -901,11 +913,50 @@ class CodexModel implements Model {
         this.streamedTurnItems = [];
         this.lastStreamedMessage = null;
 
+        // Emit OpenAI Responses-style completion before the Codex-specific finale
+        // Map usage to snake_case and include final output_text if available
+        events.push({
+          type: "response.completed",
+          response: {
+            id: response.id,
+            usage: {
+              input_tokens: usage.inputTokens,
+              input_tokens_details: usage.inputTokensDetails?.[0] ?? null,
+              output_tokens: usage.outputTokens,
+              output_tokens_details: usage.outputTokensDetails?.[0] ?? null,
+              total_tokens: usage.totalTokens,
+            },
+            ...(response.output && response.output.length > 0
+              ? {
+                  output: response.output.map((item) => {
+                    if (item.type === "message" && item.role === "assistant") {
+                      return {
+                        id: item.id ?? "msg_1",
+                        role: item.role,
+                        content: item.content,
+                      };
+                    }
+                    return item;
+                  }),
+                  output_text:
+                    response.output
+                      .filter((item): item is AssistantMessageItem =>
+                        item.type === "message" && item.role === "assistant"
+                      )[0]?.content?.find(
+                        (c) => c.type === "output_text"
+                      )?.text ?? (this.lastStreamedMessage ?? ""),
+                }
+              : {}),
+          },
+        } as unknown as StreamEvent);
+
+        // Codex SDK stream event (used by formatStream) should remain the terminal event
         events.push({
           type: "response_done",
           response,
         } as StreamEvent);
         break;
+      }
 
       case "turn.failed":
         events.push({
@@ -931,12 +982,29 @@ class CodexModel implements Model {
         } as StreamEvent);
         break;
 
+      case "raw_event":
+        break;
+
       default:
-        // Unknown event type - skip
         break;
     }
 
-    return events;
+    const rawEvent = {
+      type: "raw_event",
+      raw:
+        (event as Record<string, unknown>)?.type === "raw_event" && "raw" in (event as Record<string, unknown>)
+          ? (event as Record<string, unknown>).raw
+          : event,
+    } as unknown as StreamEvent;
+
+    if (events.length === 0) {
+      return [rawEvent];
+    }
+
+    const result = [...events];
+    const insertIndex = Math.min(1, result.length);
+    result.splice(insertIndex, 0, rawEvent);
+    return result;
   }
 }
 

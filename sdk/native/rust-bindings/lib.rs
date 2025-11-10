@@ -1,4 +1,11 @@
 #![deny(clippy::all)]
+// When building without the Node bindings feature, many N-API specific paths and helpers
+// are intentionally unused. Allow a narrow set of lints in that configuration so
+// `cargo clippy -D warnings` passes during the Rust-only build step in CI.
+#![cfg_attr(
+  not(feature = "napi-bindings"),
+  allow(unused_imports, dead_code, clippy::collapsible_if)
+)]
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -10,25 +17,50 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use codex_common::CliConfigOverrides;
 use codex_common::SandboxModeCliArg;
-use codex_core::function_tool::FunctionCallError;
-use codex_core::tools::context::ToolInvocation;
-use codex_core::tools::context::ToolOutput;
-use codex_core::tools::context::ToolPayload;
-use codex_core::tools::registry::{
-  ExternalInterceptorRegistration, ExternalToolRegistration, ToolHandler, ToolInterceptor,
-  ToolKind, set_pending_external_interceptors, set_pending_external_tools,
+use codex_core::config::ConfigOverrides;
+use codex_core::protocol::{
+  AskForApproval, Event as CoreEvent, EventMsg as CoreEventMsg, ReviewOutputEvent, TokenUsage,
 };
-use codex_core::tools::spec::create_function_tool_spec_from_schema;
+use codex_core::{
+  ExternalInterceptorRegistration, ExternalToolRegistration, FunctionCallError, ToolHandler,
+  ToolInterceptor, ToolInvocation, ToolKind, ToolOutput, ToolPayload,
+  create_function_tool_spec_from_schema, set_pending_external_interceptors,
+  set_pending_external_tools,
+};
 use codex_exec::exec_events::ThreadEvent as ExecThreadEvent;
+use codex_exec::exec_events::{
+  AgentMessageItem, ErrorItem, ItemCompletedEvent, ReasoningItem, ThreadErrorEvent, ThreadEvent,
+  ThreadItem, ThreadItemDetails, TurnStartedEvent,
+};
 use codex_exec::run_with_thread_event_callback;
 use codex_exec::{Cli, Color, Command, ResumeArgs};
+use codex_protocol::config_types::SandboxMode;
+#[cfg(feature = "napi-bindings")]
 use napi::bindgen_prelude::{Env, Function, Status};
+#[cfg(feature = "napi-bindings")]
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+#[cfg(feature = "napi-bindings")]
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
 use serde_json::json;
 use tempfile::NamedTempFile;
 use uuid::Uuid;
+
+// Lightweight shim so helpers can return `napi::Result` in tests without pulling in N-API.
+#[cfg(not(feature = "napi-bindings"))]
+mod napi {
+  pub type Error = String;
+  pub type Result<T> = std::result::Result<T, Error>;
+}
+
+#[cfg(feature = "napi-bindings")]
+fn napi_err(msg: String) -> napi::Error {
+  napi::Error::from_reason(msg)
+}
+#[cfg(not(feature = "napi-bindings"))]
+fn napi_err(msg: String) -> String {
+  msg
+}
 
 #[cfg(target_os = "linux")]
 use std::io::Write;
@@ -39,7 +71,7 @@ use serde_json::json as serde_json_json; // avoid name clash with existing json 
 
 #[cfg(target_os = "linux")]
 fn io_to_napi(err: std::io::Error) -> napi::Error {
-  napi::Error::from_reason(err.to_string())
+  napi_err(err.to_string())
 }
 
 #[cfg(target_os = "linux")]
@@ -135,6 +167,7 @@ fn pending_builtin_calls() -> &'static Mutex<HashMap<String, PendingBuiltinCall>
   CALLS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+#[cfg(feature = "napi-bindings")]
 fn native_response_to_tool_output(
   response: NativeToolResponse,
 ) -> Result<ToolOutput, FunctionCallError> {
@@ -149,6 +182,7 @@ fn native_response_to_tool_output(
   })
 }
 
+#[cfg(feature = "napi-bindings")]
 fn tool_output_to_native_response(output: ToolOutput) -> Result<NativeToolResponse, String> {
   match output {
     ToolOutput::Function {
@@ -164,6 +198,7 @@ fn tool_output_to_native_response(output: ToolOutput) -> Result<NativeToolRespon
   }
 }
 
+#[cfg(feature = "napi-bindings")]
 #[napi(object)]
 pub struct NativeToolInfo {
   pub name: String,
@@ -174,6 +209,7 @@ pub struct NativeToolInfo {
 }
 
 #[derive(Clone)]
+#[cfg(feature = "napi-bindings")]
 #[napi(object)]
 pub struct NativeToolResponse {
   pub output: Option<String>,
@@ -181,11 +217,12 @@ pub struct NativeToolResponse {
   pub error: Option<String>,
 }
 
+#[cfg(feature = "napi-bindings")]
 #[napi]
 pub fn clear_registered_tools() -> napi::Result<()> {
   registered_native_tools()
     .lock()
-    .map_err(|e| napi::Error::from_reason(format!("tools mutex poisoned: {e}")))?
+    .map_err(|e| napi_err(format!("tools mutex poisoned: {e}")))?
     .clear();
   registered_native_interceptors()
     .lock()
@@ -198,6 +235,38 @@ pub fn clear_registered_tools() -> napi::Result<()> {
   Ok(())
 }
 
+#[cfg(feature = "napi-bindings")]
+#[napi]
+pub fn register_approval_callback(
+  env: Env,
+  #[napi(ts_arg_type = "(request: JsApprovalRequest) => boolean | Promise<boolean>")]
+  handler: Function<JsApprovalRequest, bool>,
+) -> napi::Result<()> {
+  let sensitive_tools = ["local_shell", "exec_command", "apply_patch"];
+
+  for tool_name in sensitive_tools {
+    let mut tsfn = handler
+      .build_threadsafe_function::<JsApprovalRequest>()
+      .callee_handled::<true>()
+      .build()?;
+    #[allow(deprecated)]
+    let _ = tsfn.unref(&env);
+
+    let interceptor = NativeToolInterceptor {
+      tool_name: tool_name.to_string(),
+      handler: Arc::new(JsApprovalInterceptor { callback: tsfn }),
+    };
+
+    registered_native_interceptors()
+      .lock()
+      .map_err(|e| napi::Error::from_reason(format!("interceptors mutex poisoned: {e}")))?
+      .push(interceptor);
+  }
+
+  Ok(())
+}
+
+#[cfg(feature = "napi-bindings")]
 #[napi]
 pub fn register_tool(
   env: Env,
@@ -219,7 +288,7 @@ pub fn register_tool(
     schema,
     info.strict.unwrap_or(false),
   )
-  .map_err(|err| napi::Error::from_reason(format!("invalid tool schema: {err}")))?;
+  .map_err(|err| napi_err(format!("invalid tool schema: {err}")))?;
 
   let mut tsfn = handler
     .build_threadsafe_function::<JsToolInvocation>()
@@ -233,17 +302,17 @@ pub fn register_tool(
     spec,
     handler: Arc::new(JsToolHandler { callback: tsfn }),
     supports_parallel_tool_calls: info.supports_parallel.unwrap_or(true),
-    is_interceptor: false,
   };
 
   registered_native_tools()
     .lock()
-    .map_err(|e| napi::Error::from_reason(format!("tools mutex poisoned: {e}")))?
+    .map_err(|e| napi_err(format!("tools mutex poisoned: {e}")))?
     .push(registration);
 
   Ok(())
 }
 
+#[cfg(feature = "napi-bindings")]
 #[napi]
 pub fn register_tool_interceptor(
   env: Env,
@@ -274,6 +343,7 @@ pub fn register_tool_interceptor(
   Ok(())
 }
 
+#[cfg(feature = "napi-bindings")]
 #[napi(ts_args_type = "token: string, invocation?: JsToolInvocation")]
 pub async fn call_tool_builtin(
   token: String,
@@ -281,22 +351,20 @@ pub async fn call_tool_builtin(
 ) -> napi::Result<NativeToolResponse> {
   let mut entry = pending_builtin_calls()
     .lock()
-    .map_err(|e| napi::Error::from_reason(format!("pending builtin mutex poisoned: {e}")))?
+    .map_err(|e| napi_err(format!("pending builtin mutex poisoned: {e}")))?
     .remove(&token)
-    .ok_or_else(|| {
-      napi::Error::from_reason(format!("No pending builtin call for token {token}"))
-    })?;
+    .ok_or_else(|| napi_err(format!("No pending builtin call for token {token}")))?;
 
   let next = entry
     .next
     .take()
-    .ok_or_else(|| napi::Error::from_reason("callBuiltin already invoked for this token"))?;
+    .ok_or_else(|| napi_err("callBuiltin already invoked for this token".to_string()))?;
 
   let mut invocation = entry.invocation.clone();
   if let Some(override_invocation) = invocation_override {
     if override_invocation.tool_name != invocation.tool_name {
-      return Err(napi::Error::from_reason(
-        "callBuiltin invocation tool mismatch with original tool",
+      return Err(napi_err(
+        "callBuiltin invocation tool mismatch with original tool".to_string(),
       ));
     }
     if !override_invocation.call_id.is_empty() {
@@ -314,7 +382,7 @@ pub async fn call_tool_builtin(
   }
 
   match next.call(invocation).await {
-    Ok(output) => tool_output_to_native_response(output).map_err(napi::Error::from_reason),
+    Ok(output) => tool_output_to_native_response(output).map_err(napi_err),
     Err(FunctionCallError::RespondToModel(message)) | Err(FunctionCallError::Denied(message)) => {
       Ok(NativeToolResponse {
         output: None,
@@ -322,14 +390,15 @@ pub async fn call_tool_builtin(
         error: Some(message),
       })
     }
-    Err(FunctionCallError::MissingLocalShellCallId) => Err(napi::Error::from_reason(
-      "callBuiltin failed: missing local shell call id",
+    Err(FunctionCallError::MissingLocalShellCallId) => Err(napi_err(
+      "callBuiltin failed: missing local shell call id".to_string(),
     )),
-    Err(FunctionCallError::Fatal(message)) => Err(napi::Error::from_reason(message)),
+    Err(FunctionCallError::Fatal(message)) => Err(napi_err(message)),
   }
 }
 
 #[derive(Clone)]
+#[cfg(feature = "napi-bindings")]
 #[napi(object)]
 pub struct JsToolInterceptorContext {
   pub invocation: JsToolInvocation,
@@ -337,6 +406,7 @@ pub struct JsToolInterceptorContext {
 }
 
 #[derive(Clone)]
+#[cfg(feature = "napi-bindings")]
 #[napi(object)]
 pub struct JsToolInvocation {
   #[napi(js_name = "callId")]
@@ -348,12 +418,14 @@ pub struct JsToolInvocation {
   pub input: Option<String>,
 }
 
+#[cfg(feature = "napi-bindings")]
 struct JsToolHandler {
   callback:
     ThreadsafeFunction<JsToolInvocation, NativeToolResponse, JsToolInvocation, napi::Status, true>,
 }
 
 #[allow(dead_code)]
+#[cfg(feature = "napi-bindings")]
 struct JsToolInterceptor {
   callback: ThreadsafeFunction<
     JsToolInterceptorContext,
@@ -364,7 +436,82 @@ struct JsToolInterceptor {
   >,
 }
 
+#[derive(Clone)]
+#[cfg(feature = "napi-bindings")]
+#[napi(object)]
+pub struct JsApprovalRequest {
+  #[napi(js_name = "type")]
+  pub type_: String,
+  pub details: Option<JsonValue>,
+}
+
+#[cfg(feature = "napi-bindings")]
+struct JsApprovalInterceptor {
+  callback: ThreadsafeFunction<JsApprovalRequest, bool, JsApprovalRequest, Status, true>,
+}
+
 #[async_trait]
+#[cfg(feature = "napi-bindings")]
+impl ToolInterceptor for JsApprovalInterceptor {
+  async fn intercept(
+    &self,
+    invocation: ToolInvocation,
+    next: Box<
+      dyn FnOnce(
+          ToolInvocation,
+        ) -> std::pin::Pin<
+          Box<dyn std::future::Future<Output = Result<ToolOutput, FunctionCallError>> + Send>,
+        > + Send,
+    >,
+  ) -> Result<ToolOutput, FunctionCallError> {
+    let req_type = match invocation.tool_name.as_str() {
+      "apply_patch" => "file_write",
+      "local_shell" | "exec_command" => "shell",
+      _ => "network_access",
+    }
+    .to_string();
+
+    let details = match &invocation.payload {
+      ToolPayload::LocalShell { params } => json!({
+        "command": params.command,
+        "workdir": params.workdir,
+        "timeoutMs": params.timeout_ms
+      }),
+      _ => json!({
+        "payload": invocation.payload.log_payload()
+      }),
+    };
+
+    let approved = match self
+      .callback
+      .call_async(Ok(JsApprovalRequest {
+        type_: req_type,
+        details: Some(details),
+      }))
+      .await
+    {
+      Ok(b) => b,
+      Err(err) => {
+        return Err(FunctionCallError::Fatal(err.to_string()));
+      }
+    };
+
+    if !approved {
+      return Err(FunctionCallError::Denied(format!(
+        "Approval denied for tool `{}`",
+        invocation.tool_name
+      )));
+    }
+
+    // Invoke the next handler in the chain
+    let next_box = move |inv: ToolInvocation| next(inv);
+    let caller: Box<dyn NextCaller> = Box::new(next_box);
+    caller.call(invocation).await
+  }
+}
+
+#[async_trait]
+#[cfg(feature = "napi-bindings")]
 impl ToolInterceptor for JsToolInterceptor {
   async fn intercept(
     &self,
@@ -444,6 +591,7 @@ impl ToolInterceptor for JsToolInterceptor {
 }
 
 #[async_trait]
+#[cfg(feature = "napi-bindings")]
 impl ToolHandler for JsToolHandler {
   fn kind(&self) -> ToolKind {
     ToolKind::Function
@@ -481,52 +629,52 @@ impl ToolHandler for JsToolHandler {
 }
 
 #[derive(Debug, Clone)]
-#[napi(object)]
+#[cfg_attr(feature = "napi-bindings", napi(object))]
 pub struct WorkspaceWriteOptions {
-  #[napi(js_name = "networkAccess")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "networkAccess"))]
   pub network_access: Option<bool>,
-  #[napi(js_name = "writableRoots")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "writableRoots"))]
   pub writable_roots: Option<Vec<String>>,
-  #[napi(js_name = "excludeTmpdirEnvVar")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "excludeTmpdirEnvVar"))]
   pub exclude_tmpdir_env_var: Option<bool>,
-  #[napi(js_name = "excludeSlashTmp")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "excludeSlashTmp"))]
   pub exclude_slash_tmp: Option<bool>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-bindings", napi(object))]
 pub struct RunRequest {
   pub prompt: String,
-  #[napi(js_name = "threadId")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "threadId"))]
   pub thread_id: Option<String>,
   pub images: Option<Vec<String>>,
   pub model: Option<String>,
-  #[napi(js_name = "oss")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "oss"))]
   pub oss: Option<bool>,
-  #[napi(js_name = "sandboxMode")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "sandboxMode"))]
   pub sandbox_mode: Option<String>,
-  #[napi(js_name = "approvalMode")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "approvalMode"))]
   pub approval_mode: Option<String>,
-  #[napi(js_name = "workspaceWriteOptions")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "workspaceWriteOptions"))]
   pub workspace_write_options: Option<WorkspaceWriteOptions>,
   /// Enable native review mode (mirrors CLI review flow). Optional.
-  #[napi(js_name = "reviewMode")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "reviewMode"))]
   pub review_mode: Option<bool>,
   /// Optional user-facing hint for the review flow.
-  #[napi(js_name = "reviewHint")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "reviewHint"))]
   pub review_hint: Option<String>,
-  #[napi(js_name = "workingDirectory")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "workingDirectory"))]
   pub working_directory: Option<String>,
-  #[napi(js_name = "skipGitRepoCheck")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "skipGitRepoCheck"))]
   pub skip_git_repo_check: Option<bool>,
-  #[napi(js_name = "outputSchema")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "outputSchema"))]
   pub output_schema: Option<JsonValue>,
-  #[napi(js_name = "baseUrl")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "baseUrl"))]
   pub base_url: Option<String>,
-  #[napi(js_name = "apiKey")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "apiKey"))]
   pub api_key: Option<String>,
-  #[napi(js_name = "linuxSandboxPath")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "linuxSandboxPath"))]
   pub linux_sandbox_path: Option<String>,
-  #[napi(js_name = "fullAuto")]
+  #[cfg_attr(feature = "napi-bindings", napi(js_name = "fullAuto"))]
   pub full_auto: Option<bool>,
 }
 
@@ -564,9 +712,7 @@ impl RunRequest {
       Some("workspace-write") => Some(SandboxModeCliArg::WorkspaceWrite),
       Some("danger-full-access") => Some(SandboxModeCliArg::DangerFullAccess),
       Some(other) => {
-        return Err(napi::Error::from_reason(format!(
-          "Unsupported sandbox mode: {other}",
-        )));
+        return Err(napi_err(format!("Unsupported sandbox mode: {other}",)));
       }
     };
 
@@ -577,9 +723,7 @@ impl RunRequest {
       Some("on-failure") => Some(codex_common::ApprovalModeCliArg::OnFailure),
       Some("untrusted") => Some(codex_common::ApprovalModeCliArg::Untrusted),
       Some(other) => {
-        return Err(napi::Error::from_reason(format!(
-          "Unsupported approval mode: {other}",
-        )));
+        return Err(napi_err(format!("Unsupported approval mode: {other}",)));
       }
     };
 
@@ -587,7 +731,7 @@ impl RunRequest {
     let review_request = if self.review_mode.unwrap_or(false) {
       let prompt_trimmed = self.prompt.trim().to_string();
       if prompt_trimmed.is_empty() {
-        return Err(napi::Error::from_reason(
+        return Err(napi_err(
           "Review mode requires a non-empty prompt".to_string(),
         ));
       }
@@ -617,12 +761,12 @@ impl RunRequest {
       let trimmed = model_name.trim();
       if self.oss.unwrap_or(false) {
         if !trimmed.starts_with("gpt-oss:") {
-          return Err(napi::Error::from_reason(format!(
+          return Err(napi_err(format!(
             "Invalid model \"{trimmed}\" for OSS mode. Use models prefixed with \"gpt-oss:\", e.g. \"gpt-oss:20b\"."
           )));
         }
       } else if trimmed != "gpt-5" && trimmed != "gpt-5-codex" {
-        return Err(napi::Error::from_reason(format!(
+        return Err(napi_err(format!(
           "Invalid model \"{trimmed}\". Supported models are \"gpt-5\" or \"gpt-5-codex\"."
         )));
       }
@@ -644,21 +788,20 @@ impl RunRequest {
       base_url: self.base_url,
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
-      full_auto: self.full_auto.unwrap_or(true),
+      full_auto: self.full_auto.unwrap_or(false),
     })
   }
 }
 
-struct TempSchemaFile {
-  path: PathBuf,
+pub struct TempSchemaFile {
+  pub path: PathBuf,
   _guard: tempfile::TempPath,
 }
 
-fn prepare_schema(schema: Option<JsonValue>) -> napi::Result<Option<TempSchemaFile>> {
+pub fn prepare_schema(schema: Option<JsonValue>) -> napi::Result<Option<TempSchemaFile>> {
   if let Some(schema_value) = schema {
-    let mut file = NamedTempFile::new().map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    serde_json::to_writer(&mut file, &schema_value)
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let mut file = NamedTempFile::new().map_err(|e| napi_err(e.to_string()))?;
+    serde_json::to_writer(&mut file, &schema_value).map_err(|e| napi_err(e.to_string()))?;
     let path = file.path().to_path_buf();
     let temp_path = file.into_temp_path();
     Ok(Some(TempSchemaFile {
@@ -670,17 +813,17 @@ fn prepare_schema(schema: Option<JsonValue>) -> napi::Result<Option<TempSchemaFi
   }
 }
 
-struct EnvOverride {
+pub struct EnvOverride {
   key: &'static str,
   previous: Option<String>,
 }
 
-struct EnvOverrides {
+pub struct EnvOverrides {
   entries: Vec<EnvOverride>,
 }
 
 impl EnvOverrides {
-  fn apply(pairs: Vec<(&'static str, Option<String>, bool)>) -> Self {
+  pub fn apply(pairs: Vec<(&'static str, Option<String>, bool)>) -> Self {
     let mut entries = Vec::new();
     for (key, value, force) in pairs {
       if !force && value.is_none() {
@@ -710,6 +853,168 @@ impl Drop for EnvOverrides {
   }
 }
 
+/// Build ConfigOverrides from InternalRunRequest for tests.
+pub fn build_config_overrides(
+  options: &InternalRunRequest,
+  linux_sandbox_path: Option<PathBuf>,
+) -> ConfigOverrides {
+  let approval_policy = match options.approval_mode {
+    Some(codex_common::ApprovalModeCliArg::Never) => Some(AskForApproval::Never),
+    Some(codex_common::ApprovalModeCliArg::OnRequest) => Some(AskForApproval::OnRequest),
+    Some(codex_common::ApprovalModeCliArg::OnFailure) => Some(AskForApproval::OnFailure),
+    Some(codex_common::ApprovalModeCliArg::Untrusted) => Some(AskForApproval::UnlessTrusted),
+    None => {
+      if options.full_auto {
+        Some(AskForApproval::Never)
+      } else {
+        None
+      }
+    }
+  };
+  let sandbox_mode = Some(
+    match options
+      .sandbox_mode
+      .unwrap_or(SandboxModeCliArg::WorkspaceWrite)
+    {
+      SandboxModeCliArg::ReadOnly => SandboxMode::ReadOnly,
+      SandboxModeCliArg::WorkspaceWrite => SandboxMode::WorkspaceWrite,
+      SandboxModeCliArg::DangerFullAccess => SandboxMode::DangerFullAccess,
+    },
+  );
+  ConfigOverrides {
+    model: options.model.clone(),
+    review_model: None,
+    cwd: options.working_directory.clone(),
+    approval_policy,
+    sandbox_mode,
+    model_provider: None,
+    config_profile: None,
+    codex_linux_sandbox_exe: linux_sandbox_path,
+    base_instructions: None,
+    developer_instructions: None,
+    compact_prompt: None,
+    include_apply_patch_tool: None,
+    show_raw_agent_reasoning: None,
+    tools_web_search_request: None,
+    experimental_sandbox_command_assessment: None,
+    additional_writable_roots: Vec::new(),
+  }
+}
+
+/// Minimal review event collector for tests.
+#[derive(Default)]
+pub struct ReviewEventCollector {
+  pub next_item_id: usize,
+  pub last_error: Option<ThreadErrorEvent>,
+  pub last_usage: Option<TokenUsage>,
+}
+
+impl ReviewEventCollector {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn next_item_id(&mut self) -> String {
+    let id = format!("item_{}", self.next_item_id);
+    self.next_item_id += 1;
+    id
+  }
+
+  pub fn handle(&mut self, event: &CoreEvent) -> Vec<ThreadEvent> {
+    match &event.msg {
+      CoreEventMsg::TaskStarted(_ev) => vec![ThreadEvent::TurnStarted(TurnStartedEvent::default())],
+      CoreEventMsg::AgentReasoning(ev) => {
+        let id = self.next_item_id();
+        vec![ThreadEvent::ItemCompleted(ItemCompletedEvent {
+          item: ThreadItem {
+            id,
+            details: ThreadItemDetails::Reasoning(ReasoningItem {
+              text: ev.text.clone(),
+            }),
+          },
+        })]
+      }
+      CoreEventMsg::AgentMessage(ev) => {
+        let id = self.next_item_id();
+        vec![ThreadEvent::ItemCompleted(ItemCompletedEvent {
+          item: ThreadItem {
+            id,
+            details: ThreadItemDetails::AgentMessage(AgentMessageItem {
+              text: ev.message.clone(),
+            }),
+          },
+        })]
+      }
+      CoreEventMsg::Warning(ev) => {
+        let id = self.next_item_id();
+        vec![ThreadEvent::ItemCompleted(ItemCompletedEvent {
+          item: ThreadItem {
+            id,
+            details: ThreadItemDetails::Error(ErrorItem {
+              message: ev.message.clone(),
+            }),
+          },
+        })]
+      }
+      CoreEventMsg::Error(ev) => {
+        let error = ThreadErrorEvent {
+          message: ev.message.clone(),
+        };
+        self.last_error = Some(error.clone());
+        vec![ThreadEvent::Error(error)]
+      }
+      CoreEventMsg::TokenCount(ev) => {
+        if let Some(info) = &ev.info {
+          self.last_usage = Some(info.total_token_usage.clone());
+        }
+        Vec::new()
+      }
+      _ => Vec::new(),
+    }
+  }
+
+  pub fn parse_review_output(&self, text: &str) -> ReviewOutputEvent {
+    fn try_build(value: &serde_json::Value) -> Option<ReviewOutputEvent> {
+      let overall_explanation = value
+        .get("overall_explanation")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())?;
+      let findings = value
+        .get("findings")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+      // Best-effort parse findings to typed struct; on failure, drop them.
+      let findings: Vec<codex_core::protocol::ReviewFinding> =
+        serde_json::from_value(serde_json::Value::Array(findings)).unwrap_or_default();
+      Some(ReviewOutputEvent {
+        findings,
+        overall_correctness: String::new(),
+        overall_explanation,
+        overall_confidence_score: 0.0,
+      })
+    }
+
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(text) {
+      if let Some(ev) = try_build(&val) {
+        return ev;
+      }
+    }
+    if let Some(start) = text.find('{')
+      && let Some(end) = text.rfind('}')
+      && start < end
+      && let Some(slice) = text.get(start..=end)
+      && let Ok(val) = serde_json::from_str::<serde_json::Value>(slice)
+      && let Some(ev) = try_build(&val)
+    {
+      return ev;
+    }
+    ReviewOutputEvent {
+      overall_explanation: text.to_string(),
+      ..Default::default()
+    }
+  }
+}
 pub fn build_cli(
   options: &InternalRunRequest,
   schema_path: Option<PathBuf>,
@@ -793,10 +1098,21 @@ pub fn build_cli(
   }
 }
 
-fn event_to_json(event: &ExecThreadEvent) -> napi::Result<JsonValue> {
-  serde_json::to_value(event).map_err(|e| napi::Error::from_reason(e.to_string()))
+pub fn event_to_json(event: &ExecThreadEvent) -> napi::Result<JsonValue> {
+  let val = match event {
+    ExecThreadEvent::ThreadStarted(e) => json!({ "ThreadStarted": e }),
+    ExecThreadEvent::TurnStarted(e) => json!({ "TurnStarted": e }),
+    ExecThreadEvent::TurnCompleted(e) => json!({ "TurnCompleted": e }),
+    ExecThreadEvent::TurnFailed(e) => json!({ "TurnFailed": e }),
+    ExecThreadEvent::ItemStarted(e) => json!({ "ItemStarted": e }),
+    ExecThreadEvent::ItemUpdated(e) => json!({ "ItemUpdated": e }),
+    ExecThreadEvent::ItemCompleted(e) => json!({ "ItemCompleted": e }),
+    ExecThreadEvent::Error(e) => json!({ "Error": e }),
+  };
+  Ok(val)
 }
 
+#[cfg(feature = "napi-bindings")]
 fn run_internal_sync<F>(options: InternalRunRequest, handler: F) -> napi::Result<()>
 where
   F: FnMut(ExecThreadEvent) + Send + 'static,
@@ -808,7 +1124,7 @@ where
   let pending_tools = {
     let guard = registered_native_tools()
       .lock()
-      .map_err(|e| napi::Error::from_reason(format!("tools mutex poisoned: {e}")))?;
+      .map_err(|e| napi_err(format!("tools mutex poisoned: {e}")))?;
     guard.clone()
   };
   set_pending_external_tools(pending_tools);
@@ -816,7 +1132,7 @@ where
   let pending_interceptors = {
     let guard = registered_native_interceptors()
       .lock()
-      .map_err(|e| napi::Error::from_reason(format!("interceptors mutex poisoned: {e}")))?;
+      .map_err(|e| napi_err(format!("interceptors mutex poisoned: {e}")))?;
     guard
       .iter()
       .map(|n| ExternalInterceptorRegistration {
@@ -861,7 +1177,7 @@ where
 
   // Create a new Tokio runtime for this execution to avoid Send issues
   let runtime = tokio::runtime::Runtime::new()
-    .map_err(|e| napi::Error::from_reason(format!("Failed to create runtime: {}", e)))?;
+    .map_err(|e| napi_err(format!("Failed to create runtime: {}", e)))?;
 
   runtime.block_on(async {
     run_with_thread_event_callback(cli, linux_sandbox_path, move |event| {
@@ -870,10 +1186,11 @@ where
       }
     })
     .await
-    .map_err(|e| napi::Error::from_reason(e.to_string()))
+    .map_err(|e| napi_err(e.to_string()))
   })
 }
 
+#[cfg(feature = "napi-bindings")]
 #[napi]
 pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
   let options = req.into_internal()?;
@@ -892,7 +1209,7 @@ pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
             Ok(text) => guard.push(text),
             Err(err) => {
               if let Ok(mut error_guard) = error_clone.lock() {
-                *error_guard = Some(napi::Error::from_reason(err.to_string()));
+                *error_guard = Some(napi_err(err.to_string()));
               }
             }
           }
@@ -906,7 +1223,7 @@ pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
     })
   })
   .await
-  .map_err(|e| napi::Error::from_reason(format!("Task join error: {}", e)))??;
+  .map_err(|e| napi_err(format!("Task join error: {}", e)))??;
 
   if let Some(err) = error_holder.lock().unwrap().take() {
     return Err(err);
@@ -916,6 +1233,7 @@ pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
   Ok(std::mem::take(&mut *guard))
 }
 
+#[cfg(feature = "napi-bindings")]
 #[napi]
 pub async fn compact_thread(req: RunRequest) -> napi::Result<Vec<String>> {
   let options = req.into_internal()?;
@@ -933,14 +1251,14 @@ pub async fn compact_thread(req: RunRequest) -> napi::Result<Vec<String>> {
     let pending_tools = {
       let guard = registered_native_tools()
         .lock()
-        .map_err(|e| napi::Error::from_reason(format!("tools mutex poisoned: {e}")))?;
+        .map_err(|e| napi_err(format!("tools mutex poisoned: {e}")))?;
       guard.clone()
     };
     set_pending_external_tools(pending_tools);
     let pending_interceptors = {
       let guard = registered_native_interceptors()
         .lock()
-        .map_err(|e| napi::Error::from_reason(format!("interceptors mutex poisoned: {e}")))?;
+        .map_err(|e| napi_err(format!("interceptors mutex poisoned: {e}")))?;
       guard
         .iter()
         .map(|n| ExternalInterceptorRegistration {
@@ -983,12 +1301,12 @@ pub async fn compact_thread(req: RunRequest) -> napi::Result<Vec<String>> {
       });
       match fut.await {
         Ok(()) => Ok(()),
-        Err(e) => Err(napi::Error::from_reason(e.to_string())),
+        Err(e) => Err(napi_err(e.to_string())),
       }
     })
   })
   .await
-  .map_err(|e| napi::Error::from_reason(format!("Task join error: {}", e)))??;
+  .map_err(|e| napi_err(format!("Task join error: {}", e)))??;
 
   if let Some(err) = error_holder.lock().unwrap().take() {
     return Err(err);
@@ -998,6 +1316,7 @@ pub async fn compact_thread(req: RunRequest) -> napi::Result<Vec<String>> {
   Ok(std::mem::take(&mut *guard))
 }
 
+#[cfg(feature = "napi-bindings")]
 #[napi]
 pub async fn run_thread_stream(
   req: RunRequest,
@@ -1021,7 +1340,7 @@ pub async fn run_thread_stream(
           if status != Status::Ok
             && let Ok(mut guard) = error_clone.lock()
           {
-            *guard = Some(napi::Error::from_status(status));
+            *guard = Some(napi_err(format!("napi status: {:?}", status)));
           }
         }
         Err(err) => {
@@ -1064,68 +1383,64 @@ fn build_cloud_client(
   Ok(client)
 }
 
-#[napi(js_name = "cloudTasksList")]
+#[cfg_attr(feature = "napi-bindings", napi(js_name = "cloudTasksList"))]
 pub async fn cloud_tasks_list(
   env_filter: Option<String>,
   base_url: Option<String>,
   api_key: Option<String>,
 ) -> napi::Result<String> {
-  let client =
-    build_cloud_client(base_url, api_key).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  let client = build_cloud_client(base_url, api_key).map_err(|e| napi_err(e.to_string()))?;
   let tasks = cloud::CloudBackend::list_tasks(&client, env_filter.as_deref())
     .await
-    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-  serde_json::to_string(&tasks).map_err(|e| napi::Error::from_reason(e.to_string()))
+    .map_err(|e| napi_err(e.to_string()))?;
+  serde_json::to_string(&tasks).map_err(|e| napi_err(e.to_string()))
 }
 
-#[napi(js_name = "cloudTasksGetDiff")]
+#[cfg_attr(feature = "napi-bindings", napi(js_name = "cloudTasksGetDiff"))]
 pub async fn cloud_tasks_get_diff(
   task_id: String,
   base_url: Option<String>,
   api_key: Option<String>,
 ) -> napi::Result<String> {
-  let client =
-    build_cloud_client(base_url, api_key).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  let client = build_cloud_client(base_url, api_key).map_err(|e| napi_err(e.to_string()))?;
   let diff_opt = cloud::CloudBackend::get_task_diff(&client, cloud::TaskId(task_id))
     .await
-    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    .map_err(|e| napi_err(e.to_string()))?;
   // Return JSON: { diff: string | null }
   let payload = serde_json_json!({ "diff": diff_opt });
-  serde_json::to_string(&payload).map_err(|e| napi::Error::from_reason(e.to_string()))
+  serde_json::to_string(&payload).map_err(|e| napi_err(e.to_string()))
 }
 
-#[napi(js_name = "cloudTasksApplyPreflight")]
+#[cfg_attr(feature = "napi-bindings", napi(js_name = "cloudTasksApplyPreflight"))]
 pub async fn cloud_tasks_apply_preflight(
   task_id: String,
   diff_override: Option<String>,
   base_url: Option<String>,
   api_key: Option<String>,
 ) -> napi::Result<String> {
-  let client =
-    build_cloud_client(base_url, api_key).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  let client = build_cloud_client(base_url, api_key).map_err(|e| napi_err(e.to_string()))?;
   let outcome =
     cloud::CloudBackend::apply_task_preflight(&client, cloud::TaskId(task_id), diff_override)
       .await
-      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-  serde_json::to_string(&outcome).map_err(|e| napi::Error::from_reason(e.to_string()))
+      .map_err(|e| napi_err(e.to_string()))?;
+  serde_json::to_string(&outcome).map_err(|e| napi_err(e.to_string()))
 }
 
-#[napi(js_name = "cloudTasksApply")]
+#[cfg_attr(feature = "napi-bindings", napi(js_name = "cloudTasksApply"))]
 pub async fn cloud_tasks_apply(
   task_id: String,
   diff_override: Option<String>,
   base_url: Option<String>,
   api_key: Option<String>,
 ) -> napi::Result<String> {
-  let client =
-    build_cloud_client(base_url, api_key).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  let client = build_cloud_client(base_url, api_key).map_err(|e| napi_err(e.to_string()))?;
   let outcome = cloud::CloudBackend::apply_task(&client, cloud::TaskId(task_id), diff_override)
     .await
-    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-  serde_json::to_string(&outcome).map_err(|e| napi::Error::from_reason(e.to_string()))
+    .map_err(|e| napi_err(e.to_string()))?;
+  serde_json::to_string(&outcome).map_err(|e| napi_err(e.to_string()))
 }
 
-#[napi(js_name = "cloudTasksCreate")]
+#[cfg_attr(feature = "napi-bindings", napi(js_name = "cloudTasksCreate"))]
 pub async fn cloud_tasks_create(
   env_id: String,
   prompt: String,
@@ -1135,8 +1450,7 @@ pub async fn cloud_tasks_create(
   base_url: Option<String>,
   api_key: Option<String>,
 ) -> napi::Result<String> {
-  let client =
-    build_cloud_client(base_url, api_key).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  let client = build_cloud_client(base_url, api_key).map_err(|e| napi_err(e.to_string()))?;
   let resolved_git_ref = if let Some(g) = git_ref {
     g
   } else if let Ok(cwd) = std::env::current_dir() {
@@ -1159,7 +1473,81 @@ pub async fn cloud_tasks_create(
     best_of_n.unwrap_or(1).max(1) as usize,
   )
   .await
-  .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  .map_err(|e| napi_err(e.to_string()))?;
   let payload = serde_json_json!({ "id": created.id.0 });
-  serde_json::to_string(&payload).map_err(|e| napi::Error::from_reason(e.to_string()))
+  serde_json::to_string(&payload).map_err(|e| napi_err(e.to_string()))
+}
+
+// =========================
+// SSE Test Helpers (exposed for TypeScript tests)
+// =========================
+
+/// SSE event for a completed response with a specific id.
+#[cfg(feature = "napi-bindings")]
+#[napi]
+pub fn ev_completed(id: String) -> String {
+  let event = serde_json::json!({
+      "type": "response.completed",
+      "response": {
+          "id": id,
+          "usage": {"input_tokens":0,"input_tokens_details":null,"output_tokens":0,"output_tokens_details":null,"total_tokens":0}
+      }
+  });
+  serde_json::to_string(&event).unwrap()
+}
+
+/// SSE event for a created response with a specific id.
+#[cfg(feature = "napi-bindings")]
+#[napi]
+pub fn ev_response_created(id: String) -> String {
+  let event = serde_json::json!({
+      "type": "response.created",
+      "response": {
+          "id": id,
+      }
+  });
+  serde_json::to_string(&event).unwrap()
+}
+
+/// SSE event for a single assistant message output item.
+#[cfg(feature = "napi-bindings")]
+#[napi]
+pub fn ev_assistant_message(id: String, text: String) -> String {
+  let event = serde_json::json!({
+      "type": "response.output_item.done",
+      "item": {
+          "type": "message",
+          "role": "assistant",
+          "id": id,
+          "content": [{"type": "output_text", "text": text}]
+      }
+  });
+  serde_json::to_string(&event).unwrap()
+}
+
+/// SSE event for a function call.
+#[cfg(feature = "napi-bindings")]
+#[napi]
+pub fn ev_function_call(call_id: String, name: String, args: String) -> String {
+  let event = serde_json::json!({
+      "type": "response.output_item.done",
+      "item": {
+          "type": "function_call",
+          "id": call_id,
+          "name": name,
+          "call_id": call_id,
+          "arguments": args
+      }
+  });
+  serde_json::to_string(&event).unwrap()
+}
+
+/// Create an SSE stream body from a list of event JSON strings.
+#[cfg(feature = "napi-bindings")]
+#[napi]
+pub fn sse(events: Vec<String>) -> String {
+  events
+    .into_iter()
+    .map(|event_json| format!("event: response\ndata: {}\n\n", event_json))
+    .collect()
 }

@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use codex_protocol::models::ResponseInputItem;
-use tracing::{error, warn};
+use tracing::error;
+use tracing::warn;
 
 use crate::client_common::tools::ToolSpec;
 use crate::function_tool::FunctionCallError;
@@ -154,8 +155,9 @@ pub trait ToolInterceptor: Send + Sync {
         next: Box<
             dyn FnOnce(
                     ToolInvocation,
-                ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, FunctionCallError>> + Send>>
-                + Send,
+                ) -> Pin<
+                    Box<dyn Future<Output = Result<ToolOutput, FunctionCallError>> + Send>,
+                > + Send,
         >,
     ) -> Result<ToolOutput, FunctionCallError>;
 }
@@ -274,7 +276,7 @@ impl ToolRegistry {
                     .await;
 
                 return match result {
-                    Ok((preview, success)) => {
+                    Ok(_) => {
                         // We need to re-run the interceptor to actually get the ToolOutput to return.
                         // To avoid double-call, simply call the handler and ignore preview/success;
                         // The otel log already captured the metadata.
@@ -387,10 +389,7 @@ impl ToolRegistryBuilder {
         interceptor: Arc<dyn ToolInterceptor>,
     ) {
         let name = name.into();
-        self.interceptors
-            .entry(name)
-            .or_default()
-            .push(interceptor);
+        self.interceptors.entry(name).or_default().push(interceptor);
     }
 
     // TODO(jif) for dynamic tools.

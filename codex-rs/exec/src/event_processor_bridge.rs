@@ -1,8 +1,12 @@
-use crate::event_processor::{CodexStatus, EventProcessor};
+use crate::event_processor::CodexStatus;
+use crate::event_processor::EventProcessor;
 use crate::event_processor_with_jsonl_output::EventProcessorWithJsonOutput;
 use crate::exec_events::ThreadEvent;
 use codex_core::config::Config;
-use codex_core::protocol::{Event, EventMsg, SessionConfiguredEvent, TaskCompleteEvent};
+use codex_core::protocol::Event;
+use codex_core::protocol::EventMsg;
+use codex_core::protocol::SessionConfiguredEvent;
+use codex_core::protocol::TaskCompleteEvent;
 use std::path::PathBuf;
 
 struct CallbackEventProcessor {
@@ -11,7 +15,10 @@ struct CallbackEventProcessor {
 }
 
 impl CallbackEventProcessor {
-    fn new(callback: Box<dyn FnMut(ThreadEvent) + Send>, last_message_file: Option<PathBuf>) -> Self {
+    fn new(
+        callback: Box<dyn FnMut(ThreadEvent) + Send>,
+        last_message_file: Option<PathBuf>,
+    ) -> Self {
         Self {
             mapper: EventProcessorWithJsonOutput::new(last_message_file),
             callback,
@@ -53,5 +60,3 @@ pub fn callback_event_processor(
 ) -> Box<dyn EventProcessor> {
     Box::new(CallbackEventProcessor::new(callback, last_message_file))
 }
-
-

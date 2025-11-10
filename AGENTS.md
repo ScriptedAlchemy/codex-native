@@ -72,6 +72,25 @@ If you don’t have the tool:
 
 - `cargo install cargo-insta`
 
+## Native SDK (N‑API) — `sdk/native`
+
+The `sdk/native` package provides Node.js bindings to the Rust engine via N‑API (using napi‑rs). It exposes a high‑level JS API (including a `CodexProvider` for OpenAI Agents) and streams events from the Rust executor.
+
+- Build locally (preferred over registry packages):
+  - `pnpm -C sdk/native install`
+  - `pnpm -C sdk/native run build` (builds Rust, the `.node` binary, and TS dist)
+- Run tests:
+  - JS: `pnpm -C sdk/native test`
+  - Rust: `cargo test` inside `sdk/native`
+- Loader behavior:
+  - The generated `sdk/native/index.js` first tries to load the locally built platform `.node` (e.g. `codex_native.darwin-arm64.node`) from the workspace.
+  - Optional platform packages (e.g. `@codex-native/sdk-darwin-arm64`) are only a publish/runtime fallback; local development should rely on the workspace‑built binary.
+- Approval callback (programmatic approvals):
+  - The native SDK can expose a programmatic approval hook. Recommended shape:
+    - JS: `codex.setApprovalCallback((ctx) => boolean | Promise<boolean>)`
+    - Under the hood this maps to a Rust interceptor that gates potentially sensitive actions (e.g., shell, file changes) and returns allow/deny.
+  - Alternatively, approval can be modeled as a tool interceptor: `registerToolInterceptor("__approval__", handler)`; the Rust side queries this before executing.
+
 ### Test assertions
 
 - Tests should use pretty_assertions::assert_eq for clearer diffs. Import this at the top of the test module if it isn't already.

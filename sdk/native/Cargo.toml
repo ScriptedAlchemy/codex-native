@@ -10,7 +10,6 @@ crate-type = ["cdylib", "rlib"]
 path = "rust-bindings/lib.rs"
 
 [dependencies]
-napi-derive = "3"
 serde_json = "1"
 tempfile = "3"
 async-trait = "0.1"
@@ -19,6 +18,11 @@ anyhow = "1"
 [dependencies.napi]
 version = "3"
 features = ["tokio_rt","serde-json","compat-mode","napi8"]
+optional = true
+
+[dependencies.napi-derive]
+version = "3"
+optional = true
 
 [dependencies.serde]
 version = "1"
@@ -52,6 +56,10 @@ napi-build = "2"
 
 [dev-dependencies]
 pretty_assertions = "1"
+
+[features]
+default = []
+napi-bindings = ["napi", "napi-derive"]
 
 [profile.release]
 lto = true

@@ -41,6 +41,15 @@ export type NativeBinding = {
   clearRegisteredTools(): void;
   registerTool(info: NativeToolInfo, handler: (call: NativeToolInvocation) => Promise<NativeToolResult> | NativeToolResult): void;
   registerToolInterceptor(toolName: string, handler: (context: NativeToolInterceptorNativeContext) => Promise<NativeToolResult> | NativeToolResult): void;
+  registerApprovalCallback?(
+    handler: (request: ApprovalRequest) => boolean | Promise<boolean>,
+  ): void;
+  // SSE test helpers (exposed for TypeScript tests)
+  ev_completed(id: string): string;
+  ev_response_created(id: string): string;
+  ev_assistant_message(id: string, text: string): string;
+  ev_function_call(callId: string, name: string, args: string): string;
+  sse(events: string[]): string;
   // Cloud tasks support (JSON-string payload responses)
   cloudTasksList?(env?: string, baseUrl?: string, apiKey?: string): Promise<string>;
   cloudTasksGetDiff?(taskId: string, baseUrl?: string, apiKey?: string): Promise<string>;
@@ -86,6 +95,11 @@ export type NativeToolResult = {
   output?: string;
   success?: boolean;
   error?: string;
+};
+
+export type ApprovalRequest = {
+  type: "shell" | "file_write" | "network_access";
+  details?: unknown;
 };
 
 let cachedBinding: NativeBinding | null | undefined;
@@ -152,6 +166,11 @@ export function getNativeBinding(): NativeBinding | null {
   }
 
   const requireFn = resolveRequire();
+  const envPath = process.env.CODEX_NATIVE_BINDING;
+  if (envPath && envPath.length > 0) {
+    // Let napi-rs generated index.js honor this override
+    process.env.NAPI_RS_NATIVE_LIBRARY_PATH = envPath;
+  }
   const bindingEntryPath = resolveBindingEntryPath();
 
   // For sdk/native: load the NAPI binding from the package root
@@ -165,4 +184,35 @@ export function getNativeBinding(): NativeBinding | null {
     cachedBinding = null;
     return cachedBinding;
   }
+}
+
+// SSE test helpers (exposed for TypeScript tests)
+export function ev_completed(id: string): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evCompleted(id);
+}
+
+export function ev_response_created(id: string): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evResponseCreated(id);
+}
+
+export function ev_assistant_message(id: string, text: string): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evAssistantMessage(id, text);
+}
+
+export function ev_function_call(callId: string, name: string, args: string): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evFunctionCall(callId, name, args);
+}
+
+export function sse(events: string[]): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).sse(events);
 }

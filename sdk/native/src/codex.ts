@@ -6,6 +6,7 @@ import {
   NativeToolInvocation,
   NativeToolResult,
   NativeToolInterceptorNativeContext,
+  ApprovalRequest,
 } from "./nativeBinding";
 import type { StreamedTurn, Turn } from "./thread";
 import { Thread } from "./thread";
@@ -117,6 +118,20 @@ export class Codex {
     if (this.options.tools) {
       this.options.tools = [];
     }
+  }
+
+  /**
+   * Register a programmatic approval callback that Codex will call before executing
+   * sensitive operations (e.g., shell commands, file writes).
+   */
+  setApprovalCallback(
+    handler: (request: ApprovalRequest) => boolean | Promise<boolean>,
+  ): void {
+    if (!this.nativeBinding || typeof this.nativeBinding.registerApprovalCallback !== 'function') {
+      console.warn("Approval callback is not available in this build");
+      return;
+    }
+    this.nativeBinding.registerApprovalCallback(handler);
   }
 
   /**

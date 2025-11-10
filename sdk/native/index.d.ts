@@ -4,7 +4,34 @@ export declare function callToolBuiltin(token: string, invocation?: JsToolInvoca
 
 export declare function clearRegisteredTools(): void
 
+export declare function cloudTasksApply(taskId: string, diffOverride?: string | undefined | null, baseUrl?: string | undefined | null, apiKey?: string | undefined | null): Promise<string>
+
+export declare function cloudTasksApplyPreflight(taskId: string, diffOverride?: string | undefined | null, baseUrl?: string | undefined | null, apiKey?: string | undefined | null): Promise<string>
+
+export declare function cloudTasksCreate(envId: string, prompt: string, gitRef?: string | undefined | null, qaMode?: boolean | undefined | null, bestOfN?: number | undefined | null, baseUrl?: string | undefined | null, apiKey?: string | undefined | null): Promise<string>
+
+export declare function cloudTasksGetDiff(taskId: string, baseUrl?: string | undefined | null, apiKey?: string | undefined | null): Promise<string>
+
+export declare function cloudTasksList(envFilter?: string | undefined | null, baseUrl?: string | undefined | null, apiKey?: string | undefined | null): Promise<string>
+
 export declare function compactThread(req: RunRequest): Promise<Array<string>>
+
+/** SSE event for a single assistant message output item. */
+export declare function evAssistantMessage(id: string, text: string): string
+
+/** SSE event for a completed response with a specific id. */
+export declare function evCompleted(id: string): string
+
+/** SSE event for a function call. */
+export declare function evFunctionCall(callId: string, name: string, args: string): string
+
+/** SSE event for a created response with a specific id. */
+export declare function evResponseCreated(id: string): string
+
+export interface JsApprovalRequest {
+  type: string
+  details?: JsonValue
+}
 
 export interface JsToolInterceptorContext {
   invocation: JsToolInvocation
@@ -31,6 +58,8 @@ export interface NativeToolResponse {
   success?: boolean
   error?: string
 }
+
+export declare function registerApprovalCallback(handler: (request: JsApprovalRequest) => boolean | Promise<boolean>): void
 
 export declare function registerTool(info: NativeToolInfo, handler: (call: JsToolInvocation) => NativeToolResponse | Promise<NativeToolResponse>): void
 
@@ -61,6 +90,9 @@ export interface RunRequest {
 export declare function runThread(req: RunRequest): Promise<Array<string>>
 
 export declare function runThreadStream(req: RunRequest, onEvent: (err: unknown, eventJson?: string) => void): Promise<void>
+
+/** Create an SSE stream body from a list of event JSON strings. */
+export declare function sse(events: Array<string>): string
 
 export interface WorkspaceWriteOptions {
   networkAccess?: boolean

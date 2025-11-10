@@ -97,6 +97,7 @@ fn test_run_request_review_mode() {
   assert_eq!(req.review_hint, Some("security review".to_string()));
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_native_tool_info_construction() {
   let tool_info = NativeToolInfo {
@@ -118,6 +119,7 @@ fn test_native_tool_info_construction() {
   assert_eq!(tool_info.supports_parallel, Some(false));
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_native_tool_response_construction() {
   let response = NativeToolResponse {
@@ -131,6 +133,7 @@ fn test_native_tool_response_construction() {
   assert!(response.error.is_none());
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_native_tool_response_with_error() {
   let response = NativeToolResponse {
@@ -144,6 +147,7 @@ fn test_native_tool_response_with_error() {
   assert_eq!(response.error, Some("Tool failed".to_string()));
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_js_tool_invocation_function_payload() {
   let invocation = JsToolInvocation {
@@ -159,6 +163,7 @@ fn test_js_tool_invocation_function_payload() {
   assert!(invocation.input.is_none());
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_js_tool_invocation_custom_payload() {
   let invocation = JsToolInvocation {
@@ -174,6 +179,7 @@ fn test_js_tool_invocation_custom_payload() {
   assert_eq!(invocation.input, Some("raw input".to_string()));
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_clear_registered_tools() {
   let result = clear_registered_tools();

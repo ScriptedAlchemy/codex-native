@@ -1,5 +1,25 @@
 import type { StreamEvent } from "./types";
 
+type UsageObject = {
+  inputTokensDetails?: Array<Record<string, number>>;
+  outputTokensDetails?: Array<Record<string, number>>;
+  requests?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
+
+type ModelEvent = {
+  type?: string;
+  delta?: string;
+  reasoning?: string;
+  error?: { message?: string };
+  name?: string;
+  input?: unknown;
+  output?: unknown;
+  status?: string;
+};
+
 export type ToolCallEvent = {
   name?: string;
   input?: unknown;
@@ -71,7 +91,7 @@ export async function formatStream(
         options.onUpdate?.({ text: state.text });
         break;
       case "model": {
-        const e = (event as any).event;
+        const e = (event as { event?: unknown }).event as ModelEvent;
         if (e && typeof e === "object") {
           if (e.type === "reasoning_delta" && typeof e.delta === "string") {
             state.reasoning += e.delta;
@@ -89,7 +109,7 @@ export async function formatStream(
               name: e.name,
               input: e.input,
               output: e.output,
-              status: e.status,
+              status: e.status === "started" || e.status === "completed" ? e.status : undefined,
             });
             options.onUpdate?.({ toolCalls: state.toolCalls.slice() });
           }
@@ -100,7 +120,7 @@ export async function formatStream(
         state.responseId = event.response.id;
         // Normalize usage into a plain object and compute cachedTokens if present
         {
-          const u = event.response.usage;
+          const u = event.response.usage as UsageObject;
           // Merge details arrays (agents-core uses arrays for details)
           const mergeDetails = (arr?: Array<Record<string, number>>): Record<string, number> | undefined => {
             if (!arr || arr.length === 0) return undefined;
@@ -112,13 +132,13 @@ export async function formatStream(
             }
             return out;
           };
-          const inputDetails = mergeDetails((u as any).inputTokensDetails);
-          const outputDetails = mergeDetails((u as any).outputTokensDetails);
+          const inputDetails = mergeDetails(u.inputTokensDetails);
+          const outputDetails = mergeDetails(u.outputTokensDetails);
           state.usage = {
-            requests: (u as any).requests,
-            inputTokens: (u as any).inputTokens ?? 0,
-            outputTokens: (u as any).outputTokens ?? 0,
-            totalTokens: (u as any).totalTokens ?? 0,
+            requests: u.requests,
+            inputTokens: u.inputTokens ?? 0,
+            outputTokens: u.outputTokens ?? 0,
+            totalTokens: u.totalTokens ?? 0,
             inputTokensDetails: inputDetails,
             outputTokensDetails: outputDetails,
           };

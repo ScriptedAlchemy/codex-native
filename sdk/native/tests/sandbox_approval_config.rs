@@ -61,6 +61,7 @@ fn test_run_request_approval_mode_never() {
     thread_id: None,
     images: None,
     model: None,
+    oss: None,
     sandbox_mode: Some("workspace-write".to_string()),
     approval_mode: Some("never".to_string()),
     workspace_write_options: None,
@@ -71,6 +72,8 @@ fn test_run_request_approval_mode_never() {
     api_key: None,
     linux_sandbox_path: None,
     full_auto: None,
+    review_mode: None,
+    review_hint: None,
   };
 
   assert_eq!(req.approval_mode, Some("never".to_string()));
@@ -87,6 +90,7 @@ fn test_run_request_all_approval_modes() {
       thread_id: None,
       images: None,
       model: None,
+      oss: None,
       sandbox_mode: None,
       approval_mode: Some(mode.to_string()),
       workspace_write_options: None,
@@ -97,6 +101,8 @@ fn test_run_request_all_approval_modes() {
       api_key: None,
       linux_sandbox_path: None,
       full_auto: None,
+      review_mode: None,
+      review_hint: None,
     };
 
     assert_eq!(req.approval_mode, Some(mode.to_string()));
@@ -118,6 +124,7 @@ fn test_run_request_with_workspace_write_options() {
     thread_id: None,
     images: None,
     model: Some("gpt-5-codex".to_string()),
+    oss: None,
     sandbox_mode: Some("workspace-write".to_string()),
     approval_mode: Some("on-request".to_string()),
     workspace_write_options: Some(opts),
@@ -128,6 +135,8 @@ fn test_run_request_with_workspace_write_options() {
     api_key: None,
     linux_sandbox_path: None,
     full_auto: Some(false),
+    review_mode: None,
+    review_hint: None,
   };
 
   assert_eq!(req.model, Some("gpt-5-codex".to_string()));
@@ -145,6 +154,7 @@ fn test_run_request_combined_network_approval() {
     thread_id: None,
     images: None,
     model: None,
+    oss: None,
     sandbox_mode: Some("workspace-write".to_string()),
     approval_mode: Some("never".to_string()),
     workspace_write_options: Some(WorkspaceWriteOptions {
@@ -160,6 +170,8 @@ fn test_run_request_combined_network_approval() {
     api_key: None,
     linux_sandbox_path: None,
     full_auto: None,
+    review_mode: None,
+    review_hint: None,
   };
 
   assert_eq!(req.sandbox_mode, Some("workspace-write".to_string()));
@@ -178,6 +190,7 @@ fn test_run_request_with_writable_roots() {
     thread_id: None,
     images: None,
     model: None,
+    oss: None,
     sandbox_mode: Some("workspace-write".to_string()),
     approval_mode: None,
     workspace_write_options: Some(WorkspaceWriteOptions {
@@ -193,6 +206,8 @@ fn test_run_request_with_writable_roots() {
     api_key: None,
     linux_sandbox_path: None,
     full_auto: None,
+    review_mode: None,
+    review_hint: None,
   };
 
   assert!(req.workspace_write_options.is_some());
@@ -208,6 +223,7 @@ fn test_run_request_with_tmpdir_exclusions() {
     thread_id: None,
     images: None,
     model: None,
+    oss: None,
     sandbox_mode: Some("workspace-write".to_string()),
     approval_mode: None,
     workspace_write_options: Some(WorkspaceWriteOptions {
@@ -223,6 +239,8 @@ fn test_run_request_with_tmpdir_exclusions() {
     api_key: None,
     linux_sandbox_path: None,
     full_auto: None,
+    review_mode: None,
+    review_hint: None,
   };
 
   assert!(req.workspace_write_options.is_some());
@@ -239,6 +257,7 @@ fn test_run_request_read_only_with_approval() {
     thread_id: None,
     images: None,
     model: None,
+    oss: None,
     sandbox_mode: Some("read-only".to_string()),
     approval_mode: Some("on-request".to_string()),
     workspace_write_options: None,
@@ -249,6 +268,8 @@ fn test_run_request_read_only_with_approval() {
     api_key: None,
     linux_sandbox_path: None,
     full_auto: None,
+    review_mode: None,
+    review_hint: None,
   };
 
   assert_eq!(req.sandbox_mode, Some("read-only".to_string()));
@@ -263,6 +284,7 @@ fn test_run_request_danger_full_access() {
     thread_id: None,
     images: None,
     model: None,
+    oss: None,
     sandbox_mode: Some("danger-full-access".to_string()),
     approval_mode: Some("never".to_string()),
     workspace_write_options: None,
@@ -273,6 +295,8 @@ fn test_run_request_danger_full_access() {
     api_key: None,
     linux_sandbox_path: None,
     full_auto: None,
+    review_mode: None,
+    review_hint: None,
   };
 
   assert_eq!(req.sandbox_mode, Some("danger-full-access".to_string()));

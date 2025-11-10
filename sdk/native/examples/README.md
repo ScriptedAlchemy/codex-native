@@ -171,7 +171,7 @@ node dist-examples/examples/basic/streaming-deltas.js
 
 - **Main README**: `../README.md` — Full SDK documentation
 - **Agents Guide**: `../AGENTS.md` — OpenAI Agents integration details
-- **API Docs**: TypeScript definitions in `../dist/index.d.mts`
+- **API Docs**: TypeScript definitions in `../dist/index.d.ts`
 
 ## Contributing
 

@@ -292,7 +292,7 @@ pub(crate) mod tools {
     /// Responses API.
     #[derive(Debug, Clone, Serialize, PartialEq)]
     #[serde(tag = "type")]
-    pub(crate) enum ToolSpec {
+    pub enum ToolSpec {
         #[serde(rename = "function")]
         Function(ResponsesApiTool),
         #[serde(rename = "local_shell")]

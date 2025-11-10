@@ -1012,7 +1012,10 @@ pub(crate) fn build_specs(
         let externals = take_pending_external_tools();
         for reg in externals {
             // Push spec and register handler (overwrites builtin if same name).
-            builder.push_spec_with_parallel_support(reg.spec.clone(), reg.supports_parallel_tool_calls);
+            builder.push_spec_with_parallel_support(
+                reg.spec.clone(),
+                reg.supports_parallel_tool_calls,
+            );
             builder.register_handler(reg.spec.name().to_string(), reg.handler.clone());
         }
         let interceptors = take_pending_external_interceptors();

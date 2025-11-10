@@ -1,5 +1,8 @@
-use codex_core::protocol::{Event, EventMsg, TokenUsage};
-use codex_exec::exec_events::{ThreadEvent, ThreadItemDetails};
+use codex_core::protocol::Event;
+use codex_core::protocol::EventMsg;
+use codex_core::protocol::TokenUsage;
+use codex_exec::exec_events::ThreadEvent;
+use codex_exec::exec_events::ThreadItemDetails;
 use codex_native::*;
 use pretty_assertions::assert_eq;
 
@@ -24,7 +27,9 @@ fn test_review_event_collector_task_started() {
   let mut collector = ReviewEventCollector::new();
   let event = Event {
     id: "1".to_string(),
-    msg: EventMsg::TaskStarted(codex_core::protocol::TaskStartedEvent { task_id: 1 }),
+    msg: EventMsg::TaskStarted(codex_core::protocol::TaskStartedEvent {
+      model_context_window: None,
+    }),
   };
 
   let events = collector.handle(&event);
@@ -145,15 +150,16 @@ fn test_review_event_collector_token_count() {
           reasoning_output_tokens: 0,
           total_tokens: 175,
         },
-        this_turn_token_usage: TokenUsage {
+        last_token_usage: TokenUsage {
           input_tokens: 0,
           cached_input_tokens: 0,
           output_tokens: 0,
           reasoning_output_tokens: 0,
           total_tokens: 0,
         },
-        estimated_cost: None,
+        model_context_window: None,
       }),
+      rate_limits: None,
     }),
   };
 

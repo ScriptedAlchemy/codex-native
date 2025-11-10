@@ -37,6 +37,7 @@ export { Codex } from "./codex";
 export type { CodexOptions, NativeToolDefinition } from "./codexOptions";
 export type { NativeToolInterceptorContext } from "./codex";
 export type { NativeToolInvocation, NativeToolResult } from "./nativeBinding";
+export type { ApprovalRequest } from "./nativeBinding";
 
 export type { ThreadOptions, ApprovalMode, SandboxMode } from "./threadOptions";
 export type { TurnOptions } from "./turnOptions";
@@ -65,3 +66,37 @@ export type {
   CloudApplyStatus,
   DiffSummary as CloudDiffSummary,
 } from "./cloudTasks";
+
+// SSE test helpers (exposed for TypeScript tests)
+// Re-export the native binding functions directly
+import { getNativeBinding } from "./nativeBinding";
+
+export function evCompleted(id: string): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evCompleted(id);
+}
+
+export function evResponseCreated(id: string): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evResponseCreated(id);
+}
+
+export function evAssistantMessage(id: string, text: string): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evAssistantMessage(id, text);
+}
+
+export function evFunctionCall(callId: string, name: string, args: string): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evFunctionCall(callId, name, args);
+}
+
+export function sse(events: string[]): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).sse(events);
+}

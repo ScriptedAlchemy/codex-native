@@ -84,16 +84,23 @@ mod user_notification;
 pub mod util;
 
 // Minimal public re-exports required by native bindings
-pub use function_tool::FunctionCallError;
-pub use tools::context::{ToolInvocation, ToolOutput, ToolPayload};
-pub use tools::registry::{
-    ExternalInterceptorRegistration, ExternalToolRegistration, ToolHandler, ToolKind,
-    set_pending_external_interceptors, set_pending_external_tools,
-};
 pub use apply_patch::CODEX_APPLY_PATCH_ARG1;
+pub use client_common::tools::ToolSpec;
 pub use command_safety::is_safe_command;
+pub use function_tool::FunctionCallError;
 pub use safety::get_platform_sandbox;
 pub use safety::set_windows_sandbox_enabled;
+pub use tools::context::ToolInvocation;
+pub use tools::context::ToolOutput;
+pub use tools::context::ToolPayload;
+pub use tools::registry::ExternalInterceptorRegistration;
+pub use tools::registry::ExternalToolRegistration;
+pub use tools::registry::ToolHandler;
+pub use tools::registry::ToolInterceptor;
+pub use tools::registry::ToolKind;
+pub use tools::registry::set_pending_external_interceptors;
+pub use tools::registry::set_pending_external_tools;
+pub use tools::spec::create_function_tool_spec_from_schema;
 // Re-export the protocol types from the standalone `codex-protocol` crate so existing
 // `codex_core::protocol::...` references continue to work across the workspace.
 pub use codex_protocol::protocol;

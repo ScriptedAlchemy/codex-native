@@ -6,12 +6,15 @@
 
 mod cli;
 mod event_processor;
-mod event_processor_with_human_output;
 mod event_processor_bridge;
+mod event_processor_with_human_output;
 pub mod event_processor_with_jsonl_output;
 pub mod exec_events;
 
-pub use cli::{Cli, Color, Command, ResumeArgs};
+pub use cli::Cli;
+pub use cli::Color;
+pub use cli::Command;
+pub use cli::ResumeArgs;
 use codex_core::AuthManager;
 use codex_core::BUILT_IN_OSS_MODEL_PROVIDER_ID;
 use codex_core::ConversationManager;
@@ -376,7 +379,7 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
 pub async fn run_with_thread_event_callback<F>(
     cli: Cli,
     codex_linux_sandbox_exe: Option<PathBuf>,
-    mut callback: F,
+    callback: F,
 ) -> anyhow::Result<()>
 where
     F: FnMut(exec_events::ThreadEvent) + Send + 'static,
@@ -436,7 +439,7 @@ where
 
     let output_schema = load_output_schema(output_schema_path);
 
-    let (stdout_with_ansi, stderr_with_ansi) = match color {
+    let (_stdout_with_ansi, stderr_with_ansi) = match color {
         cli::Color::Always => (true, true),
         cli::Color::Never => (false, false),
         cli::Color::Auto => (
@@ -500,7 +503,8 @@ where
             std::process::exit(1);
         }
     };
-    let config = codex_core::config::Config::load_with_cli_overrides(cli_kv_overrides, overrides).await?;
+    let config =
+        codex_core::config::Config::load_with_cli_overrides(cli_kv_overrides, overrides).await?;
     if let Err(err) = codex_core::auth::enforce_login_restrictions(&config).await {
         eprintln!("{err}");
         std::process::exit(1);
@@ -516,9 +520,13 @@ where
         }
     };
     if let Some(provider) = otel.as_ref() {
-        let otel_layer = OpenTelemetryTracingBridge::new(&provider.logger)
-            .with_filter(tracing_subscriber::filter::filter_fn(codex_core::otel_init::codex_export_filter));
-        let _ = tracing_subscriber::registry().with(fmt_layer).with(otel_layer).try_init();
+        let otel_layer = OpenTelemetryTracingBridge::new(&provider.logger).with_filter(
+            tracing_subscriber::filter::filter_fn(codex_core::otel_init::codex_export_filter),
+        );
+        let _ = tracing_subscriber::registry()
+            .with(fmt_layer)
+            .with(otel_layer)
+            .try_init();
     } else {
         let _ = tracing_subscriber::registry().with(fmt_layer).try_init();
     }
@@ -540,9 +548,11 @@ where
         true,
         config.cli_auth_credentials_store_mode,
     );
-    let conversation_manager = codex_core::ConversationManager::new(auth_manager.clone(), codex_core::protocol::SessionSource::Exec);
+    let conversation_manager = codex_core::ConversationManager::new(
+        auth_manager.clone(),
+        codex_core::protocol::SessionSource::Exec,
+    );
 
-    let codex_linux_sandbox_exe = config.codex_linux_sandbox_exe.clone();
     // Handle resume subcommand similar to run_main
     let codex_core::NewConversation {
         conversation_id: _,
@@ -555,14 +565,18 @@ where
                 .resume_conversation_from_rollout(config.clone(), path, auth_manager.clone())
                 .await?
         } else {
-            conversation_manager.new_conversation(config.clone()).await?
+            conversation_manager
+                .new_conversation(config.clone())
+                .await?
         }
     } else {
-        conversation_manager.new_conversation(config.clone()).await?
+        conversation_manager
+            .new_conversation(config.clone())
+            .await?
     };
 
     let mut event_processor: Box<dyn crate::event_processor::EventProcessor> =
-        callback_event_processor(Box::new(move |e| callback(e)), last_message_file.clone());
+        callback_event_processor(Box::new(callback), last_message_file.clone());
 
     // Print effective configuration
     event_processor.print_config_summary(&config, &prompt, &session_configured);
@@ -570,7 +584,9 @@ where
     let prompt_items: Vec<codex_protocol::user_input::UserInput> = images
         .into_iter()
         .map(|path| codex_protocol::user_input::UserInput::LocalImage { path })
-        .chain(std::iter::once(codex_protocol::user_input::UserInput::Text { text: prompt }))
+        .chain(std::iter::once(
+            codex_protocol::user_input::UserInput::Text { text: prompt },
+        ))
         .collect();
 
     let task_id = conversation
