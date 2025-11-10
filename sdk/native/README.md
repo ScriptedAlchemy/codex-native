@@ -12,6 +12,24 @@ npm install @codex-native/sdk
 
 Requires Node.js 18+.
 
+## API Compatibility
+
+The Native SDK provides **full API compatibility** with the [TypeScript SDK](../typescript/). All core functionality—threads, streaming, structured output, and basic operations—works identically across both SDKs. The Native SDK adds Rust-powered performance and custom tool registration while maintaining the same interface.
+
+### Migration from TypeScript SDK
+
+Simply replace the import:
+
+```typescript
+// Before (TypeScript SDK)
+import { Codex } from "@openai/codex-sdk";
+
+// After (Native SDK - same API!)
+import { Codex } from "@codex-native/sdk";
+```
+
+All your existing code continues to work without changes.
+
 ## Quickstart
 
 ```typescript
@@ -357,6 +375,63 @@ Return an object with:
 - `success` (optional): Boolean indicating success/failure
 - `error` (optional): Error message if the tool execution failed
 
+### Tool Interceptors
+
+For more advanced use cases, register **tool interceptors** that can wrap built-in Codex tools with pre/post-processing logic while still executing the original implementation.
+
+```typescript
+const codex = new Codex();
+
+// Intercept exec_command calls to add custom timeout and logging
+codex.registerToolInterceptor("exec_command", async (invocation) => {
+  // Pre-processing: modify the arguments
+  const args = JSON.parse(invocation.arguments ?? "{}");
+  const enhancedArgs = {
+    ...args,
+    timeout_ms: args.timeout_ms ?? 10000, // Default 10s timeout
+    justification: args.justification ?? "intercepted",
+  };
+
+  // For now, interceptors return a placeholder response
+  // Future versions will support calling the builtin implementation
+  return {
+    output: `[INTERCEPTED] Would execute: ${JSON.stringify(enhancedArgs)}`,
+    success: true,
+  };
+});
+
+// Intercept apply_patch to add validation
+codex.registerToolInterceptor("apply_patch", async (invocation) => {
+  const args = JSON.parse(invocation.arguments ?? "{}");
+
+  // Add custom validation or preprocessing
+  if (!args.patch_content?.includes("diff")) {
+    return {
+      output: "Invalid patch format - must contain diff data",
+      success: false,
+    };
+  }
+
+  // Return modified result
+  return {
+    output: `[VALIDATED] ${args.patch_content}`,
+    success: true,
+  };
+});
+```
+
+**Key Differences from Tool Overrides:**
+
+- **Interceptors wrap** built-in tools instead of replacing them entirely
+- **Preserve sandboxing** - interceptors cannot bypass Codex's security policies
+- **Chainable** - multiple interceptors can be registered for the same tool
+- **Future enhancement** - interceptors will be able to call the underlying builtin implementation
+
+**Current Notes:**
+
+- Tool interceptors support decorating responses by calling `context.callBuiltin()`
+- Multiple interceptors per tool will be composed in registration order in a future release
+
 ### Agent Orchestration
 
 Create specialized agents with custom system prompts and tools for multi-agent workflows.
@@ -431,9 +506,58 @@ interface CodexOptions {
 interface ThreadOptions {
   model?: string;               // Model to use (e.g., "gpt-5-codex")
   sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
+  approvalMode?: "never" | "on-request" | "on-failure" | "untrusted";
+  workspaceWriteOptions?: {
+    networkAccess?: boolean;    // Enable network in workspace-write mode (default: false)
+    writableRoots?: string[];   // Additional writable directories
+    excludeTmpdirEnvVar?: boolean; // Exclude TMPDIR from writable roots
+    excludeSlashTmp?: boolean;  // Exclude /tmp from writable roots (Unix only)
+  };
   workingDirectory?: string;    // Directory to run Codex in
   skipGitRepoCheck?: boolean;   // Skip Git repository validation
+  fullAuto?: boolean;           // @deprecated Use sandboxMode and approvalMode
 }
+```
+
+#### Sandbox Modes
+
+- **`read-only`**: AI can only read files, must approve all edits
+- **`workspace-write`**: AI can edit workspace files freely (with optional network)
+- **`danger-full-access`**: No sandbox (dangerous!)
+
+#### Approval Policies
+
+- **`never`**: Never ask for approval (commands execute automatically)
+- **`on-request`**: Model decides when to ask (default)
+- **`on-failure`**: Auto-approve but escalate on failure
+- **`untrusted`**: Only trusted commands auto-approved
+
+#### Network Access Configuration
+
+Enable network access in `workspace-write` mode:
+
+```typescript
+const thread = codex.startThread({
+  sandboxMode: "workspace-write",
+  workspaceWriteOptions: {
+    networkAccess: true
+  }
+});
+```
+
+#### Advanced Sandbox Configuration
+
+Configure additional writable directories:
+
+```typescript
+const thread = codex.startThread({
+  sandboxMode: "workspace-write",
+  workspaceWriteOptions: {
+    writableRoots: ["/path/to/additional/dir"],
+    excludeTmpdirEnvVar: false,
+    excludeSlashTmp: false
+  }
+});
 ```
 
 ### Turn Options

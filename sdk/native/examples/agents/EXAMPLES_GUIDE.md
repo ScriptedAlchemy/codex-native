@@ -196,14 +196,13 @@ Agents are defined with:
 - **name**: Agent identifier
 - **model**: The model to use (from CodexProvider)
 - **instructions**: System prompt/guidelines
-- **outputSchema**: Optional structured output schema
+- Optionally configure structured output at call time via `outputType`
 
 ```typescript
 const agent = new Agent({
   name: 'CodeAnalyzer',
   model: codexModel,
   instructions: 'You are an expert code analyzer...',
-  outputSchema: AnalysisSchema, // Optional
 });
 ```
 
@@ -213,7 +212,13 @@ Two main patterns:
 
 **Buffered execution:**
 ```typescript
-const result = await run(agent, userInput);
+const result = await run(agent, userInput, {
+  // Use OpenAI-style wrapper or a plain JSON schema object
+  outputType: {
+    type: 'json_schema',
+    json_schema: { name: 'Analysis', strict: true, schema: AnalysisSchema }
+  }
+});
 console.log(result.finalOutput);
 ```
 
@@ -266,14 +271,11 @@ const ResultSchema = z.object({
   data: z.array(z.string()),
 });
 
-const agent = new Agent({
-  name: 'Processor',
-  model: codexModel,
-  instructions: '...',
-  outputSchema: ResultSchema,
-});
+const agent = new Agent({ name: 'Processor', model: codexModel, instructions: '...' });
 
-const result = await run(agent, input);
+const result = await run(agent, input, {
+  outputType: ResultSchema, // or the OpenAI-style wrapper shown above
+});
 const parsed = JSON.parse(result.finalOutput);
 // parsed is now type-safe!
 ```
@@ -362,7 +364,7 @@ async function processWithGuardrails(input: string) {
 - Example: See `multi-agent-handoffs.ts` for good instruction patterns
 
 **Issue: Output format is inconsistent**
-- Solution: Use `outputSchema` with Zod for structured output
+- Solution: Use `outputType` (plain JSON schema or json_schema wrapper). Zod schemas should be converted to JSON schema.
 - Example: See `structured-output.ts`
 
 **Issue: Context not preserved across turns**

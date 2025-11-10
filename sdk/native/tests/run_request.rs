@@ -9,6 +9,10 @@ fn test_run_request_default_values() {
     thread_id: None,
     images: None,
     model: None,
+    oss: None,
+    sandbox_mode: None,
+    approval_mode: None,
+    workspace_write_options: None,
     sandbox_mode: None,
     working_directory: None,
     skip_git_repo_check: None,
@@ -41,6 +45,11 @@ fn test_run_request_with_all_fields() {
     prompt: "complex request".to_string(),
     thread_id: Some("thread-123".to_string()),
     images: Some(vec!["/path/to/image.png".to_string()]),
+    model: Some("gpt-5-codex".to_string()),
+    oss: Some(true),
+    sandbox_mode: Some("workspace-write".to_string()),
+    approval_mode: Some("never".to_string()),
+    workspace_write_options: None,
     model: Some("gpt-4".to_string()),
     sandbox_mode: Some("workspace-write".to_string()),
     working_directory: Some("/workspace".to_string()),
@@ -57,6 +66,10 @@ fn test_run_request_with_all_fields() {
   assert_eq!(req.prompt, "complex request");
   assert_eq!(req.thread_id, Some("thread-123".to_string()));
   assert_eq!(req.images, Some(vec!["/path/to/image.png".to_string()]));
+  assert_eq!(req.model, Some("gpt-5-codex".to_string()));
+  assert_eq!(req.sandbox_mode, Some("workspace-write".to_string()));
+  assert_eq!(req.oss, Some(true));
+  assert_eq!(req.approval_mode, Some("never".to_string()));
   assert_eq!(req.model, Some("gpt-4".to_string()));
   assert_eq!(req.sandbox_mode, Some("workspace-write".to_string()));
   assert_eq!(req.full_auto, Some(true));
@@ -70,6 +83,10 @@ fn test_run_request_review_mode() {
     thread_id: None,
     images: None,
     model: None,
+    oss: None,
+    sandbox_mode: None,
+    approval_mode: None,
+    workspace_write_options: None,
     sandbox_mode: None,
     working_directory: None,
     skip_git_repo_check: None,
@@ -86,6 +103,7 @@ fn test_run_request_review_mode() {
   assert_eq!(req.review_hint, Some("security review".to_string()));
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_native_tool_info_construction() {
   let tool_info = NativeToolInfo {
@@ -107,6 +125,7 @@ fn test_native_tool_info_construction() {
   assert_eq!(tool_info.supports_parallel, Some(false));
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_native_tool_response_construction() {
   let response = NativeToolResponse {
@@ -120,6 +139,7 @@ fn test_native_tool_response_construction() {
   assert!(response.error.is_none());
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_native_tool_response_with_error() {
   let response = NativeToolResponse {
@@ -133,6 +153,7 @@ fn test_native_tool_response_with_error() {
   assert_eq!(response.error, Some("Tool failed".to_string()));
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_js_tool_invocation_function_payload() {
   let invocation = JsToolInvocation {
@@ -148,6 +169,7 @@ fn test_js_tool_invocation_function_payload() {
   assert!(invocation.input.is_none());
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_js_tool_invocation_custom_payload() {
   let invocation = JsToolInvocation {
@@ -163,6 +185,7 @@ fn test_js_tool_invocation_custom_payload() {
   assert_eq!(invocation.input, Some("raw input".to_string()));
 }
 
+#[cfg(feature = "napi-bindings")]
 #[test]
 fn test_clear_registered_tools() {
   let result = clear_registered_tools();
@@ -179,6 +202,10 @@ fn test_sandbox_mode_values() {
       thread_id: None,
       images: None,
       model: None,
+      oss: None,
+      sandbox_mode: Some(mode.to_string()),
+      approval_mode: None,
+      workspace_write_options: None,
       sandbox_mode: Some(mode.to_string()),
       working_directory: None,
       skip_git_repo_check: None,

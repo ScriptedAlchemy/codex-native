@@ -11,7 +11,6 @@ mod event_processor_with_human_output;
 pub mod event_processor_with_jsonl_output;
 pub mod exec_events;
 
-use anyhow::anyhow;
 pub use cli::Cli;
 pub use cli::Color;
 pub use cli::Command;
@@ -39,8 +38,6 @@ use serde_json::Value;
 use std::io::IsTerminal;
 use std::io::Read;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::Mutex as StdMutex;
 use supports_color::Stream;
 use tracing::debug;
 use tracing::error;
@@ -55,23 +52,7 @@ use crate::event_processor_bridge::callback_event_processor;
 use codex_core::default_client::set_default_originator;
 use codex_core::find_conversation_path_by_id_str;
 
-type EventProcessorBuilder =
-    Box<dyn Fn(bool, bool, &Config, Option<PathBuf>) -> Box<dyn EventProcessor> + Send>;
-
-fn exit_or_error<T>(exit_on_error: bool, message: impl Into<String>) -> anyhow::Result<T> {
-    if exit_on_error {
-        std::process::exit(1);
-    } else {
-        Err(anyhow!(message.into()))
-    }
-}
-
-async fn run_internal(
-    cli: Cli,
-    codex_linux_sandbox_exe: Option<PathBuf>,
-    event_processor_builder: EventProcessorBuilder,
-    exit_on_error: bool,
-) -> anyhow::Result<()> {
+pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
     if let Err(err) = set_default_originator("codex_exec".to_string()) {
         tracing::warn!(?err, "Failed to set codex exec originator override {err:?}");
     }
@@ -115,10 +96,7 @@ async fn run_internal(
                 eprintln!(
                     "No prompt provided. Either specify one as an argument or pipe the prompt into stdin."
                 );
-                return exit_or_error(
-                    exit_on_error,
-                    "No prompt provided. Either specify one as an argument or pipe the prompt into stdin.",
-                );
+                std::process::exit(1);
             }
 
             // Ensure the user knows we are waiting on stdin, as they may
@@ -131,19 +109,16 @@ async fn run_internal(
             let mut buffer = String::new();
             if let Err(e) = std::io::stdin().read_to_string(&mut buffer) {
                 eprintln!("Failed to read prompt from stdin: {e}");
-                return exit_or_error(
-                    exit_on_error,
-                    format!("Failed to read prompt from stdin: {e}"),
-                );
+                std::process::exit(1);
             } else if buffer.trim().is_empty() {
                 eprintln!("No prompt provided via stdin.");
-                return exit_or_error(exit_on_error, "No prompt provided via stdin.");
+                std::process::exit(1);
             }
             buffer
         }
     };
 
-    let output_schema = load_output_schema(output_schema_path, exit_on_error)?;
+    let output_schema = load_output_schema(output_schema_path);
 
     let (stdout_with_ansi, stderr_with_ansi) = match color {
         cli::Color::Always => (true, true),
@@ -217,7 +192,7 @@ async fn run_internal(
         Ok(v) => v,
         Err(e) => {
             eprintln!("Error parsing -c overrides: {e}");
-            return exit_or_error(exit_on_error, format!("Error parsing -c overrides: {e}"));
+            std::process::exit(1);
         }
     };
 
@@ -225,7 +200,7 @@ async fn run_internal(
 
     if let Err(err) = enforce_login_restrictions(&config).await {
         eprintln!("{err}");
-        return exit_or_error(exit_on_error, err.to_string());
+        std::process::exit(1);
     }
 
     let otel = codex_core::otel_init::build_provider(&config, env!("CARGO_PKG_VERSION"));
@@ -235,10 +210,7 @@ async fn run_internal(
         Ok(otel) => otel,
         Err(e) => {
             eprintln!("Could not create otel exporter: {e}");
-            return exit_or_error(
-                exit_on_error,
-                format!("Could not create otel exporter: {e}"),
-            );
+            std::process::exit(1);
         }
     };
 
@@ -255,12 +227,14 @@ async fn run_internal(
         let _ = tracing_subscriber::registry().with(fmt_layer).try_init();
     }
 
-    let mut event_processor = event_processor_builder(
-        json_mode,
-        stdout_with_ansi,
-        &config,
-        last_message_file.clone(),
-    );
+    let mut event_processor: Box<dyn EventProcessor> = match json_mode {
+        true => Box::new(EventProcessorWithJsonOutput::new(last_message_file.clone())),
+        _ => Box::new(EventProcessorWithHumanOutput::create_with_ansi(
+            stdout_with_ansi,
+            &config,
+            last_message_file.clone(),
+        )),
+    };
 
     if oss {
         codex_ollama::ensure_oss_ready(&config)
@@ -277,10 +251,7 @@ async fn run_internal(
 
     if !skip_git_repo_check && get_git_repo_root(&default_cwd).is_none() {
         eprintln!("Not inside a trusted directory and --skip-git-repo-check was not specified.");
-        return exit_or_error(
-            exit_on_error,
-            "Not inside a trusted directory and --skip-git-repo-check was not specified.",
-        );
+        std::process::exit(1);
     }
 
     let auth_manager = AuthManager::shared(
@@ -398,32 +369,13 @@ async fn run_internal(
     }
     event_processor.print_final_output();
     if error_seen {
-        return exit_or_error(exit_on_error, "Execution failed due to reported errors.");
+        std::process::exit(1);
     }
 
     Ok(())
 }
 
-pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
-    run_internal(
-        cli,
-        codex_linux_sandbox_exe,
-        Box::new(|json_mode, stdout_with_ansi, config, last_message_file| {
-            if json_mode {
-                Box::new(EventProcessorWithJsonOutput::new(last_message_file))
-            } else {
-                Box::new(EventProcessorWithHumanOutput::create_with_ansi(
-                    stdout_with_ansi,
-                    config,
-                    last_message_file,
-                ))
-            }
-        }),
-        true,
-    )
-    .await
-}
-
+/// Run codex-exec with a callback that receives each streamed ThreadEvent.
 pub async fn run_with_thread_event_callback<F>(
     cli: Cli,
     codex_linux_sandbox_exe: Option<PathBuf>,
@@ -432,26 +384,268 @@ pub async fn run_with_thread_event_callback<F>(
 where
     F: FnMut(exec_events::ThreadEvent) + Send + 'static,
 {
-    let shared_callback = Arc::new(StdMutex::new(callback));
-    run_internal(
-        cli,
-        codex_linux_sandbox_exe,
-        Box::new(
-            move |_json_mode, _stdout_with_ansi, _config, last_message_file| {
-                let cb_clone = Arc::clone(&shared_callback);
-                callback_event_processor(
-                    Box::new(move |event| {
-                        if let Ok(mut cb) = cb_clone.lock() {
-                            (*cb)(event);
-                        }
-                    }),
-                    last_message_file,
-                )
-            },
+    if let Err(err) = set_default_originator("codex_exec".to_string()) {
+        tracing::warn!(?err, "Failed to set codex exec originator override {err:?}");
+    }
+
+    let Cli {
+        command,
+        images,
+        model: model_cli_arg,
+        oss,
+        config_profile,
+        full_auto,
+        dangerously_bypass_approvals_and_sandbox,
+        cwd,
+        skip_git_repo_check,
+        color,
+        last_message_file,
+        json: _json_mode,
+        sandbox_mode: sandbox_mode_cli_arg,
+        prompt,
+        output_schema: output_schema_path,
+        config_overrides,
+    } = cli;
+
+    let prompt_arg = match &command {
+        Some(cli::Command::Resume(args)) => args.prompt.clone().or(prompt),
+        None => prompt,
+    };
+
+    let prompt = match prompt_arg {
+        Some(p) if p != "-" => p,
+        maybe_dash => {
+            let force_stdin = matches!(maybe_dash.as_deref(), Some("-"));
+            if std::io::stdin().is_terminal() && !force_stdin {
+                eprintln!(
+                    "No prompt provided. Either specify one as an argument or pipe the prompt into stdin."
+                );
+                std::process::exit(1);
+            }
+            if !force_stdin {
+                eprintln!("Reading prompt from stdin...");
+            }
+            let mut buffer = String::new();
+            if let Err(e) = std::io::stdin().read_to_string(&mut buffer) {
+                eprintln!("Failed to read prompt from stdin: {e}");
+                std::process::exit(1);
+            } else if buffer.trim().is_empty() {
+                eprintln!("No prompt provided via stdin.");
+                std::process::exit(1);
+            }
+            buffer
+        }
+    };
+
+    let output_schema = load_output_schema(output_schema_path);
+
+    let (_stdout_with_ansi, stderr_with_ansi) = match color {
+        cli::Color::Always => (true, true),
+        cli::Color::Never => (false, false),
+        cli::Color::Auto => (
+            supports_color::on_cached(Stream::Stdout).is_some(),
+            supports_color::on_cached(Stream::Stderr).is_some(),
         ),
-        false,
-    )
-    .await
+    };
+
+    let default_level = "error";
+    let env_filter = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new(default_level))
+        .unwrap_or_else(|_| EnvFilter::new(default_level));
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_ansi(stderr_with_ansi)
+        .with_writer(std::io::stderr)
+        .with_filter(env_filter);
+
+    let sandbox_mode = if full_auto {
+        Some(codex_protocol::config_types::SandboxMode::WorkspaceWrite)
+    } else if dangerously_bypass_approvals_and_sandbox {
+        Some(codex_protocol::config_types::SandboxMode::DangerFullAccess)
+    } else {
+        sandbox_mode_cli_arg.map(Into::<codex_protocol::config_types::SandboxMode>::into)
+    };
+
+    let model = if let Some(model) = model_cli_arg {
+        Some(model)
+    } else if oss {
+        Some(codex_ollama::DEFAULT_OSS_MODEL.to_owned())
+    } else {
+        None
+    };
+    let model_provider = if oss {
+        Some(codex_core::BUILT_IN_OSS_MODEL_PROVIDER_ID.to_string())
+    } else {
+        None
+    };
+
+    let overrides = codex_core::config::ConfigOverrides {
+        model,
+        review_model: None,
+        config_profile,
+        approval_policy: Some(codex_core::protocol::AskForApproval::Never),
+        sandbox_mode,
+        cwd: cwd.map(|p| p.canonicalize().unwrap_or(p)),
+        model_provider,
+        codex_linux_sandbox_exe,
+        base_instructions: None,
+        developer_instructions: None,
+        compact_prompt: None,
+        include_apply_patch_tool: None,
+        show_raw_agent_reasoning: oss.then_some(true),
+        tools_web_search_request: None,
+        experimental_sandbox_command_assessment: None,
+        additional_writable_roots: Vec::new(),
+    };
+    let cli_kv_overrides = match config_overrides.parse_overrides() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error parsing -c overrides: {e}");
+            std::process::exit(1);
+        }
+    };
+    let config =
+        codex_core::config::Config::load_with_cli_overrides(cli_kv_overrides, overrides).await?;
+    if let Err(err) = codex_core::auth::enforce_login_restrictions(&config).await {
+        eprintln!("{err}");
+        std::process::exit(1);
+    }
+
+    let otel = codex_core::otel_init::build_provider(&config, env!("CARGO_PKG_VERSION"));
+    #[allow(clippy::print_stderr)]
+    let otel = match otel {
+        Ok(otel) => otel,
+        Err(e) => {
+            eprintln!("Could not create otel exporter: {e}");
+            std::process::exit(1);
+        }
+    };
+    if let Some(provider) = otel.as_ref() {
+        let otel_layer = OpenTelemetryTracingBridge::new(&provider.logger).with_filter(
+            tracing_subscriber::filter::filter_fn(codex_core::otel_init::codex_export_filter),
+        );
+        let _ = tracing_subscriber::registry()
+            .with(fmt_layer)
+            .with(otel_layer)
+            .try_init();
+    } else {
+        let _ = tracing_subscriber::registry().with(fmt_layer).try_init();
+    }
+
+    if oss {
+        codex_ollama::ensure_oss_ready(&config)
+            .await
+            .map_err(|e| anyhow::anyhow!("OSS setup failed: {e}"))?;
+    }
+
+    let default_cwd = config.cwd.to_path_buf();
+    if !skip_git_repo_check && codex_core::git_info::get_git_repo_root(&default_cwd).is_none() {
+        eprintln!("Not inside a trusted directory and --skip-git-repo-check was not specified.");
+        std::process::exit(1);
+    }
+
+    let auth_manager = AuthManager::shared(
+        config.codex_home.clone(),
+        true,
+        config.cli_auth_credentials_store_mode,
+    );
+    let conversation_manager = codex_core::ConversationManager::new(
+        auth_manager.clone(),
+        codex_core::protocol::SessionSource::Exec,
+    );
+
+    // Handle resume subcommand similar to run_main
+    let codex_core::NewConversation {
+        conversation_id: _,
+        conversation,
+        session_configured,
+    } = if let Some(cli::Command::Resume(args)) = &command {
+        let resume_path = resolve_resume_path(&config, args).await?;
+        if let Some(path) = resume_path {
+            conversation_manager
+                .resume_conversation_from_rollout(config.clone(), path, auth_manager.clone())
+                .await?
+        } else {
+            conversation_manager
+                .new_conversation(config.clone())
+                .await?
+        }
+    } else {
+        conversation_manager
+            .new_conversation(config.clone())
+            .await?
+    };
+
+    let mut event_processor: Box<dyn crate::event_processor::EventProcessor> =
+        callback_event_processor(Box::new(callback), last_message_file.clone());
+
+    // Print effective configuration
+    event_processor.print_config_summary(&config, &prompt, &session_configured);
+
+    let prompt_items: Vec<codex_protocol::user_input::UserInput> = images
+        .into_iter()
+        .map(|path| codex_protocol::user_input::UserInput::LocalImage { path })
+        .chain(std::iter::once(
+            codex_protocol::user_input::UserInput::Text { text: prompt },
+        ))
+        .collect();
+
+    let task_id = conversation
+        .submit(codex_core::protocol::Op::UserTurn {
+            items: prompt_items,
+            cwd: default_cwd,
+            approval_policy: config.approval_policy,
+            sandbox_policy: config.sandbox_policy.clone(),
+            model: config.model.clone(),
+            effort: config.model_reasoning_effort,
+            summary: config.model_reasoning_summary,
+            final_output_json_schema: output_schema,
+        })
+        .await?;
+    info!("Sent prompt with event ID: {task_id}");
+
+    // Mirror run_main event loop with CTRL-C handling
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<codex_core::protocol::Event>();
+    {
+        let conversation = conversation.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {
+                        tracing::debug!("Keyboard interrupt");
+                        conversation.submit(codex_core::protocol::Op::Interrupt).await.ok();
+                        break;
+                    }
+                    res = conversation.next_event() => match res {
+                        Ok(event) => {
+                            let is_shutdown_complete = matches!(event.msg, codex_core::protocol::EventMsg::ShutdownComplete);
+                            if let Err(e) = tx.send(event) {
+                                error!("Error sending event: {e:?}");
+                                break;
+                            }
+                            if is_shutdown_complete {
+                                info!("Received shutdown event, exiting event loop.");
+                                break;
+                            }
+                        },
+                        Err(e) => {
+                            error!("Error receiving event: {e:?}");
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    while let Some(event) = rx.recv().await {
+        let shutdown = event_processor.process_event(event);
+        match shutdown {
+            crate::event_processor::CodexStatus::Running => continue,
+            crate::event_processor::CodexStatus::InitiateShutdown => break,
+            crate::event_processor::CodexStatus::Shutdown => break,
+        }
+    }
+    Ok(())
 }
 
 async fn resolve_resume_path(
@@ -484,11 +678,8 @@ async fn resolve_resume_path(
     }
 }
 
-fn load_output_schema(path: Option<PathBuf>, exit_on_error: bool) -> anyhow::Result<Option<Value>> {
-    let path = match path {
-        Some(p) => p,
-        None => return Ok(None),
-    };
+fn load_output_schema(path: Option<PathBuf>) -> Option<Value> {
+    let path = path?;
 
     let schema_str = match std::fs::read_to_string(&path) {
         Ok(contents) => contents,
@@ -497,30 +688,18 @@ fn load_output_schema(path: Option<PathBuf>, exit_on_error: bool) -> anyhow::Res
                 "Failed to read output schema file {}: {err}",
                 path.display()
             );
-            return exit_or_error(
-                exit_on_error,
-                format!(
-                    "Failed to read output schema file {}: {err}",
-                    path.display()
-                ),
-            );
+            std::process::exit(1);
         }
     };
 
     match serde_json::from_str::<Value>(&schema_str) {
-        Ok(value) => Ok(Some(value)),
+        Ok(value) => Some(value),
         Err(err) => {
             eprintln!(
                 "Output schema file {} is not valid JSON: {err}",
                 path.display()
             );
-            exit_or_error(
-                exit_on_error,
-                format!(
-                    "Output schema file {} is not valid JSON: {err}",
-                    path.display()
-                ),
-            )
+            std::process::exit(1);
         }
     }
 }

@@ -282,6 +282,7 @@ async function main() {
     skipGitRepoCheck: true,
   });
 
+  const codexModel = await codexProvider.getModel();
   setDefaultModelProvider(codexProvider);
 
   // ============================================================================
@@ -319,6 +320,10 @@ async function main() {
 
   const agentWithValidation = new Agent({
     name: 'ValidatedAgent',
+    model: codexModel,
+    instructions: 'You are a helpful assistant that only processes validated inputs.',
+    inputGuardrails: [inputValidationGuardrail],
+  });
     instructions: 'You are a helpful assistant that only processes validated inputs.',
     guardrails: [inputValidationGuardrail],
   } as any);
@@ -372,6 +377,10 @@ async function main() {
 
   const filteredAgent = new Agent({
     name: 'FilteredAgent',
+    model: codexModel,
+    instructions: 'You are a helpful assistant with content filtering enabled.',
+    inputGuardrails: [contentFilterGuardrail],
+  });
     instructions: 'You are a helpful assistant with content filtering enabled.',
     guardrails: [contentFilterGuardrail],
   } as any);
@@ -429,6 +438,10 @@ async function main() {
 
   const secureAgent = new Agent({
     name: 'SecureAgent',
+    model: codexModel,
+    instructions: 'You are a helpful assistant with security checks enabled.',
+    inputGuardrails: [securityGuardrail],
+  });
     instructions: 'You are a helpful assistant with security checks enabled.',
     guardrails: [securityGuardrail],
   } as any);
@@ -462,12 +475,16 @@ async function main() {
 
   const multiGuardrailAgent = new Agent({
     name: 'MultiGuardrailAgent',
+    model: codexModel,
+    instructions: 'You are a helpful assistant with multiple guardrails enabled.',
+    inputGuardrails: [
     instructions: 'You are a helpful assistant with multiple guardrails enabled.',
     guardrails: [
       inputValidationGuardrail,
       contentFilterGuardrail,
       securityGuardrail,
     ],
+  });
   } as any);
 
   console.log('\nTest: Input that passes all guardrails');
@@ -520,3 +537,4 @@ if (require.main === module) {
 }
 
 export { main };
+
