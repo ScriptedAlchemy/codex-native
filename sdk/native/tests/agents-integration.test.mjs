@@ -9,8 +9,10 @@
  */
 
 import { describe, expect, it, beforeAll } from "@jest/globals";
-const RUN_REAL_BACKEND = process.env.CODEX_NATIVE_RUN_REAL_BACKEND === "1";
-const realBackendTest = RUN_REAL_BACKEND ? it : it.skip;
+const isCI = process.env.CI === "true" || process.env.CI === "1";
+const realBackendEnv = process.env.CODEX_NATIVE_RUN_REAL_BACKEND;
+const shouldRunRealBackend = (!isCI && realBackendEnv !== "0") || realBackendEnv === "1";
+const realBackendTest = shouldRunRealBackend ? it : it.skip;
 
 import { fileURLToPath } from "node:url";
 

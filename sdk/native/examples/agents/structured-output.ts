@@ -172,6 +172,8 @@ function processUserData(users) {
 
     const result = await run(
       analysisAgent,
+      `Analyze this JavaScript function:\n\n${sampleCode}`,
+      { outputType: CodeAnalysisSchema }
       `Analyze this JavaScript function:\n\n${sampleCode}`
     );
 
@@ -218,6 +220,8 @@ with detailed test cases, coverage goals, and dependencies.`,
 
     const result = await run(
       testPlannerAgent,
+      `Create a comprehensive test plan for: ${feature}`,
+      { outputType: TestPlanSchema }
       `Create a comprehensive test plan for: ${feature}`
     );
 
@@ -271,6 +275,8 @@ router.delete('/users/:id', deleteUser);
 
     const result = await run(
       apiDocAgent,
+      `Generate API documentation for these endpoints:\n\n${apiCode}`,
+      { outputType: APIDocSchema }
       `Generate API documentation for these endpoints:\n\n${apiCode}`
     );
 
@@ -328,6 +334,8 @@ function findDuplicates(array) {
 
     const result = await run(
       perfAgent,
+      `Analyze the performance of this algorithm:\n\n${algorithmCode}`,
+      { outputType: PerformanceAnalysisSchema }
       `Analyze the performance of this algorithm:\n\n${algorithmCode}`
     );
 
