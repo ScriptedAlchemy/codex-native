@@ -167,7 +167,9 @@ class CodexModel implements Model {
   private getThreadOptions(): ThreadOptions {
     return {
       model: this.modelName,
-      oss: this.options.oss,
+      // When a custom baseUrl is provided (e.g., test proxy), do not enable OSS mode,
+      // since the backend is not Ollama in that case.
+      oss: this.options.baseUrl ? false : this.options.oss,
       workingDirectory: this.options.workingDirectory,
       skipGitRepoCheck: this.options.skipGitRepoCheck,
       sandboxMode: this.options.sandboxMode ?? "danger-full-access",
@@ -191,6 +193,7 @@ class CodexModel implements Model {
       // Run Codex (tools are now registered and will be available)
       const turn = await thread.run(input, {
         outputSchema: normalizeAgentsOutputType(request.outputType),
+        oss: this.options.oss,
       });
 
       // Convert Codex response to ModelResponse format
@@ -220,6 +223,7 @@ class CodexModel implements Model {
 
       const { events } = await thread.runStreamed(input, {
         outputSchema: normalizeAgentsOutputType(request.outputType),
+        oss: this.options.oss,
       });
 
       // Track text accumulation for delta calculation

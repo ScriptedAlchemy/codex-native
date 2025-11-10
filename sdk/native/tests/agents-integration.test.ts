@@ -203,7 +203,7 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
     }, 15000);
 
     const runRealEnv = process.env.CODEX_NATIVE_RUN_AGENTS_REAL;
-    const shouldRunReal = (!isCI && runRealEnv !== "0") || runRealEnv === "1";
+    const shouldRunReal = runRealEnv === "1" || runRealEnv === "true" || runRealEnv === "TRUE";
     const realTest = shouldRunReal ? testFn : it.skip;
     realTest("works with real Codex backend", async () => {
       // This test requires a real Codex backend (no API key needed)

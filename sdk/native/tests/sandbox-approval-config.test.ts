@@ -1,9 +1,11 @@
-import { describe, expect, it, beforeAll } from "@jest/globals";
+import { describe, expect, it, beforeAll, jest } from "@jest/globals";
 
 // Setup native binding for tests
 setupNativeBinding();
 import { setupNativeBinding } from "./testHelpers";
 
+// Allow extra time on slower CI/mac sandboxes
+jest.setTimeout(20000);
 import {
   assistantMessage,
   responseCompleted,

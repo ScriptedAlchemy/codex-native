@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeAll, jest } from "@jest/globals";
 import { setupNativeBinding } from "./testHelpers";
+import { startResponsesTestProxy, sse, responseStarted, assistantMessage, responseCompleted } from "./responsesProxy";
 
 // Setup native binding for tests
 setupNativeBinding();
@@ -21,36 +22,51 @@ describe("Agents tools interop", () => {
   const testFn = process.env.CI ? it.skip : it;
 
   testFn("registers function tools with Codex when provided in ModelRequest", async () => {
-    const provider = new CodexProvider({ skipGitRepoCheck: true });
-    const model = provider.getModel("gpt-5-codex");
-
-    // Spy on registration logging to confirm registration path is executed.
-    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
-
-    const tool = {
-      type: "function",
-      name: "say_hello",
-      description: "Says hello",
-      parameters: { type: "object", properties: { name: { type: "string" } } },
-      execute: async ({ name }: { name: any }) => `Hello, ${name}!`,
-    };
-
-    await model.getResponse({
-      systemInstructions: "You are a tool testing agent",
-      input: "test",
-      modelSettings: {},
-      tools: [tool],
-      // No structured output to keep this test focused on registration path
-      outputType: undefined,
-      handoffs: [],
-      tracing: { enabled: false },
+    const { url, close } = await startResponsesTestProxy({
+      statusCode: 200,
+      responseBodies: [
+        sse(
+          responseStarted("response_1"),
+          assistantMessage("tool registration ok", "item_1"),
+          responseCompleted("response_1"),
+        ),
+      ],
     });
 
-    // The provider should have attempted registration (observe log)
-    expect(logSpy).toHaveBeenCalled();
-    const logged = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(logged).toContain("Registered tool with Codex: say_hello");
-    logSpy.mockRestore();
+    try {
+      const provider = new CodexProvider({ skipGitRepoCheck: true, baseUrl: url });
+      const model = provider.getModel("gpt-5-codex");
+
+      // Spy on registration logging to confirm registration path is executed.
+      const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+
+      const tool = {
+        type: "function",
+        name: "say_hello",
+        description: "Says hello",
+        parameters: { type: "object", properties: { name: { type: "string" } } },
+        execute: async ({ name }: { name: any }) => `Hello, ${name}!`,
+      };
+
+      await model.getResponse({
+        systemInstructions: "You are a tool testing agent",
+        input: "test",
+        modelSettings: {},
+        tools: [tool],
+        // No structured output to keep this test focused on registration path
+        outputType: undefined,
+        handoffs: [],
+        tracing: { enabled: false },
+      });
+
+      // The provider should have attempted registration (observe log)
+      expect(logSpy).toHaveBeenCalled();
+      const logged = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).toContain("Registered tool with Codex: say_hello");
+      logSpy.mockRestore();
+    } finally {
+      await close();
+    }
   }, 30000); // Increased timeout for CI environments
 });
 
