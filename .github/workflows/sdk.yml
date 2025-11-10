@@ -8,11 +8,9 @@ on:
 jobs:
   sdks:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
-      RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
-      SCCACHE_CACHE_SIZE: 10G
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -31,34 +29,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90
         with:
           components: rustfmt, clippy
-
-      - name: Install sccache
-        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e # v2
-        with:
-          tool: sccache@0.7.5
-
-      - name: Configure sccache backend
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -n "${ACTIONS_CACHE_URL:-}" && -n "${ACTIONS_RUNTIME_TOKEN:-}" ]]; then
-            echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-            echo "Using sccache GitHub backend"
-          else
-            echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
-            echo "SCCACHE_DIR=${{ github.workspace }}/.sccache" >> "$GITHUB_ENV"
-            echo "Using sccache local disk + actions/cache fallback"
-          fi
-
-      - name: Restore sccache cache (fallback)
-        if: ${{ env.SCCACHE_GHA_ENABLED != 'true' }}
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ github.workspace }}/.sccache/
-          key: sccache-sdk-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
-          restore-keys: |
-            sccache-sdk-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
-            sccache-sdk-${{ runner.os }}-
 
       - name: Cache Rust dependencies
         uses: actions/cache@v4
@@ -100,16 +70,3 @@ jobs:
       - name: Test native SDK
         working-directory: sdk/native
         run: pnpm test
-
-      - name: Save sccache cache (fallback)
-        if: always() && !cancelled() && env.SCCACHE_GHA_ENABLED != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ github.workspace }}/.sccache/
-          key: sccache-sdk-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
-
-      - name: sccache stats
-        if: always()
-        continue-on-error: true
-        run: sccache --show-stats || true
