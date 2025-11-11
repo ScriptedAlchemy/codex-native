@@ -21,17 +21,12 @@ use codex_core::{
 use codex_exec::exec_events::ThreadEvent as ExecThreadEvent;
 use codex_exec::run_with_thread_event_callback;
 use codex_exec::{Cli, Color, Command, ResumeArgs};
-use codex_tui::updates::UpdateAction;
 use codex_tui::AppExitInfo;
 use codex_tui::Cli as TuiCli;
+use codex_tui::updates::UpdateAction;
 use napi::bindgen_prelude::{Env, Function, Status};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
-use serde_json::Map as JsonMap;
-use serde_json::Value as JsonValue;
-use serde_json::json;
-use tempfile::NamedTempFile;
-use uuid::Uuid;
 use ratatui::backend::Backend;
 use ratatui::backend::ClearType;
 use ratatui::backend::WindowSize;
@@ -39,8 +34,13 @@ use ratatui::buffer::Cell;
 use ratatui::layout::Position;
 use ratatui::layout::Size;
 use ratatui::prelude::CrosstermBackend;
+use serde_json::Map as JsonMap;
+use serde_json::Value as JsonValue;
+use serde_json::json;
 use std::fmt;
 use std::io::{self, Write};
+use tempfile::NamedTempFile;
+use uuid::Uuid;
 
 // Avoid clashes with the `json!` macro imported above when returning data.
 use serde_json::json as serde_json_json;
@@ -1183,7 +1183,9 @@ fn parse_sandbox_mode(input: Option<&str>) -> napi::Result<Option<SandboxModeCli
     Some("read-only") => Ok(Some(SandboxModeCliArg::ReadOnly)),
     Some("workspace-write") => Ok(Some(SandboxModeCliArg::WorkspaceWrite)),
     Some("danger-full-access") => Ok(Some(SandboxModeCliArg::DangerFullAccess)),
-    Some(other) => Err(napi::Error::from_reason(format!("Unsupported sandbox mode: {other}"))),
+    Some(other) => Err(napi::Error::from_reason(format!(
+      "Unsupported sandbox mode: {other}"
+    ))),
   }
 }
 
@@ -1194,7 +1196,9 @@ fn parse_approval_mode(input: Option<&str>) -> napi::Result<Option<ApprovalModeC
     Some("on-request") => Ok(Some(ApprovalModeCliArg::OnRequest)),
     Some("on-failure") => Ok(Some(ApprovalModeCliArg::OnFailure)),
     Some("untrusted") => Ok(Some(ApprovalModeCliArg::Untrusted)),
-    Some(other) => Err(napi::Error::from_reason(format!("Unsupported approval mode: {other}"))),
+    Some(other) => Err(napi::Error::from_reason(format!(
+      "Unsupported approval mode: {other}"
+    ))),
   }
 }
 
@@ -1662,7 +1666,9 @@ pub async fn run_tui(req: TuiRequest) -> napi::Result<TuiExitInfo> {
     sandbox_mode,
     approval_policy,
     full_auto: req.full_auto.unwrap_or(false),
-    dangerously_bypass_approvals_and_sandbox: req.dangerously_bypass_approvals_and_sandbox.unwrap_or(false),
+    dangerously_bypass_approvals_and_sandbox: req
+      .dangerously_bypass_approvals_and_sandbox
+      .unwrap_or(false),
     cwd,
     web_search: req.web_search.unwrap_or(false),
     add_dir,
@@ -1703,9 +1709,9 @@ pub async fn run_tui(req: TuiRequest) -> napi::Result<TuiExitInfo> {
   let runtime = tokio::runtime::Runtime::new()
     .map_err(|e| napi::Error::from_reason(format!("Failed to create runtime: {e}")))?;
 
-  let exit_info = runtime.block_on(async {
-    codex_tui::run_main(cli, linux_sandbox_path).await
-  }).map_err(|e| napi::Error::from_reason(format!("TUI failed: {e}")))?;
+  let exit_info = runtime
+    .block_on(async { codex_tui::run_main(cli, linux_sandbox_path).await })
+    .map_err(|e| napi::Error::from_reason(format!("TUI failed: {e}")))?;
 
   Ok(TuiExitInfo {
     token_usage: serde_json::to_value(&exit_info.token_usage).unwrap_or(JsonValue::Null),

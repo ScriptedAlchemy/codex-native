@@ -3,12 +3,7 @@ import { describe, it, expect, beforeAll } from "@jest/globals";
 let binding: any;
 
 beforeAll(async () => {
-  try {
-    binding = require("../index.cjs");
-  } catch {
-    // Fallback to compiled N-API binding entry
-    binding = require("../index.js");
-  }
+  binding = await import("../index.js");
 });
 
 describe("tuiTestRun headless snapshots", () => {
