@@ -288,9 +288,41 @@ export class Thread {
   }
 
   /**
-   * Launches the interactive Codex TUI for this thread.
-   * If the thread already has an id, the existing conversation is resumed inside the TUI.
-   * Provide `overrides` to customise the launch request (prompt, resume options, etc.).
+   * Launches the interactive Codex TUI (Terminal User Interface) for this thread.
+   *
+   * This method enables seamless transition from programmatic agent interaction to
+   * interactive terminal chat within the same session. The TUI takes over the terminal
+   * and allows you to continue the conversation interactively.
+   *
+   * @param overrides - Optional configuration to override thread defaults. Supports all TUI options
+   *                    including prompt, sandbox mode, approval mode, and resume options.
+   * @returns A Promise that resolves to TUI exit information including:
+   *          - tokenUsage: Token consumption statistics
+   *          - conversationId: Session ID for resuming later
+   *          - updateAction: Optional suggested update command
+   * @throws {Error} If not in a trusted git repository (unless skipGitRepoCheck is set)
+   * @throws {Error} If the terminal is not interactive (TTY required)
+   *
+   * @example
+   * ```typescript
+   * const codex = new Codex();
+   * const thread = codex.startThread({ sandboxMode: "workspace-write" });
+   *
+   * // Do programmatic work
+   * await thread.run("Analyze the codebase structure");
+   *
+   * // Switch to interactive mode with same session
+   * await thread.tui();
+   * ```
+   *
+   * @example
+   * ```typescript
+   * // Override options when launching TUI
+   * await thread.tui({
+   *   prompt: "Continue debugging",
+   *   sandboxMode: "read-only"
+   * });
+   * ```
    */
   async tui(overrides: Partial<NativeTuiRequest> = {}): Promise<NativeTuiExitInfo> {
     const skipGitRepoCheck =

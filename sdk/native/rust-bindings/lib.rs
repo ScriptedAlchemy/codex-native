@@ -1,3 +1,29 @@
+// ============================================================================
+// NAPI Bindings for Codex Native SDK
+// ============================================================================
+//
+// This module provides Node.js bindings for the Codex SDK via NAPI-RS.
+//
+// # Architecture
+//
+// The file is organized into the following sections:
+//   1. Platform-specific utilities (Linux sandbox)
+//   2. Tool registration and interceptors
+//   3. Run request handling (thread execution)
+//   4. TUI (Terminal User Interface) bindings
+//   5. Event helpers and SSE formatting
+//   6. Cloud tasks integration
+//
+// # Future Improvements
+//
+// Consider splitting into separate modules as the file grows:
+//   - tools.rs: Tool registration and interceptor logic
+//   - tui.rs: TUI-related bindings and helpers
+//   - run.rs: Thread execution and compaction
+//   - events.rs: Event formatting helpers
+//
+// ============================================================================
+
 #![deny(clippy::all)]
 
 use std::collections::HashMap;
@@ -44,6 +70,10 @@ use uuid::Uuid;
 
 // Avoid clashes with the `json!` macro imported above when returning data.
 use serde_json::json as serde_json_json;
+
+// ============================================================================
+// Section 1: Platform-Specific Utilities
+// ============================================================================
 
 #[cfg(target_os = "linux")]
 fn io_to_napi(err: std::io::Error) -> napi::Error {
@@ -99,6 +129,22 @@ const EMBEDDED_LINUX_SANDBOX_BYTES: &[u8] = include_bytes!(env!("CODEX_LINUX_SAN
 
 const ORIGINATOR_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 const NATIVE_ORIGINATOR: &str = "codex_sdk_native";
+
+// ============================================================================
+// Section 2: Tool Registration and Interceptors
+// ============================================================================
+//
+// This section provides functionality for registering custom tools and
+// interceptors from JavaScript/TypeScript code. Tools can replace or augment
+// built-in Codex tools, and interceptors can modify tool invocations.
+//
+// Key exports:
+//   - clear_registered_tools()
+//   - register_tool()
+//   - register_tool_interceptor()
+//   - register_approval_callback()
+//
+// ============================================================================
 
 fn registered_native_tools() -> &'static Mutex<Vec<ExternalToolRegistration>> {
   static TOOLS: OnceLock<Mutex<Vec<ExternalToolRegistration>>> = OnceLock::new();
@@ -594,6 +640,22 @@ pub struct WorkspaceWriteOptions {
   pub exclude_slash_tmp: Option<bool>,
 }
 
+// ============================================================================
+// Section 3: Run Request Handling (Thread Execution)
+// ============================================================================
+//
+// This section handles execution of agent threads, including:
+//   - RunRequest: Configuration for agent execution
+//   - Thread streaming and event handling
+//   - Compaction of conversation history
+//
+// Key exports:
+//   - run_thread(): Execute agent with given configuration
+//   - run_thread_stream(): Stream events during execution
+//   - compact_thread(): Compact conversation history
+//
+// ============================================================================
+
 #[napi(object)]
 pub struct RunRequest {
   pub prompt: String,
@@ -721,6 +783,22 @@ impl RunRequest {
     })
   }
 }
+
+// ============================================================================
+// Section 4: TUI (Terminal User Interface) Bindings
+// ============================================================================
+//
+// This section provides bindings for the interactive terminal UI, allowing
+// seamless transition from programmatic to interactive agent interaction.
+//
+// The TUI uses the same `codex_tui::run_main()` implementation as the
+// standalone Rust CLI, ensuring identical user experience.
+//
+// Key exports:
+//   - run_tui(): Launch full-screen interactive TUI
+//   - tui_test_run(): Headless TUI rendering for testing
+//
+// ============================================================================
 
 #[napi(object)]
 pub struct TuiRequest {
@@ -1173,29 +1251,44 @@ impl Backend for Vt100Backend {
     self.inner.scroll_region_down(region, scroll_by)
   }
 }
+/// Generic enum parser macro to reduce duplication in CLI argument parsing.
+///
+/// # Example
+/// ```ignore
+/// parse_enum_arg!(input, "sandbox mode",
+///   "read-only" => SandboxModeCliArg::ReadOnly,
+///   "workspace-write" => SandboxModeCliArg::WorkspaceWrite
+/// )
+/// ```
+macro_rules! parse_enum_arg {
+  ($input:expr, $name:expr, $( $str:expr => $variant:expr ),+ $(,)?) => {
+    match $input {
+      None => Ok(None),
+      $(
+        Some($str) => Ok(Some($variant)),
+      )+
+      Some(other) => Err(napi::Error::from_reason(format!(
+        "Unsupported {}: {}", $name, other
+      ))),
+    }
+  };
+}
+
 fn parse_sandbox_mode(input: Option<&str>) -> napi::Result<Option<SandboxModeCliArg>> {
-  match input {
-    None => Ok(None),
-    Some("read-only") => Ok(Some(SandboxModeCliArg::ReadOnly)),
-    Some("workspace-write") => Ok(Some(SandboxModeCliArg::WorkspaceWrite)),
-    Some("danger-full-access") => Ok(Some(SandboxModeCliArg::DangerFullAccess)),
-    Some(other) => Err(napi::Error::from_reason(format!(
-      "Unsupported sandbox mode: {other}"
-    ))),
-  }
+  parse_enum_arg!(input, "sandbox mode",
+    "read-only" => SandboxModeCliArg::ReadOnly,
+    "workspace-write" => SandboxModeCliArg::WorkspaceWrite,
+    "danger-full-access" => SandboxModeCliArg::DangerFullAccess,
+  )
 }
 
 fn parse_approval_mode(input: Option<&str>) -> napi::Result<Option<ApprovalModeCliArg>> {
-  match input {
-    None => Ok(None),
-    Some("never") => Ok(Some(ApprovalModeCliArg::Never)),
-    Some("on-request") => Ok(Some(ApprovalModeCliArg::OnRequest)),
-    Some("on-failure") => Ok(Some(ApprovalModeCliArg::OnFailure)),
-    Some("untrusted") => Ok(Some(ApprovalModeCliArg::Untrusted)),
-    Some(other) => Err(napi::Error::from_reason(format!(
-      "Unsupported approval mode: {other}"
-    ))),
-  }
+  parse_enum_arg!(input, "approval mode",
+    "never" => ApprovalModeCliArg::Never,
+    "on-request" => ApprovalModeCliArg::OnRequest,
+    "on-failure" => ApprovalModeCliArg::OnFailure,
+    "untrusted" => ApprovalModeCliArg::Untrusted,
+  )
 }
 
 pub fn build_cli(
@@ -1656,6 +1749,22 @@ pub async fn cloud_tasks_create(
   let payload = serde_json_json!({ "id": created.id.0 });
   serde_json::to_string(&payload).map_err(|e| napi::Error::from_reason(e.to_string()))
 }
+
+// ============================================================================
+// Section 5: Event Helpers and SSE Formatting
+// ============================================================================
+//
+// This section provides utility functions for creating and formatting
+// Server-Sent Events (SSE) for streaming agent responses.
+//
+// Key exports:
+//   - ev_completed(): Create completion event
+//   - ev_response_created(): Create response creation event
+//   - ev_assistant_message(): Create assistant message event
+//   - ev_function_call(): Create function call event
+//   - sse(): Format events as SSE stream
+//
+// ============================================================================
 
 #[napi]
 pub fn ev_completed(id: String) -> String {
