@@ -44,9 +44,6 @@ use uuid::Uuid;
 use serde_json::json as serde_json_json;
 
 #[cfg(target_os = "linux")]
-use std::io::Write;
-
-#[cfg(target_os = "linux")]
 fn io_to_napi(err: std::io::Error) -> napi::Error {
   napi::Error::from_reason(err.to_string())
 }
