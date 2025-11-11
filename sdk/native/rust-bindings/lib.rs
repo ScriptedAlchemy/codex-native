@@ -1483,41 +1483,43 @@ where
   F: FnMut(ExecThreadEvent) + Send + 'static,
 {
   // Check for pending plan updates and inject them as early events
-  if let Some(thread_id) = &options.thread_id {
-    if let Some(plan_args) = pending_plan_updates()
+  let pending_plan = if let Some(thread_id) = &options.thread_id {
+    let mut updates = pending_plan_updates()
       .lock()
-      .map_err(|e| napi::Error::from_reason(format!("plan updates mutex poisoned: {e}")))?
-      .remove(thread_id)
-    {
-      let todo_items: Vec<codex_exec::exec_events::TodoItem> = plan_args
-        .plan
-        .into_iter()
-        .map(|item| codex_exec::exec_events::TodoItem {
-          text: item.step,
-          completed: matches!(
-            item.status,
-            codex_protocol::plan_tool::StepStatus::Completed
-          ),
-        })
-        .collect();
+      .map_err(|e| napi::Error::from_reason(format!("plan updates mutex poisoned: {e}")))?;
+    updates.remove(thread_id)
+  } else {
+    None
+  };
 
-      let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-      let thread_item = codex_exec::exec_events::ThreadItem {
-        id: format!("plan_update_{timestamp}"),
-        details: codex_exec::exec_events::ThreadItemDetails::TodoList(
-          codex_exec::exec_events::TodoListItem { items: todo_items },
+  if let Some(plan_args) = pending_plan {
+    let todo_items: Vec<codex_exec::exec_events::TodoItem> = plan_args
+      .plan
+      .into_iter()
+      .map(|item| codex_exec::exec_events::TodoItem {
+        text: item.step,
+        completed: matches!(
+          item.status,
+          codex_protocol::plan_tool::StepStatus::Completed
         ),
-      };
+      })
+      .collect();
 
-      let plan_event =
-        ExecThreadEvent::ItemCompleted(codex_exec::exec_events::ItemCompletedEvent {
-          item: thread_item,
-        });
-      handler(plan_event);
-    }
+    let timestamp = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap_or_default()
+      .as_millis();
+    let thread_item = codex_exec::exec_events::ThreadItem {
+      id: format!("plan_update_{timestamp}"),
+      details: codex_exec::exec_events::ThreadItemDetails::TodoList(
+        codex_exec::exec_events::TodoListItem { items: todo_items },
+      ),
+    };
+
+    let plan_event = ExecThreadEvent::ItemCompleted(codex_exec::exec_events::ItemCompletedEvent {
+      item: thread_item,
+    });
+    handler(plan_event);
   }
 
   let schema_file = prepare_schema(options.output_schema.clone())?;
