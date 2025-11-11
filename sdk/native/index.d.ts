@@ -81,6 +81,14 @@ export interface RunRequest {
   fullAuto?: boolean
 }
 
+export declare function runThread(req: RunRequest): Promise<Array<string>>
+
+export declare function runThreadStream(req: RunRequest, onEvent: (err: unknown, eventJson?: string) => void): Promise<void>
+
+export declare function runTui(req: TuiRequest): Promise<TuiExitInfo>
+
+export declare function sse(events: Array<string>): string
+
 export interface TokenUsageSummary {
   inputTokens: number
   cachedInputTokens: number
@@ -89,11 +97,10 @@ export interface TokenUsageSummary {
   totalTokens: number
 }
 
-export type UpdateActionKind = "npmGlobalLatest" | "bunGlobalLatest" | "brewUpgrade"
-
-export interface UpdateActionInfo {
-  kind: UpdateActionKind
-  command: string
+export interface TuiExitInfo {
+  tokenUsage: TokenUsageSummary
+  conversationId?: string
+  updateAction?: UpdateActionInfo
 }
 
 export interface TuiRequest {
@@ -118,26 +125,26 @@ export interface TuiRequest {
   apiKey?: string
 }
 
-export interface TuiExitInfo {
-  tokenUsage: TokenUsageSummary
-  conversationId?: string
-  updateAction?: UpdateActionInfo
-}
-
-export declare function runThread(req: RunRequest): Promise<Array<string>>
-
-export declare function runThreadStream(req: RunRequest, onEvent: (err: unknown, eventJson?: string) => void): Promise<void>
-
-export declare function runTui(req: TuiRequest): Promise<TuiExitInfo>
-
-export declare function tuiTestRun(req: {
+export interface TuiTestRequest {
   width: number
   height: number
-  viewport: { x: number; y: number; width: number; height: number }
+  viewport: TuiTestViewport
   lines: Array<string>
-}): Promise<Array<string>>
+}
 
-export declare function sse(events: Array<string>): string
+export declare function tuiTestRun(req: TuiTestRequest): Array<string>
+
+export interface TuiTestViewport {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface UpdateActionInfo {
+  kind: string
+  command: string
+}
 
 export interface WorkspaceWriteOptions {
   networkAccess?: boolean

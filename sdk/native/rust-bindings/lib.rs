@@ -33,11 +33,9 @@ use ratatui::backend::WindowSize;
 use ratatui::buffer::Cell;
 use ratatui::layout::Position;
 use ratatui::layout::Size;
-use ratatui::prelude::CrosstermBackend;
 use serde_json::Map as JsonMap;
 use serde_json::Value as JsonValue;
 use serde_json::json;
-use std::fmt;
 use std::io::{self, Write};
 use tempfile::NamedTempFile;
 use uuid::Uuid;
@@ -773,7 +771,7 @@ struct InternalTuiRequest {
 }
 
 impl TuiRequest {
-  pub fn into_internal(self) -> napi::Result<InternalTuiRequest> {
+  fn into_internal(self) -> napi::Result<InternalTuiRequest> {
     let sandbox_mode = parse_sandbox_mode(self.sandbox_mode.as_deref())?;
     let approval_mode = parse_approval_mode(self.approval_mode.as_deref())?;
     let images = self
@@ -851,8 +849,33 @@ pub fn tui_test_run(req: TuiTestRequest) -> napi::Result<Vec<String>> {
   codex_tui::insert_history::insert_history_lines(&mut term, lines)
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
-  let snapshot = term.backend().as_string();
-  Ok(vec![snapshot])
+  // Extract just the viewport content
+  let backend = term.backend();
+  let mut result = String::new();
+  for y in vp.y..(vp.y + vp.height) {
+    if y >= req.height {
+      break;
+    }
+    for x in vp.x..(vp.x + vp.width) {
+      if x >= req.width {
+        break;
+      }
+      if let Some(row) = backend.grid.get(y as usize) {
+        if let Some(cell) = row.get(x as usize) {
+          result.push(cell.symbol());
+        } else {
+          result.push(' ');
+        }
+      } else {
+        result.push(' ');
+      }
+    }
+    if y < (vp.y + vp.height - 1) {
+      result.push('\n');
+    }
+  }
+
+  Ok(vec![result])
 }
 #[napi(object)]
 pub struct TokenUsageSummary {
@@ -927,7 +950,7 @@ impl From<AppExitInfo> for TuiExitInfo {
 
 fn run_tui_sync(options: InternalTuiRequest) -> napi::Result<TuiExitInfo> {
   let InternalTuiRequest {
-    mut cli,
+    cli,
     base_url,
     api_key,
     linux_sandbox_path,
@@ -1148,7 +1171,19 @@ impl Backend for MemoryBackend {
   fn clear_region(&mut self, _clear_type: ClearType) -> io::Result<()> {
     self.clear()
   }
-  fn append_lines(&mut self, _line_count: u16) -> io::Result<()> {
+  fn append_lines(&mut self, line_count: u16) -> io::Result<()> {
+    if self.grid.is_empty() {
+      return Ok(());
+    }
+    let width = self.grid[0].len();
+    let count = usize::min(line_count as usize, self.grid.len());
+    if count == 0 {
+      return Ok(());
+    }
+    self.grid.drain(0..count);
+    self
+      .grid
+      .extend((0..count).map(|_| vec![' '; width]));
     Ok(())
   }
   fn size(&self) -> io::Result<Size> {
@@ -1156,7 +1191,7 @@ impl Backend for MemoryBackend {
   }
   fn window_size(&mut self) -> io::Result<WindowSize> {
     Ok(WindowSize {
-      columns_rows: Size::new(self.width, self.height).into(),
+      columns_rows: Size::new(self.width, self.height),
       pixels: Size {
         width: 640,
         height: 480,
@@ -1560,169 +1595,6 @@ fn build_cloud_client(
     client = client.with_bearer_token(token);
   }
   Ok(client)
-}
-
-#[derive(Clone, Debug)]
-#[napi(object)]
-pub struct TuiRequest {
-  pub prompt: Option<String>,
-  pub images: Option<Vec<String>>,
-  pub model: Option<String>,
-  pub oss: Option<bool>,
-  pub sandbox_mode: Option<String>,
-  pub approval_policy: Option<String>,
-  pub full_auto: Option<bool>,
-  pub dangerously_bypass_approvals_and_sandbox: Option<bool>,
-  pub cwd: Option<String>,
-  pub web_search: Option<bool>,
-  pub add_dir: Option<Vec<String>>,
-  pub resume_session_id: Option<String>,
-  pub config_profile: Option<String>,
-  pub skip_git_repo_check: Option<bool>,
-  pub base_url: Option<String>,
-  pub api_key: Option<String>,
-  pub linux_sandbox_path: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-#[napi(object)]
-pub struct TuiExitInfo {
-  pub token_usage: JsonValue,
-  pub conversation_id: Option<String>,
-  pub update_action: Option<JsonValue>,
-}
-
-#[napi]
-pub async fn run_tui(req: TuiRequest) -> napi::Result<TuiExitInfo> {
-  // Build codex_tui::Cli from request
-  let sandbox_mode = match req.sandbox_mode.as_deref() {
-    None => None,
-    Some("read-only") => Some(SandboxModeCliArg::ReadOnly),
-    Some("workspace-write") => Some(SandboxModeCliArg::WorkspaceWrite),
-    Some("danger-full-access") => Some(SandboxModeCliArg::DangerFullAccess),
-    Some(other) => {
-      return Err(napi::Error::from_reason(format!(
-        "Unsupported sandbox mode: {other}",
-      )));
-    }
-  };
-
-  let approval_policy = match req.approval_policy.as_deref() {
-    None => None,
-    Some("never") => Some(ApprovalModeCliArg::Never),
-    Some("on-request") => Some(ApprovalModeCliArg::OnRequest),
-    Some("on-failure") => Some(ApprovalModeCliArg::OnFailure),
-    Some("untrusted") => Some(ApprovalModeCliArg::Untrusted),
-    Some(other) => {
-      return Err(napi::Error::from_reason(format!(
-        "Unsupported approval policy: {other}",
-      )));
-    }
-  };
-
-  let images = req
-    .images
-    .unwrap_or_default()
-    .into_iter()
-    .map(PathBuf::from)
-    .collect();
-  let cwd = req.cwd.map(PathBuf::from);
-  let add_dir = req
-    .add_dir
-    .unwrap_or_default()
-    .into_iter()
-    .map(PathBuf::from)
-    .collect();
-
-  if let Some(model_name) = req.model.as_deref() {
-    let trimmed = model_name.trim();
-    if req.oss.unwrap_or(false) {
-      if !trimmed.starts_with("gpt-oss:") {
-        return Err(napi::Error::from_reason(format!(
-          "Invalid model \"{trimmed}\" for OSS mode. Use models prefixed with \"gpt-oss:\", e.g. \"gpt-oss:20b\"."
-        )));
-      }
-    } else if trimmed != "gpt-5" && trimmed != "gpt-5-codex" {
-      return Err(napi::Error::from_reason(format!(
-        "Invalid model \"{trimmed}\". Supported models are \"gpt-5\" or \"gpt-5-codex\"."
-      )));
-    }
-  }
-
-  let mut raw_overrides = Vec::new();
-  if req.web_search.unwrap_or(false) {
-    raw_overrides.push("features.web_search_request=true".to_string());
-  }
-
-  let cli = TuiCli {
-    prompt: req.prompt,
-    images,
-    resume_picker: false,
-    resume_last: false,
-    resume_session_id: req.resume_session_id,
-    model: req.model,
-    oss: req.oss.unwrap_or(false),
-    config_profile: req.config_profile,
-    sandbox_mode,
-    approval_policy,
-    full_auto: req.full_auto.unwrap_or(false),
-    dangerously_bypass_approvals_and_sandbox: req
-      .dangerously_bypass_approvals_and_sandbox
-      .unwrap_or(false),
-    cwd,
-    web_search: req.web_search.unwrap_or(false),
-    add_dir,
-    config_overrides: CliConfigOverrides { raw_overrides },
-  };
-
-  // Set up environment overrides
-  let mut env_pairs: Vec<(&'static str, Option<String>, bool)> = Vec::new();
-  if std::env::var(ORIGINATOR_ENV).is_err() {
-    env_pairs.push((ORIGINATOR_ENV, Some(NATIVE_ORIGINATOR.to_string()), true));
-  }
-  if let Some(base_url) = req.base_url {
-    env_pairs.push(("OPENAI_BASE_URL", Some(base_url), true));
-  }
-  if let Some(api_key) = req.api_key {
-    env_pairs.push(("CODEX_API_KEY", Some(api_key), true));
-  }
-
-  let linux_sandbox_path = if let Some(path) = req.linux_sandbox_path {
-    Some(PathBuf::from(path))
-  } else if let Ok(path) = std::env::var("CODEX_LINUX_SANDBOX_EXE") {
-    Some(PathBuf::from(path))
-  } else {
-    default_linux_sandbox_path()?
-  };
-
-  if let Some(path) = linux_sandbox_path.as_ref() {
-    env_pairs.push((
-      "CODEX_LINUX_SANDBOX_EXE",
-      Some(path.to_string_lossy().to_string()),
-      false,
-    ));
-  }
-
-  let _env_guard = EnvOverrides::apply(env_pairs);
-
-  // Run in a Tokio runtime
-  let runtime = tokio::runtime::Runtime::new()
-    .map_err(|e| napi::Error::from_reason(format!("Failed to create runtime: {e}")))?;
-
-  let exit_info = runtime
-    .block_on(async { codex_tui::run_main(cli, linux_sandbox_path).await })
-    .map_err(|e| napi::Error::from_reason(format!("TUI failed: {e}")))?;
-
-  Ok(TuiExitInfo {
-    token_usage: serde_json::to_value(&exit_info.token_usage).unwrap_or(JsonValue::Null),
-    conversation_id: exit_info.conversation_id.map(|id| id.0),
-    update_action: exit_info.update_action.map(|action| {
-      serde_json::json!({
-        "command": action.command_str(),
-        "args": action.command_args(),
-      })
-    }),
-  })
 }
 
 #[napi(js_name = "cloudTasksList")]
