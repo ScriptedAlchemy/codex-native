@@ -33,11 +33,13 @@ use ratatui::backend::WindowSize;
 use ratatui::buffer::Cell;
 use ratatui::layout::Position;
 use ratatui::layout::Size;
+use ratatui::prelude::CrosstermBackend;
 use serde_json::Map as JsonMap;
 use serde_json::Value as JsonValue;
 use serde_json::json;
 use std::io::{self, Write};
 use tempfile::NamedTempFile;
+use std::fmt;
 use uuid::Uuid;
 
 // Avoid clashes with the `json!` macro imported above when returning data.
@@ -836,7 +838,7 @@ pub fn tui_test_run(req: TuiTestRequest) -> napi::Result<Vec<String>> {
   use ratatui::layout::Rect;
   use ratatui::text::Line;
 
-  let backend = MemoryBackend::new(req.width, req.height);
+  let backend = Vt100Backend::new(req.width, req.height);
   let mut term = codex_tui::custom_terminal::Terminal::with_options(backend)
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
   let vp = req.viewport;
@@ -1064,123 +1066,111 @@ impl Drop for EnvOverrides {
   }
 }
 
-// --- Headless memory backend for TUI snapshots (no vt100 dependency) ---
-struct MemoryBackend {
-  width: u16,
-  height: u16,
-  // Row-major grid of chars
-  grid: Vec<Vec<char>>,
-  cursor: Position,
+// --- VT100-based backend for TUI snapshots ---
+struct Vt100Backend {
+  inner: CrosstermBackend<vt100::Parser>,
 }
 
-impl MemoryBackend {
+impl Vt100Backend {
   fn new(width: u16, height: u16) -> Self {
-    let w = width as usize;
-    let h = height as usize;
-    let grid = vec![vec![' '; w]; h];
     Self {
-      width,
-      height,
-      grid,
-      cursor: Position { x: 0, y: 0 },
+      inner: CrosstermBackend::new(vt100::Parser::new(height, width, 0)),
     }
   }
+
   fn as_string(&self) -> String {
-    let mut out = String::new();
-    for row in &self.grid {
-      let line: String = row.iter().collect();
-      out.push_str(&line);
-      out.push('\n');
-    }
-    out
+    self.inner.writer().screen().contents()
+  }
+
+  fn parser(&self) -> &vt100::Parser {
+    self.inner.writer()
   }
 }
 
-impl Write for MemoryBackend {
+impl Write for Vt100Backend {
   fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-    // Ignore raw writes; our draw() receives structured cells.
-    Ok(buf.len())
+    self.inner.writer_mut().write(buf)
   }
+
   fn flush(&mut self) -> io::Result<()> {
-    Ok(())
+    self.inner.writer_mut().flush()
   }
 }
 
-impl Backend for MemoryBackend {
+impl fmt::Display for Vt100Backend {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.parser().screen().contents())
+  }
+}
+
+impl Backend for Vt100Backend {
   fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
   where
     I: Iterator<Item = (u16, u16, &'a Cell)>,
   {
-    for (x, y, cell) in content {
-      if (x as usize) < self.grid[0].len() && (y as usize) < self.grid.len() {
-        let ch = cell.symbol().chars().next().unwrap_or(' ');
-        self.grid[y as usize][x as usize] = ch;
-        self.cursor = Position { x, y };
-      }
-    }
+    self.inner.draw(content)?;
     Ok(())
   }
+
   fn hide_cursor(&mut self) -> io::Result<()> {
+    self.inner.hide_cursor()?;
     Ok(())
   }
+
   fn show_cursor(&mut self) -> io::Result<()> {
+    self.inner.show_cursor()?;
     Ok(())
   }
+
   fn get_cursor_position(&mut self) -> io::Result<Position> {
-    Ok(self.cursor)
+    Ok(self.parser().screen().cursor_position().into())
   }
+
   fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
-    self.cursor = position.into();
-    Ok(())
+    self.inner.set_cursor_position(position)
   }
+
   fn clear(&mut self) -> io::Result<()> {
-    for row in &mut self.grid {
-      for ch in row.iter_mut() {
-        *ch = ' ';
-      }
-    }
-    Ok(())
+    self.inner.clear()
   }
-  fn clear_region(&mut self, _clear_type: ClearType) -> io::Result<()> {
-    self.clear()
+
+  fn clear_region(&mut self, clear_type: ClearType) -> io::Result<()> {
+    self.inner.clear_region(clear_type)
   }
+
   fn append_lines(&mut self, line_count: u16) -> io::Result<()> {
-    if self.grid.is_empty() {
-      return Ok(());
-    }
-    let width = self.grid[0].len();
-    let count = usize::min(line_count as usize, self.grid.len());
-    if count == 0 {
-      return Ok(());
-    }
-    self.grid.drain(0..count);
-    self.grid.extend((0..count).map(|_| vec![' '; width]));
-    Ok(())
+    self.inner.append_lines(line_count)
   }
+
   fn size(&self) -> io::Result<Size> {
-    Ok(Size::new(self.width, self.height))
+    let (rows, cols) = self.parser().screen().size();
+    Ok(Size::new(cols, rows))
   }
+
   fn window_size(&mut self) -> io::Result<WindowSize> {
     Ok(WindowSize {
-      columns_rows: Size::new(self.width, self.height),
+      columns_rows: self.parser().screen().size().into(),
       pixels: Size {
         width: 640,
         height: 480,
       },
     })
   }
+
   fn flush(&mut self) -> io::Result<()> {
-    Ok(())
+    self.inner.writer_mut().flush()
   }
-  fn scroll_region_up(&mut self, _region: std::ops::Range<u16>, _scroll_by: u16) -> io::Result<()> {
-    Ok(())
+
+  fn scroll_region_up(&mut self, region: std::ops::Range<u16>, scroll_by: u16) -> io::Result<()> {
+    self.inner.scroll_region_up(region, scroll_by)
   }
+
   fn scroll_region_down(
     &mut self,
-    _region: std::ops::Range<u16>,
-    _scroll_by: u16,
+    region: std::ops::Range<u16>,
+    scroll_by: u16,
   ) -> io::Result<()> {
-    Ok(())
+    self.inner.scroll_region_down(region, scroll_by)
   }
 }
 fn parse_sandbox_mode(input: Option<&str>) -> napi::Result<Option<SandboxModeCliArg>> {

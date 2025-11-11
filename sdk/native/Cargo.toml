@@ -70,6 +70,11 @@ napi-bindings = ["napi", "napi-derive"]
 lto = true
 strip = "symbols"
 
+# The upstream crates have not yet released the fixes required for the Codex TUI:
+# - ratatui: pending patch to expose color/style APIs needed by codex-tui
+# - crossterm: pending fix for color querying on macOS 13+/Linux
+# These overrides point to the upstream authors' branches until new crates.io
+# releases land. Keep this block in sync with upstream progress.
 [patch.crates-io]
 ratatui = { git = "https://github.com/nornagon/ratatui", branch = "nornagon-v0.29.0-patch" }
 crossterm = { git = "https://github.com/nornagon/crossterm", branch = "nornagon/color-query" }

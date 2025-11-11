@@ -2,9 +2,11 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 
 async function main(): Promise<void> {
-  if (!process.stdout.isTTY) {
-    console.error("This example must be run in an interactive terminal (TTY) to display the TUI.");
-    process.exit(1);
+  if (!process.stdout.isTTY || !process.stdin.isTTY) {
+    console.warn(
+      "The codex-native TUI requires an interactive terminal (TTY). Run this example in a terminal session or invoke `codex-native run` for non-interactive usage.",
+    );
+    return;
   }
 
   const cliEntry = path.resolve(__dirname, "../../dist/cli.cjs");
@@ -36,5 +38,5 @@ async function main(): Promise<void> {
 
 main().catch((error) => {
   console.error("Failed to launch codex-native tui via CLI:", error);
-  process.exit(1);
+  process.exitCode = 1;
 });

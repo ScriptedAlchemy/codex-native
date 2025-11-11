@@ -1009,6 +1009,8 @@ async fn test_source_filter_excludes_non_matching_sessions() {
         .map(|item| item.path.as_path())
         .collect();
 
+    // CLI and Exec sessions are both considered "interactive" now that the native SDK exposes
+    // the tui experience, so filter results should contain both records.
     assert_eq!(paths.len(), 2);
     assert!(paths.iter().any(|path| {
         path.ends_with("rollout-2025-08-02T10-00-00-00000000-0000-0000-0000-00000000002a.jsonl")

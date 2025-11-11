@@ -8,6 +8,8 @@ import { ThreadItem } from "./items";
 import { ThreadOptions } from "./threadOptions";
 import { TurnOptions } from "./turnOptions";
 import { createOutputSchemaFile, normalizeOutputSchema } from "./outputSchemaFile";
+import { runTui } from "./tui";
+import type { NativeTuiRequest, NativeTuiExitInfo } from "./nativeBinding";
 
 /**
  * Convert Rust event format to ThreadEvent format.
@@ -283,6 +285,52 @@ export class Thread {
       throw new Error(turnFailure.message);
     }
     return { items, finalResponse, usage };
+  }
+
+  /**
+   * Launches the interactive Codex TUI for this thread.
+   * If the thread already has an id, the existing conversation is resumed inside the TUI.
+   * Provide `overrides` to customise the launch request (prompt, resume options, etc.).
+   */
+  async tui(overrides: Partial<NativeTuiRequest> = {}): Promise<NativeTuiExitInfo> {
+    const skipGitRepoCheck =
+      this._threadOptions?.skipGitRepoCheck ??
+      (typeof process !== "undefined" &&
+        process.env &&
+        process.env.CODEX_TEST_SKIP_GIT_REPO_CHECK === "1");
+    if (!skipGitRepoCheck) {
+      assertTrustedDirectory(this._threadOptions?.workingDirectory);
+    }
+
+    const request: NativeTuiRequest = { ...overrides };
+    const assignIfUndefined = <K extends keyof NativeTuiRequest>(
+      key: K,
+      value: NativeTuiRequest[K] | undefined,
+    ) => {
+      if (request[key] === undefined && value !== undefined) {
+        request[key] = value;
+      }
+    };
+
+    assignIfUndefined("model", this._threadOptions?.model);
+    assignIfUndefined("oss", this._threadOptions?.oss);
+    assignIfUndefined("sandboxMode", this._threadOptions?.sandboxMode);
+    assignIfUndefined("approvalMode", this._threadOptions?.approvalMode);
+    assignIfUndefined("fullAuto", this._threadOptions?.fullAuto);
+    assignIfUndefined("workingDirectory", this._threadOptions?.workingDirectory);
+    assignIfUndefined("baseUrl", this._options.baseUrl);
+    assignIfUndefined("apiKey", this._options.apiKey);
+
+    if (
+      request.resumeSessionId === undefined &&
+      request.resumePicker !== true &&
+      request.resumeLast !== true &&
+      this._id
+    ) {
+      request.resumeSessionId = this._id;
+    }
+
+    return runTui(request);
   }
 }
 

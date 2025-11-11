@@ -1,9 +1,11 @@
 import { runTui, type NativeTuiRequest } from "@codex-native/sdk";
 
 async function main(): Promise<void> {
-  if (!process.stdout.isTTY) {
-    console.error("This example must be run in a real terminal (TTY) in order to render the TUI.");
-    process.exit(1);
+  if (!process.stdout.isTTY || !process.stdin.isTTY) {
+    console.warn(
+      "Codex TUI requires an interactive terminal (TTY). Run this example from a terminal, or use `codex-native run` for headless execution.",
+    );
+    return;
   }
 
   const prompt = process.argv.slice(2).join(" ") || "Review the latest git changes and summarise next steps.";
@@ -30,5 +32,5 @@ async function main(): Promise<void> {
 
 main().catch((error) => {
   console.error("Failed to launch Codex TUI:", error);
-  process.exit(1);
+  process.exitCode = 1;
 });
