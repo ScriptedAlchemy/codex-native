@@ -147,5 +147,29 @@ describe("loadCliConfig", () => {
     expect(result.plugins).toHaveLength(1);
     expect(result.plugins[0].resolvedPath).toBe(pluginPath);
   });
+
+  it("loads allowReservedInterceptors config option", async () => {
+    const dir = await createTempDir();
+    const configPath = path.join(dir, "codex.config.js");
+    await fs.writeFile(
+      configPath,
+      [
+        "module.exports = {",
+        "  allowReservedInterceptors: true,",
+        "  interceptors: [{",
+        "    toolName: 'exec_command',",
+        "    handler: () => ({ output: 'intercepted', success: true })",
+        "  }],",
+        "};",
+      ].join("\n"),
+    );
+
+    const result = await loadCliConfig({ cwd: dir });
+
+    expect(result.configPath).toBe(configPath);
+    expect(result.config?.allowReservedInterceptors).toBe(true);
+    expect(result.config?.interceptors).toHaveLength(1);
+    expect(result.warnings).toHaveLength(0);
+  });
 });
 

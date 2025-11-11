@@ -388,4 +388,71 @@ it("throws if working directory is not git and skipGitRepoCheck is not provided"
       await close();
     }
   }, 10000);
+
+  describe("Thread API", () => {
+    it("Thread.updatePlan throws when no thread ID", async () => {
+      const { url, close } = await startResponsesTestProxy({
+        statusCode: 200,
+        responseBodies: [sse(responseStarted(), assistantMessage("ok"), responseCompleted())],
+      });
+
+      try {
+        const client = createClient(url);
+        const thread = client.startThread();
+
+        // Should throw because thread hasn't been started yet (no ID)
+        expect(() => {
+          thread.updatePlan({
+            plan: [{ step: "test", status: "pending" }]
+          });
+        }).toThrow("Cannot update plan: no active thread");
+      } finally {
+        await close();
+      }
+    });
+
+    it("Thread event subscription methods exist", async () => {
+      const { url, close } = await startResponsesTestProxy({
+        statusCode: 200,
+        responseBodies: [sse(responseStarted(), assistantMessage("ok"), responseCompleted())],
+      });
+
+      try {
+        const client = createClient(url);
+        const thread = client.startThread();
+
+        // Verify methods exist
+        expect(typeof thread.onEvent).toBe("function");
+        expect(typeof thread.offEvent).toBe("function");
+        expect(typeof thread.updatePlan).toBe("function");
+
+        // Test event subscription returns unsubscribe function
+        const unsubscribe = thread.onEvent(() => {});
+        expect(typeof unsubscribe).toBe("function");
+      } finally {
+        await close();
+      }
+    });
+
+    it("Thread plan modification methods exist", async () => {
+      const { url, close } = await startResponsesTestProxy({
+        statusCode: 200,
+        responseBodies: [sse(responseStarted(), assistantMessage("ok"), responseCompleted())],
+      });
+
+      try {
+        const client = createClient(url);
+        const thread = client.startThread();
+
+        // Verify plan modification methods exist
+        expect(typeof thread.modifyPlan).toBe("function");
+        expect(typeof thread.addTodo).toBe("function");
+        expect(typeof thread.updateTodo).toBe("function");
+        expect(typeof thread.removeTodo).toBe("function");
+        expect(typeof thread.reorderTodos).toBe("function");
+      } finally {
+        await close();
+      }
+    });
+  });
 });

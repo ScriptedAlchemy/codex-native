@@ -16,6 +16,8 @@ export declare function cloudTasksList(envFilter?: string | undefined | null, ba
 
 export declare function compactThread(req: RunRequest): Promise<Array<string>>
 
+export declare function emitPlanUpdate(req: JsEmitPlanUpdateRequest): void
+
 export declare function evAssistantMessage(id: string, text: string): string
 
 export declare function evCompleted(id: string): string
@@ -29,6 +31,35 @@ export interface JsApprovalRequest {
   details?: JsonValue
 }
 
+export interface JsEmitPlanUpdateRequest {
+  threadId: string
+  explanation?: string
+  plan: Array<JsPlanItem>
+}
+
+export interface JsModifyPlanRequest {
+  threadId: string
+  operations: Array<JsPlanOperation>
+}
+
+export interface JsPlanItem {
+  step: string
+  status?: string
+}
+
+export interface JsPlanOperation {
+  type: string
+  item?: JsPlanItem
+  index?: number
+  updates?: JsPlanUpdate
+  newOrder?: Array<number>
+}
+
+export interface JsPlanUpdate {
+  step?: string
+  status?: string
+}
+
 export interface JsToolInterceptorContext {
   invocation: JsToolInvocation
   token: string
@@ -40,6 +71,8 @@ export interface JsToolInvocation {
   arguments?: string
   input?: string
 }
+
+export declare function modifyPlan(req: JsModifyPlanRequest): void
 
 export interface NativeToolInfo {
   name: string

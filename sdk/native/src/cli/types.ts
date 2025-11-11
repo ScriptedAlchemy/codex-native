@@ -74,6 +74,11 @@ export interface CodexNativeConfig {
   approvals?: ApprovalHandler;
   hooks?: HookConfig;
   plugins?: Array<string | CodexNativePlugin>;
+  /**
+   * Allow registering interceptors for reserved tool names (local_shell, exec_command, apply_patch).
+   * These will be composed after approval interceptors. Use with caution.
+   */
+  allowReservedInterceptors?: boolean;
 }
 
 export interface LoadedPlugin {
@@ -102,6 +107,7 @@ export interface CombinedConfig {
   beforeStartHooks: Array<HookRegistration<BeforeStartHook>>;
   onEventHooks: Array<HookRegistration<EventHook>>;
   warnings: string[];
+  allowReservedInterceptors: boolean;
 }
 
 export interface RunCommandOptions extends GlobalOptions {

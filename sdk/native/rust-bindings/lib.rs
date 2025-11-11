@@ -108,6 +108,11 @@ fn registered_native_tools() -> &'static Mutex<Vec<ExternalToolRegistration>> {
   TOOLS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+fn pending_plan_updates() -> &'static Mutex<HashMap<String, codex_protocol::plan_tool::UpdatePlanArgs>> {
+  static UPDATES: OnceLock<Mutex<HashMap<String, codex_protocol::plan_tool::UpdatePlanArgs>>> = OnceLock::new();
+  UPDATES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 #[derive(Clone)]
 #[allow(dead_code)]
 struct NativeToolInterceptor {
@@ -215,7 +220,7 @@ pub fn register_approval_callback(
   #[napi(ts_arg_type = "(request: JsApprovalRequest) => boolean | Promise<boolean>")]
   handler: Function<JsApprovalRequest, bool>,
 ) -> napi::Result<()> {
-  let sensitive_tools = ["local_shell", "exec_command", "apply_patch"];
+  let sensitive_tools = ["local_shell", "exec_command", "apply_patch", "web_search"];
 
   for tool_name in sensitive_tools {
     let mut tsfn = handler
@@ -365,6 +370,163 @@ pub async fn call_tool_builtin(
     )),
     Err(FunctionCallError::Fatal(message)) => Err(napi::Error::from_reason(message)),
   }
+}
+
+#[derive(Clone)]
+#[napi(object)]
+pub struct JsEmitPlanUpdateRequest {
+  pub thread_id: String,
+  pub explanation: Option<String>,
+  pub plan: Vec<JsPlanItem>,
+}
+
+#[derive(Clone)]
+#[napi(object)]
+pub struct JsPlanItem {
+  pub step: String,
+  pub status: Option<String>, // "pending", "in_progress", "completed"
+}
+
+#[derive(Clone)]
+#[napi(object)]
+pub struct JsModifyPlanRequest {
+  pub thread_id: String,
+  pub operations: Vec<JsPlanOperation>,
+}
+
+#[derive(Clone)]
+#[napi(object)]
+pub struct JsPlanOperation {
+  pub type_: String, // "add", "update", "remove", "reorder"
+  pub item: Option<JsPlanItem>,
+  pub index: Option<i32>,
+  pub updates: Option<JsPlanUpdate>,
+  pub new_order: Option<Vec<i32>>,
+}
+
+#[derive(Clone)]
+#[napi(object)]
+pub struct JsPlanUpdate {
+  pub step: Option<String>,
+  pub status: Option<String>,
+}
+
+#[napi]
+pub fn emit_plan_update(req: JsEmitPlanUpdateRequest) -> napi::Result<()> {
+  let plan_items = req.plan.into_iter().map(|item| {
+    let status_str = item.status.as_deref().unwrap_or("pending");
+    let status = match status_str {
+      "pending" => codex_protocol::plan_tool::StepStatus::Pending,
+      "in_progress" => codex_protocol::plan_tool::StepStatus::InProgress,
+      "completed" => codex_protocol::plan_tool::StepStatus::Completed,
+      _ => return Err(napi::Error::from_reason(format!("Invalid status: {}", status_str))),
+    };
+    Ok(codex_protocol::plan_tool::PlanItemArg {
+      step: item.step,
+      status,
+    })
+  }).collect::<Result<Vec<_>, _>>()?;
+
+  let args = codex_protocol::plan_tool::UpdatePlanArgs {
+    explanation: req.explanation,
+    plan: plan_items,
+  };
+
+  pending_plan_updates()
+    .lock()
+    .map_err(|e| napi::Error::from_reason(format!("plan updates mutex poisoned: {e}")))?
+    .insert(req.thread_id, args);
+
+  Ok(())
+}
+
+#[napi]
+pub fn modify_plan(req: JsModifyPlanRequest) -> napi::Result<()> {
+  let mut pending_updates = pending_plan_updates()
+    .lock()
+    .map_err(|e| napi::Error::from_reason(format!("plan updates mutex poisoned: {e}")))?;
+
+  let current_plan = pending_updates.get(&req.thread_id).cloned();
+
+  let mut plan_items = if let Some(existing) = current_plan {
+    existing.plan
+  } else {
+    Vec::new()
+  };
+
+  for op in req.operations {
+    match op.type_.as_str() {
+      "add" => {
+        if let Some(item) = op.item {
+          let status_str = item.status.as_deref().unwrap_or("pending");
+          let status = match status_str {
+            "pending" => codex_protocol::plan_tool::StepStatus::Pending,
+            "in_progress" => codex_protocol::plan_tool::StepStatus::InProgress,
+            "completed" => codex_protocol::plan_tool::StepStatus::Completed,
+            _ => codex_protocol::plan_tool::StepStatus::Pending,
+          };
+          plan_items.push(codex_protocol::plan_tool::PlanItemArg {
+            step: item.step,
+            status,
+          });
+        }
+      }
+      "update" => {
+        if let (Some(index), Some(updates)) = (op.index, op.updates) {
+          let idx = index as usize;
+          if idx < plan_items.len() {
+            let item = &mut plan_items[idx];
+            if let Some(new_step) = updates.step {
+              if !new_step.is_empty() {
+                item.step = new_step;
+              }
+            }
+            if let Some(status_str) = updates.status.as_deref() {
+              let status = match status_str {
+                "pending" => codex_protocol::plan_tool::StepStatus::Pending,
+                "in_progress" => codex_protocol::plan_tool::StepStatus::InProgress,
+                "completed" => codex_protocol::plan_tool::StepStatus::Completed,
+                _ => item.status.clone(),
+              };
+              item.status = status;
+            }
+          }
+        }
+      }
+      "remove" => {
+        if let Some(index) = op.index {
+          let idx = index as usize;
+          if idx < plan_items.len() {
+            plan_items.remove(idx);
+          }
+        }
+      }
+      "reorder" => {
+        if let Some(new_order) = op.new_order {
+          let mut reordered = Vec::new();
+          for &idx in &new_order {
+            let idx = idx as usize;
+            if idx < plan_items.len() {
+              reordered.push(plan_items[idx].clone());
+            }
+          }
+          if reordered.len() == plan_items.len() {
+            plan_items = reordered;
+          }
+        }
+      }
+      _ => {}
+    }
+  }
+
+  let args = codex_protocol::plan_tool::UpdatePlanArgs {
+    explanation: None, // Could be extended to support per-operation explanations
+    plan: plan_items,
+  };
+
+  pending_updates.insert(req.thread_id, args);
+
+  Ok(())
 }
 
 #[derive(Clone)]
@@ -1302,10 +1464,31 @@ fn event_to_json(event: &ExecThreadEvent) -> napi::Result<JsonValue> {
   }
 }
 
-fn run_internal_sync<F>(options: InternalRunRequest, handler: F) -> napi::Result<()>
+fn run_internal_sync<F>(options: InternalRunRequest, mut handler: F) -> napi::Result<()>
 where
   F: FnMut(ExecThreadEvent) + Send + 'static,
 {
+  // Check for pending plan updates and inject them as early events
+  if let Some(thread_id) = &options.thread_id {
+    if let Some(plan_args) = pending_plan_updates()
+      .lock()
+      .map_err(|e| napi::Error::from_reason(format!("plan updates mutex poisoned: {e}")))?
+      .remove(thread_id)
+    {
+      // Create a synthetic event for the plan update
+      // We'll need to create an ExecThreadEvent that represents this
+      // For now, we'll inject it as a raw event that the JS layer can handle
+      use codex_exec::exec_events::RawEvent;
+      let plan_event = ExecThreadEvent::Raw(RawEvent {
+        raw: serde_json::json!({
+          "type": "plan_update_scheduled",
+          "plan": plan_args
+        }),
+      });
+      handler(plan_event);
+    }
+  }
+
   let schema_file = prepare_schema(options.output_schema.clone())?;
   let schema_path = schema_file.as_ref().map(|file| file.path.clone());
   let cli = build_cli(&options, schema_path, false);

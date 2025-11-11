@@ -28,6 +28,7 @@ export async function buildCombinedConfig(params: {
     beforeStartHooks: [],
     onEventHooks: [],
     warnings,
+    allowReservedInterceptors: false,
   };
 
   const pluginContext: PluginContext = { cwd, configPath: config.configPath };
@@ -83,12 +84,14 @@ export function applyNativeRegistrations(combined: CombinedConfig): void {
     binding.registerApprovalCallback(combined.approval.handler);
   }
 
-  // De‑dupe interceptors by toolName; skip reserved names to preserve approval interceptors
-  const RESERVED = new Set<string>(["local_shell", "exec_command", "apply_patch"]);
+  // De‑dupe interceptors by toolName
+  const RESERVED = new Set<string>(["local_shell", "exec_command", "apply_patch", "web_search"]);
   const seenInterceptors = new Set<string>();
+
+  // First pass: register non-reserved interceptors
   for (const interceptor of combined.interceptors) {
     const name = interceptor.toolName;
-    if (RESERVED.has(name)) {
+    if (RESERVED.has(name) && !combined.allowReservedInterceptors) {
       combined.warnings.push(
         `Interceptor for "${name}" ignored: reserved for approval gating. Use approvals() hook instead.`,
       );
@@ -218,6 +221,10 @@ function accumulateConfig(params: {
 
   if (config.hooks) {
     addHooks(combined, config.hooks, source, warnings);
+  }
+
+  if (config.allowReservedInterceptors === true) {
+    combined.allowReservedInterceptors = true;
   }
 }
 
