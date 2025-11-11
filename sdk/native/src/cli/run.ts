@@ -7,6 +7,8 @@ import {
   type NativeRunRequest,
   getNativeBinding,
 } from "../nativeBinding";
+import { type NativeRunRequest, getNativeBinding } from "../nativeBinding";
+import { parseApprovalModeFlag, parseSandboxModeFlag } from "./optionParsers";
 import { emitWarnings, runBeforeStartHooks, runEventHooks } from "./hooks";
 import type {
   CliContext,
@@ -169,6 +171,15 @@ async function buildRunRequest(params: {
   if (argv.oss !== undefined) request.oss = argv.oss;
   if (argv.sandbox !== undefined) request.sandboxMode = argv.sandbox;
   if (argv.approval !== undefined) request.approvalMode = argv.approval;
+  const sandboxMode = parseSandboxModeFlag(argv.sandbox, "--sandbox");
+  if (sandboxMode !== undefined) {
+    request.sandboxMode = sandboxMode;
+  }
+
+  const approvalMode = parseApprovalModeFlag(argv.approval, "--approval");
+  if (approvalMode !== undefined) {
+    request.approvalMode = approvalMode;
+  }
   if (argv.threadId !== undefined) request.threadId = argv.threadId;
   if (argv.baseUrl !== undefined) request.baseUrl = argv.baseUrl;
   if (argv.apiKey !== undefined) request.apiKey = argv.apiKey;
@@ -233,6 +244,11 @@ function extractConversationId(eventPayload: unknown): string | null {
     typeof (sessionConfigured as Record<string, unknown>).session_id === "string"
   ) {
     return (sessionConfigured as Record<string, string>).session_id;
+  if (sessionConfigured && typeof sessionConfigured === "object") {
+    const configuredSessionId = (sessionConfigured as Record<string, unknown>).session_id;
+    if (typeof configuredSessionId === "string") {
+      return configuredSessionId;
+    }
   }
   const nestedSession =
     typeof record.session === "object" && record.session

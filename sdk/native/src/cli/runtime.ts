@@ -92,6 +92,12 @@ export function applyNativeRegistrations(combined: CombinedConfig): void {
   for (const interceptor of combined.interceptors) {
     const name = interceptor.toolName;
     if (RESERVED.has(name) && !combined.allowReservedInterceptors) {
+  // De‑dupe interceptors by toolName; skip reserved names to preserve approval interceptors
+  const RESERVED = new Set<string>(["local_shell", "exec_command", "apply_patch"]);
+  const seenInterceptors = new Set<string>();
+  for (const interceptor of combined.interceptors) {
+    const name = interceptor.toolName;
+    if (RESERVED.has(name)) {
       combined.warnings.push(
         `Interceptor for "${name}" ignored: reserved for approval gating. Use approvals() hook instead.`,
       );

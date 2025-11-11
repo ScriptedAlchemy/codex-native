@@ -9,6 +9,7 @@ const config = {
         module: "ES2022",
         target: "ES2022",
         moduleResolution: "node",
+        noUncheckedIndexedAccess: true,
       },
     }],
   },

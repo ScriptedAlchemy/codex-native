@@ -1,3 +1,29 @@
+// ============================================================================
+// NAPI Bindings for Codex Native SDK
+// ============================================================================
+//
+// This module provides Node.js bindings for the Codex SDK via NAPI-RS.
+//
+// # Architecture
+//
+// The file is organized into the following sections:
+//   1. Platform-specific utilities (Linux sandbox)
+//   2. Tool registration and interceptors
+//   3. Run request handling (thread execution)
+//   4. TUI (Terminal User Interface) bindings
+//   5. Event helpers and SSE formatting
+//   6. Cloud tasks integration
+//
+// # Future Improvements
+//
+// Consider splitting into separate modules as the file grows:
+//   - tools.rs: Tool registration and interceptor logic
+//   - tui.rs: TUI-related bindings and helpers
+//   - run.rs: Thread execution and compaction
+//   - events.rs: Event formatting helpers
+//
+// ============================================================================
+
 #![deny(clippy::all)]
 
 use std::collections::HashMap;
@@ -34,18 +60,21 @@ use ratatui::backend::WindowSize;
 use ratatui::buffer::Cell;
 use ratatui::layout::Position;
 use ratatui::layout::Size;
+use ratatui::prelude::CrosstermBackend;
 use serde_json::Map as JsonMap;
 use serde_json::Value as JsonValue;
 use serde_json::json;
 use std::io::{self, Write};
 use tempfile::NamedTempFile;
+use std::fmt;
 use uuid::Uuid;
 
 // Avoid clashes with the `json!` macro imported above when returning data.
 use serde_json::json as serde_json_json;
 
-#[cfg(target_os = "linux")]
-use std::io::Write;
+// ============================================================================
+// Section 1: Platform-Specific Utilities
+// ============================================================================
 
 #[cfg(target_os = "linux")]
 fn io_to_napi(err: std::io::Error) -> napi::Error {
@@ -101,6 +130,22 @@ const EMBEDDED_LINUX_SANDBOX_BYTES: &[u8] = include_bytes!(env!("CODEX_LINUX_SAN
 
 const ORIGINATOR_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 const NATIVE_ORIGINATOR: &str = "codex_sdk_native";
+
+// ============================================================================
+// Section 2: Tool Registration and Interceptors
+// ============================================================================
+//
+// This section provides functionality for registering custom tools and
+// interceptors from JavaScript/TypeScript code. Tools can replace or augment
+// built-in Codex tools, and interceptors can modify tool invocations.
+//
+// Key exports:
+//   - clear_registered_tools()
+//   - register_tool()
+//   - register_tool_interceptor()
+//   - register_approval_callback()
+//
+// ============================================================================
 
 fn registered_native_tools() -> &'static Mutex<Vec<ExternalToolRegistration>> {
   static TOOLS: OnceLock<Mutex<Vec<ExternalToolRegistration>>> = OnceLock::new();
@@ -767,6 +812,22 @@ pub struct WorkspaceWriteOptions {
   pub exclude_slash_tmp: Option<bool>,
 }
 
+// ============================================================================
+// Section 3: Run Request Handling (Thread Execution)
+// ============================================================================
+//
+// This section handles execution of agent threads, including:
+//   - RunRequest: Configuration for agent execution
+//   - Thread streaming and event handling
+//   - Compaction of conversation history
+//
+// Key exports:
+//   - run_thread(): Execute agent with given configuration
+//   - run_thread_stream(): Stream events during execution
+//   - compact_thread(): Compact conversation history
+//
+// ============================================================================
+
 #[napi(object)]
 pub struct RunRequest {
   pub prompt: String,
@@ -895,6 +956,22 @@ impl RunRequest {
   }
 }
 
+// ============================================================================
+// Section 4: TUI (Terminal User Interface) Bindings
+// ============================================================================
+//
+// This section provides bindings for the interactive terminal UI, allowing
+// seamless transition from programmatic to interactive agent interaction.
+//
+// The TUI uses the same `codex_tui::run_main()` implementation as the
+// standalone Rust CLI, ensuring identical user experience.
+//
+// Key exports:
+//   - run_tui(): Launch full-screen interactive TUI
+//   - tui_test_run(): Headless TUI rendering for testing
+//
+// ============================================================================
+
 #[napi(object)]
 pub struct TuiRequest {
   pub prompt: Option<String>,
@@ -1012,6 +1089,7 @@ pub fn tui_test_run(req: TuiTestRequest) -> napi::Result<Vec<String>> {
   use ratatui::text::Line;
 
   let backend = MemoryBackend::new(req.width, req.height);
+  let backend = Vt100Backend::new(req.width, req.height);
   let mut term = codex_tui::custom_terminal::Terminal::with_options(backend)
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
   let vp = req.viewport;
@@ -1021,6 +1099,7 @@ pub fn tui_test_run(req: TuiTestRequest) -> napi::Result<Vec<String>> {
   codex_tui::insert_history::insert_history_lines(&mut term, lines)
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
+  // Return the full screen content like the Rust tests do
   let snapshot = term.backend().as_string();
   Ok(vec![snapshot])
 }
@@ -1283,6 +1362,44 @@ impl Write for MemoryBackend {
 }
 
 impl Backend for MemoryBackend {
+// --- VT100-based backend for TUI snapshots ---
+struct Vt100Backend {
+  inner: CrosstermBackend<vt100::Parser>,
+}
+
+impl Vt100Backend {
+  fn new(width: u16, height: u16) -> Self {
+    Self {
+      inner: CrosstermBackend::new(vt100::Parser::new(height, width, 0)),
+    }
+  }
+
+  fn as_string(&self) -> String {
+    self.inner.writer().screen().contents()
+  }
+
+  fn parser(&self) -> &vt100::Parser {
+    self.inner.writer()
+  }
+}
+
+impl Write for Vt100Backend {
+  fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    self.inner.writer_mut().write(buf)
+  }
+
+  fn flush(&mut self) -> io::Result<()> {
+    self.inner.writer_mut().flush()
+  }
+}
+
+impl fmt::Display for Vt100Backend {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.parser().screen().contents())
+  }
+}
+
+impl Backend for Vt100Backend {
   fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
   where
     I: Iterator<Item = (u16, u16, &'a Cell)>,
@@ -1329,6 +1446,48 @@ impl Backend for MemoryBackend {
   fn window_size(&mut self) -> io::Result<WindowSize> {
     Ok(WindowSize {
       columns_rows: Size::new(self.width, self.height),
+    self.inner.draw(content)?;
+    Ok(())
+  }
+
+  fn hide_cursor(&mut self) -> io::Result<()> {
+    self.inner.hide_cursor()?;
+    Ok(())
+  }
+
+  fn show_cursor(&mut self) -> io::Result<()> {
+    self.inner.show_cursor()?;
+    Ok(())
+  }
+
+  fn get_cursor_position(&mut self) -> io::Result<Position> {
+    Ok(self.parser().screen().cursor_position().into())
+  }
+
+  fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
+    self.inner.set_cursor_position(position)
+  }
+
+  fn clear(&mut self) -> io::Result<()> {
+    self.inner.clear()
+  }
+
+  fn clear_region(&mut self, clear_type: ClearType) -> io::Result<()> {
+    self.inner.clear_region(clear_type)
+  }
+
+  fn append_lines(&mut self, line_count: u16) -> io::Result<()> {
+    self.inner.append_lines(line_count)
+  }
+
+  fn size(&self) -> io::Result<Size> {
+    let (rows, cols) = self.parser().screen().size();
+    Ok(Size::new(cols, rows))
+  }
+
+  fn window_size(&mut self) -> io::Result<WindowSize> {
+    Ok(WindowSize {
+      columns_rows: self.parser().screen().size().into(),
       pixels: Size {
         width: 640,
         height: 480,
@@ -1372,6 +1531,61 @@ fn parse_approval_mode(input: Option<&str>) -> napi::Result<Option<ApprovalModeC
       "Unsupported approval mode: {other}"
     ))),
   }
+
+  fn flush(&mut self) -> io::Result<()> {
+    self.inner.writer_mut().flush()
+  }
+
+  fn scroll_region_up(&mut self, region: std::ops::Range<u16>, scroll_by: u16) -> io::Result<()> {
+    self.inner.scroll_region_up(region, scroll_by)
+  }
+
+  fn scroll_region_down(
+    &mut self,
+    region: std::ops::Range<u16>,
+    scroll_by: u16,
+  ) -> io::Result<()> {
+    self.inner.scroll_region_down(region, scroll_by)
+  }
+}
+/// Generic enum parser macro to reduce duplication in CLI argument parsing.
+///
+/// # Example
+/// ```ignore
+/// parse_enum_arg!(input, "sandbox mode",
+///   "read-only" => SandboxModeCliArg::ReadOnly,
+///   "workspace-write" => SandboxModeCliArg::WorkspaceWrite
+/// )
+/// ```
+macro_rules! parse_enum_arg {
+  ($input:expr, $name:expr, $( $str:expr => $variant:expr ),+ $(,)?) => {
+    match $input {
+      None => Ok(None),
+      $(
+        Some($str) => Ok(Some($variant)),
+      )+
+      Some(other) => Err(napi::Error::from_reason(format!(
+        "Unsupported {}: {}", $name, other
+      ))),
+    }
+  };
+}
+
+fn parse_sandbox_mode(input: Option<&str>) -> napi::Result<Option<SandboxModeCliArg>> {
+  parse_enum_arg!(input, "sandbox mode",
+    "read-only" => SandboxModeCliArg::ReadOnly,
+    "workspace-write" => SandboxModeCliArg::WorkspaceWrite,
+    "danger-full-access" => SandboxModeCliArg::DangerFullAccess,
+  )
+}
+
+fn parse_approval_mode(input: Option<&str>) -> napi::Result<Option<ApprovalModeCliArg>> {
+  parse_enum_arg!(input, "approval mode",
+    "never" => ApprovalModeCliArg::Never,
+    "on-request" => ApprovalModeCliArg::OnRequest,
+    "on-failure" => ApprovalModeCliArg::OnFailure,
+    "untrusted" => ApprovalModeCliArg::Untrusted,
+  )
 }
 
 pub fn build_cli(
@@ -1872,6 +2086,22 @@ pub async fn cloud_tasks_create(
   let payload = serde_json_json!({ "id": created.id.0 });
   serde_json::to_string(&payload).map_err(|e| napi::Error::from_reason(e.to_string()))
 }
+
+// ============================================================================
+// Section 5: Event Helpers and SSE Formatting
+// ============================================================================
+//
+// This section provides utility functions for creating and formatting
+// Server-Sent Events (SSE) for streaming agent responses.
+//
+// Key exports:
+//   - ev_completed(): Create completion event
+//   - ev_response_created(): Create response creation event
+//   - ev_assistant_message(): Create assistant message event
+//   - ev_function_call(): Create function call event
+//   - sse(): Format events as SSE stream
+//
+// ============================================================================
 
 #[napi]
 pub fn ev_completed(id: String) -> String {

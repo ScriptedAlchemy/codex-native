@@ -50,9 +50,6 @@ pub fn default_bg() -> Option<(u8, u8, u8)> {
 #[cfg(all(unix, not(test)))]
 mod imp {
     use super::DefaultColors;
-    use crossterm::style::Color as CrosstermColor;
-    use crossterm::style::query_background_color;
-    use crossterm::style::query_foreground_color;
     use std::sync::Mutex;
     use std::sync::OnceLock;
 
@@ -108,16 +105,9 @@ mod imp {
     }
 
     fn query_default_colors() -> std::io::Result<Option<DefaultColors>> {
-        let fg = query_foreground_color()?.and_then(color_to_tuple);
-        let bg = query_background_color()?.and_then(color_to_tuple);
-        Ok(fg.zip(bg).map(|(fg, bg)| DefaultColors { fg, bg }))
-    }
-
-    fn color_to_tuple(color: CrosstermColor) -> Option<(u8, u8, u8)> {
-        match color {
-            CrosstermColor::Rgb { r, g, b } => Some((r, g, b)),
-            _ => None,
-        }
+        // crossterm 0.28 does not expose query_foreground_color/query_background_color.
+        // Fall back to no defaults on unix builds as well.
+        Ok(None)
     }
 }
 

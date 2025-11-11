@@ -9,7 +9,7 @@ import {
   sse,
   startResponsesTestProxy,
 } from "./responsesProxy";
-
+import { evFunctionCall } from "../src/index";
 
 
 let Codex: any;
@@ -101,6 +101,61 @@ describe("native tool interceptors", () => {
         // If the mock server omitted output echoing, at least ensure interceptor ran
         expect(intercepted).toBe(true);
       }
+    } finally {
+      await close();
+    }
+  }, 15000);
+
+  it("intercepts builtin tool output when streaming", async () => {
+    const toolCallId = "tool_call_stream";
+    const toolName = "stream_interceptable_tool";
+    const functionCallEvent = JSON.parse(
+      evFunctionCall(toolCallId, toolName, JSON.stringify({ payload: "value" })),
+    );
+
+    const { url, close, requests } = await startResponsesTestProxy({
+      statusCode: 200,
+      responseBodies: [
+        sse(responseStarted("response_stream"), functionCallEvent, responseCompleted("response_stream")),
+        sse(responseStarted("response_final"), responseCompleted("response_final")),
+      ],
+    });
+
+    try {
+      const client = new Codex({ baseUrl: url, apiKey: "test", skipGitRepoCheck: true });
+
+      client.registerTool({
+        name: toolName,
+        description: "Interceptable streaming test tool",
+        parameters: {
+          type: "object",
+          properties: {
+            payload: { type: "string" },
+          },
+          required: ["payload"],
+        },
+        handler: async () => JSON.stringify({ original: true }),
+      });
+
+      let intercepted = false;
+      client.registerToolInterceptor(toolName, async ({ invocation }: { invocation: any; callBuiltin: any }) => {
+        intercepted = true;
+        return {
+          output: JSON.stringify({ streamingIntercept: true, callId: invocation.callId }),
+          success: true,
+        };
+      });
+
+      const thread = client.startThread({ skipGitRepoCheck: true });
+      const streamed = await thread.runStreamed("trigger streaming tool");
+      for await (const _ of streamed.events) {
+        // drain events to completion so the interceptor executes
+      }
+
+      expect(intercepted).toBe(true);
+
+      // Ensure a follow-up request occurred (tool response stage)
+      expect(requests.length).toBeGreaterThanOrEqual(2);
     } finally {
       await close();
     }

@@ -268,6 +268,10 @@ async function loadTypeScriptModule(modulePath: string, warnings?: string[]): Pr
   } catch (cjsError) {
     try {
       const api = await import("tsx/esm/api");
+      const tsxEsm: string = "tsx/esm/api";
+      // Use a dynamic specifier so type resolution doesn't require this module to exist at compile-time.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const api: any = await import(tsxEsm as any);
       const unregister =
         typeof api.register === "function"
           ? api.register({ transpileOnly: true })
@@ -311,6 +315,9 @@ function extractModuleDefault<T>(module: T): T | unknown {
 }
 
 function resolveModule(specifier: string, baseDir: string): string {
+  if (path.isAbsolute(specifier)) {
+    return specifier;
+  }
   return requireFromThisModule.resolve(specifier, { paths: [baseDir] });
 }
 
