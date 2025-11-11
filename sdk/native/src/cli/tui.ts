@@ -2,6 +2,7 @@ import process from "node:process";
 
 import { getNativeBinding, type NativeTuiRequest } from "../nativeBinding";
 import { emitWarnings, runBeforeStartHooks } from "./hooks";
+import { parseApprovalModeFlag, parseSandboxModeFlag } from "./optionParsers";
 import type { CliContext, CommandName, TuiCommandOptions } from "./types";
 
 export async function executeTuiCommand(
@@ -59,8 +60,15 @@ function buildTuiRequest(params: {
   if (argv.prompt !== undefined) request.prompt = argv.prompt;
   if (argv.model !== undefined) request.model = argv.model;
   if (argv.oss !== undefined) request.oss = argv.oss;
-  if (argv.sandbox !== undefined) request.sandboxMode = argv.sandbox;
-  if (argv.approval !== undefined) request.approvalMode = argv.approval;
+  const sandboxMode = parseSandboxModeFlag(argv.sandbox, "--sandbox");
+  if (sandboxMode !== undefined) {
+    request.sandboxMode = sandboxMode;
+  }
+
+  const approvalMode = parseApprovalModeFlag(argv.approval, "--approval");
+  if (approvalMode !== undefined) {
+    request.approvalMode = approvalMode;
+  }
   if (argv.resume !== undefined) request.resumeSessionId = argv.resume;
   if (argv.resumeLast !== undefined) request.resumeLast = argv.resumeLast;
   if (argv.resumePicker !== undefined) request.resumePicker = argv.resumePicker;

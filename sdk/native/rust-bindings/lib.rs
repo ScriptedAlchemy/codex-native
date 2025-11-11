@@ -1154,9 +1154,7 @@ impl Backend for MemoryBackend {
       return Ok(());
     }
     self.grid.drain(0..count);
-    self
-      .grid
-      .extend((0..count).map(|_| vec![' '; width]));
+    self.grid.extend((0..count).map(|_| vec![' '; width]));
     Ok(())
   }
   fn size(&self) -> io::Result<Size> {

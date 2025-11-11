@@ -18,8 +18,9 @@ describe("tuiTestRun headless snapshots", () => {
       lines: ["first", "second"],
     });
     expect(frames).toHaveLength(1);
-    expect(typeof frames[0]).toBe("string");
-    expect(frames[0].length).toBeGreaterThan(0);
+    const firstFrame = frames[0]!;
+    expect(typeof firstFrame).toBe("string");
+    expect(firstFrame.length).toBeGreaterThan(0);
   });
 
   it("wraps long tokens across lines without dropping characters", async () => {
@@ -34,8 +35,9 @@ describe("tuiTestRun headless snapshots", () => {
       lines: [long],
     });
     expect(frames).toHaveLength(1);
-    expect(typeof frames[0]).toBe("string");
-    expect(frames[0].length).toBeGreaterThan(0);
+    const firstFrame = frames[0]!;
+    expect(typeof firstFrame).toBe("string");
+    expect(firstFrame.length).toBeGreaterThan(0);
   });
 });
 
