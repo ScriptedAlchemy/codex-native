@@ -32,6 +32,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use codex_cloud_tasks_client as cloud;
@@ -63,9 +64,9 @@ use ratatui::prelude::CrosstermBackend;
 use serde_json::Map as JsonMap;
 use serde_json::Value as JsonValue;
 use serde_json::json;
+use std::fmt;
 use std::io::{self, Write};
 use tempfile::NamedTempFile;
-use std::fmt;
 use uuid::Uuid;
 
 // Avoid clashes with the `json!` macro imported above when returning data.
@@ -149,6 +150,13 @@ const NATIVE_ORIGINATOR: &str = "codex_sdk_native";
 fn registered_native_tools() -> &'static Mutex<Vec<ExternalToolRegistration>> {
   static TOOLS: OnceLock<Mutex<Vec<ExternalToolRegistration>>> = OnceLock::new();
   TOOLS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn pending_plan_updates()
+-> &'static Mutex<HashMap<String, codex_protocol::plan_tool::UpdatePlanArgs>> {
+  static UPDATES: OnceLock<Mutex<HashMap<String, codex_protocol::plan_tool::UpdatePlanArgs>>> =
+    OnceLock::new();
+  UPDATES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 #[derive(Clone)]
@@ -258,7 +266,7 @@ pub fn register_approval_callback(
   #[napi(ts_arg_type = "(request: JsApprovalRequest) => boolean | Promise<boolean>")]
   handler: Function<JsApprovalRequest, bool>,
 ) -> napi::Result<()> {
-  let sensitive_tools = ["local_shell", "exec_command", "apply_patch"];
+  let sensitive_tools = ["local_shell", "exec_command", "apply_patch", "web_search"];
 
   for tool_name in sensitive_tools {
     let mut tsfn = handler
@@ -408,6 +416,170 @@ pub async fn call_tool_builtin(
     )),
     Err(FunctionCallError::Fatal(message)) => Err(napi::Error::from_reason(message)),
   }
+}
+
+#[derive(Clone)]
+#[napi(object)]
+pub struct JsEmitPlanUpdateRequest {
+  pub thread_id: String,
+  pub explanation: Option<String>,
+  pub plan: Vec<JsPlanItem>,
+}
+
+#[derive(Clone)]
+#[napi(object)]
+pub struct JsPlanItem {
+  pub step: String,
+  pub status: Option<String>, // "pending", "in_progress", "completed"
+}
+
+#[derive(Clone)]
+#[napi(object)]
+pub struct JsModifyPlanRequest {
+  pub thread_id: String,
+  pub operations: Vec<JsPlanOperation>,
+}
+
+#[derive(Clone)]
+#[napi(object)]
+pub struct JsPlanOperation {
+  pub type_: String, // "add", "update", "remove", "reorder"
+  pub item: Option<JsPlanItem>,
+  pub index: Option<i32>,
+  pub updates: Option<JsPlanUpdate>,
+  pub new_order: Option<Vec<i32>>,
+}
+
+#[derive(Clone)]
+#[napi(object)]
+pub struct JsPlanUpdate {
+  pub step: Option<String>,
+  pub status: Option<String>,
+}
+
+#[napi]
+pub fn emit_plan_update(req: JsEmitPlanUpdateRequest) -> napi::Result<()> {
+  let plan_items = req
+    .plan
+    .into_iter()
+    .map(|item| {
+      let status_str = item.status.as_deref().unwrap_or("pending");
+      let status = match status_str {
+        "pending" => codex_protocol::plan_tool::StepStatus::Pending,
+        "in_progress" => codex_protocol::plan_tool::StepStatus::InProgress,
+        "completed" => codex_protocol::plan_tool::StepStatus::Completed,
+        _ => {
+          return Err(napi::Error::from_reason(format!(
+            "Invalid status: {}",
+            status_str
+          )));
+        }
+      };
+      Ok(codex_protocol::plan_tool::PlanItemArg {
+        step: item.step,
+        status,
+      })
+    })
+    .collect::<Result<Vec<_>, _>>()?;
+
+  let args = codex_protocol::plan_tool::UpdatePlanArgs {
+    explanation: req.explanation,
+    plan: plan_items,
+  };
+
+  pending_plan_updates()
+    .lock()
+    .map_err(|e| napi::Error::from_reason(format!("plan updates mutex poisoned: {e}")))?
+    .insert(req.thread_id, args);
+
+  Ok(())
+}
+
+#[napi]
+pub fn modify_plan(req: JsModifyPlanRequest) -> napi::Result<()> {
+  let mut pending_updates = pending_plan_updates()
+    .lock()
+    .map_err(|e| napi::Error::from_reason(format!("plan updates mutex poisoned: {e}")))?;
+
+  let current_plan = pending_updates.get(&req.thread_id).cloned();
+
+  let mut plan_items = if let Some(existing) = current_plan {
+    existing.plan
+  } else {
+    Vec::new()
+  };
+
+  for op in req.operations {
+    match op.type_.as_str() {
+      "add" => {
+        if let Some(item) = op.item {
+          let status_str = item.status.as_deref().unwrap_or("pending");
+          let status = match status_str {
+            "pending" => codex_protocol::plan_tool::StepStatus::Pending,
+            "in_progress" => codex_protocol::plan_tool::StepStatus::InProgress,
+            "completed" => codex_protocol::plan_tool::StepStatus::Completed,
+            _ => codex_protocol::plan_tool::StepStatus::Pending,
+          };
+          plan_items.push(codex_protocol::plan_tool::PlanItemArg {
+            step: item.step,
+            status,
+          });
+        }
+      }
+      "update" => {
+        if let (Some(index), Some(updates)) = (op.index, op.updates) {
+          let idx = index as usize;
+          if idx < plan_items.len() {
+            let item = &mut plan_items[idx];
+            if let Some(new_step) = updates.step.filter(|step| !step.is_empty()) {
+              item.step = new_step;
+            }
+            if let Some(status_str) = updates.status.as_deref() {
+              let status = match status_str {
+                "pending" => codex_protocol::plan_tool::StepStatus::Pending,
+                "in_progress" => codex_protocol::plan_tool::StepStatus::InProgress,
+                "completed" => codex_protocol::plan_tool::StepStatus::Completed,
+                _ => item.status.clone(),
+              };
+              item.status = status;
+            }
+          }
+        }
+      }
+      "remove" => {
+        if let Some(index) = op.index {
+          let idx = index as usize;
+          if idx < plan_items.len() {
+            plan_items.remove(idx);
+          }
+        }
+      }
+      "reorder" => {
+        if let Some(new_order) = op.new_order {
+          let mut reordered = Vec::new();
+          for &idx in &new_order {
+            let idx = idx as usize;
+            if idx < plan_items.len() {
+              reordered.push(plan_items[idx].clone());
+            }
+          }
+          if reordered.len() == plan_items.len() {
+            plan_items = reordered;
+          }
+        }
+      }
+      _ => {}
+    }
+  }
+
+  let args = codex_protocol::plan_tool::UpdatePlanArgs {
+    explanation: None, // Could be extended to support per-operation explanations
+    plan: plan_items,
+  };
+
+  pending_updates.insert(req.thread_id, args);
+
+  Ok(())
 }
 
 #[derive(Clone)]
@@ -931,6 +1103,7 @@ pub fn tui_test_run(req: TuiTestRequest) -> napi::Result<Vec<String>> {
   Ok(vec![snapshot])
 }
 #[napi(object)]
+#[derive(Clone, Debug)]
 pub struct TokenUsageSummary {
   #[napi(js_name = "inputTokens")]
   pub input_tokens: i64,
@@ -957,6 +1130,7 @@ impl From<TokenUsage> for TokenUsageSummary {
 }
 
 #[napi(object)]
+#[derive(Clone, Debug)]
 pub struct UpdateActionInfo {
   pub kind: String,
   pub command: String,
@@ -1144,6 +1318,120 @@ impl Drop for EnvOverrides {
   }
 }
 
+// --- Headless memory backend for TUI snapshots (no vt100 dependency) ---
+struct MemoryBackend {
+  width: u16,
+  height: u16,
+  // Row-major grid of chars
+  grid: Vec<Vec<char>>,
+  cursor: Position,
+}
+
+impl MemoryBackend {
+  #[allow(dead_code)]
+  fn new(width: u16, height: u16) -> Self {
+    let w = width as usize;
+    let h = height as usize;
+    let grid = vec![vec![' '; w]; h];
+    Self {
+      width,
+      height,
+      grid,
+      cursor: Position { x: 0, y: 0 },
+    }
+  }
+}
+
+impl Write for MemoryBackend {
+  fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    // Ignore raw writes; our draw() receives structured cells.
+    Ok(buf.len())
+  }
+  fn flush(&mut self) -> io::Result<()> {
+    Ok(())
+  }
+}
+
+impl Backend for MemoryBackend {
+  fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
+  where
+    I: Iterator<Item = (u16, u16, &'a Cell)>,
+  {
+    for (x, y, cell) in content {
+      if (x as usize) < self.grid[0].len() && (y as usize) < self.grid.len() {
+        let ch = cell.symbol().chars().next().unwrap_or(' ');
+        self.grid[y as usize][x as usize] = ch;
+        self.cursor = Position { x, y };
+      }
+    }
+    Ok(())
+  }
+
+  fn hide_cursor(&mut self) -> io::Result<()> {
+    Ok(())
+  }
+
+  fn show_cursor(&mut self) -> io::Result<()> {
+    Ok(())
+  }
+
+  fn get_cursor_position(&mut self) -> io::Result<Position> {
+    Ok(self.cursor)
+  }
+
+  fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
+    self.cursor = position.into();
+    Ok(())
+  }
+
+  fn clear(&mut self) -> io::Result<()> {
+    for row in &mut self.grid {
+      for ch in row.iter_mut() {
+        *ch = ' ';
+      }
+    }
+    Ok(())
+  }
+
+  fn clear_region(&mut self, _clear_type: ClearType) -> io::Result<()> {
+    self.clear()
+  }
+
+  fn append_lines(&mut self, _line_count: u16) -> io::Result<()> {
+    Ok(())
+  }
+
+  fn size(&self) -> io::Result<Size> {
+    Ok(Size::new(self.width, self.height))
+  }
+
+  fn window_size(&mut self) -> io::Result<WindowSize> {
+    Ok(WindowSize {
+      columns_rows: Size::new(self.width, self.height),
+      pixels: Size {
+        width: 640,
+        height: 480,
+      },
+    })
+  }
+
+  fn flush(&mut self) -> io::Result<()> {
+    Ok(())
+  }
+
+  fn scroll_region_up(&mut self, _region: std::ops::Range<u16>, _scroll_by: u16) -> io::Result<()> {
+    Ok(())
+  }
+
+  fn scroll_region_down(
+    &mut self,
+    _region: std::ops::Range<u16>,
+    _scroll_by: u16,
+  ) -> io::Result<()> {
+    Ok(())
+  }
+}
+
 // --- VT100-based backend for TUI snapshots ---
 struct Vt100Backend {
   inner: CrosstermBackend<vt100::Parser>,
@@ -1243,14 +1531,11 @@ impl Backend for Vt100Backend {
     self.inner.scroll_region_up(region, scroll_by)
   }
 
-  fn scroll_region_down(
-    &mut self,
-    region: std::ops::Range<u16>,
-    scroll_by: u16,
-  ) -> io::Result<()> {
+  fn scroll_region_down(&mut self, region: std::ops::Range<u16>, scroll_by: u16) -> io::Result<()> {
     self.inner.scroll_region_down(region, scroll_by)
   }
 }
+
 /// Generic enum parser macro to reduce duplication in CLI argument parsing.
 ///
 /// # Example
@@ -1395,10 +1680,50 @@ fn event_to_json(event: &ExecThreadEvent) -> napi::Result<JsonValue> {
   }
 }
 
-fn run_internal_sync<F>(options: InternalRunRequest, handler: F) -> napi::Result<()>
+fn run_internal_sync<F>(options: InternalRunRequest, mut handler: F) -> napi::Result<()>
 where
   F: FnMut(ExecThreadEvent) + Send + 'static,
 {
+  // Check for pending plan updates and inject them as early events
+  let pending_plan = if let Some(thread_id) = &options.thread_id {
+    let mut updates = pending_plan_updates()
+      .lock()
+      .map_err(|e| napi::Error::from_reason(format!("plan updates mutex poisoned: {e}")))?;
+    updates.remove(thread_id)
+  } else {
+    None
+  };
+
+  if let Some(plan_args) = pending_plan {
+    let todo_items: Vec<codex_exec::exec_events::TodoItem> = plan_args
+      .plan
+      .into_iter()
+      .map(|item| codex_exec::exec_events::TodoItem {
+        text: item.step,
+        completed: matches!(
+          item.status,
+          codex_protocol::plan_tool::StepStatus::Completed
+        ),
+      })
+      .collect();
+
+    let timestamp = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap_or_default()
+      .as_millis();
+    let thread_item = codex_exec::exec_events::ThreadItem {
+      id: format!("plan_update_{timestamp}"),
+      details: codex_exec::exec_events::ThreadItemDetails::TodoList(
+        codex_exec::exec_events::TodoListItem { items: todo_items },
+      ),
+    };
+
+    let plan_event = ExecThreadEvent::ItemCompleted(codex_exec::exec_events::ItemCompletedEvent {
+      item: thread_item,
+    });
+    handler(plan_event);
+  }
+
   let schema_file = prepare_schema(options.output_schema.clone())?;
   let schema_path = schema_file.as_ref().map(|file| file.path.clone());
   let cli = build_cli(&options, schema_path, false);

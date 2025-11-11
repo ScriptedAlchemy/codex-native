@@ -427,6 +427,86 @@ describe('CodexProvider', () => {
     }, 30000); // 30 second timeout for backend connection
   });
 
+  describe('Plan and todo surfacing', () => {
+    it('emits plan updates in streaming and includes plan metadata in buffered responses', async () => {
+      const planItems = [
+        { text: 'Implement feature', completed: false },
+        { text: 'Write tests', completed: true },
+      ];
+      const usage = {
+        input_tokens: 12,
+        output_tokens: 4,
+        cached_input_tokens: 0,
+      };
+
+      const planThread = {
+        id: 'mock-thread',
+        run: jest.fn(async () => ({
+          items: [
+            { id: 'plan_item', type: 'todo_list', items: planItems },
+            { id: 'agent_msg', type: 'agent_message', text: 'Plan acknowledged' },
+          ],
+          finalResponse: 'Plan acknowledged',
+          usage,
+        })),
+        runStreamed: jest.fn(async () => ({
+          events: (async function* () {
+            yield { type: 'thread.started', thread_id: 'mock-thread' };
+            yield { type: 'turn.started' };
+            yield {
+              type: 'item.completed',
+              item: { id: 'plan_item', type: 'todo_list', items: planItems },
+            };
+            yield {
+              type: 'item.completed',
+              item: { id: 'agent_msg', type: 'agent_message', text: 'Plan acknowledged' },
+            };
+            yield { type: 'turn.completed', usage };
+          })(),
+        })),
+      };
+
+      const localProvider = new CodexProvider({
+        skipGitRepoCheck: true,
+      });
+      const localMockCodex = {
+        startThread: jest.fn(() => planThread),
+        resumeThread: jest.fn(() => planThread),
+        registerTool: jest.fn(),
+      };
+      (localProvider as any).codex = localMockCodex;
+
+      const model = localProvider.getModel();
+      const request = {
+        input: 'Plan update test',
+        modelSettings: {},
+        tools: [],
+        outputType: { type: 'text' } as any,
+        handoffs: [],
+        tracing: { enabled: false } as any,
+      };
+
+      const stream = model.getStreamedResponse(request as any);
+      const streamedEvents: any[] = [];
+      for await (const event of stream) {
+        streamedEvents.push(event);
+      }
+
+      const planStreamEvent = streamedEvents.find(
+        (event) => event.type === 'model' && event.event?.type === 'plan_update',
+      ) as { event: { items: Array<{ text: string; completed: boolean }> } } | undefined;
+
+      expect(planStreamEvent).toBeDefined();
+      expect(planStreamEvent?.event.items).toEqual(planItems);
+
+      const response = await model.getResponse(request as any);
+      expect((response as any).plan?.items).toEqual(planItems);
+
+      expect(planThread.runStreamed).toHaveBeenCalledTimes(1);
+      expect(planThread.run).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('Conversation State', () => {
     it('should support conversationId for multi-turn conversations', async () => {
       const model = provider.getModel();

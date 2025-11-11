@@ -165,6 +165,8 @@ async function buildRunRequest(params: {
 
   if (argv.model !== undefined) request.model = argv.model;
   if (argv.oss !== undefined) request.oss = argv.oss;
+  if (argv.sandbox !== undefined) request.sandboxMode = argv.sandbox;
+  if (argv.approval !== undefined) request.approvalMode = argv.approval;
   const sandboxMode = parseSandboxModeFlag(argv.sandbox, "--sandbox");
   if (sandboxMode !== undefined) {
     request.sandboxMode = sandboxMode;
@@ -227,10 +229,13 @@ function extractConversationId(eventPayload: unknown): string | null {
   if (!eventPayload || typeof eventPayload !== "object") {
     return null;
   }
+
   const record = eventPayload as Record<string, unknown>;
+
   if (typeof record.session_id === "string") {
     return record.session_id;
   }
+
   const sessionConfigured = record.SessionConfigured ?? record.sessionConfigured;
   if (sessionConfigured && typeof sessionConfigured === "object") {
     const configuredSessionId = (sessionConfigured as Record<string, unknown>).session_id;
@@ -238,6 +243,7 @@ function extractConversationId(eventPayload: unknown): string | null {
       return configuredSessionId;
     }
   }
+
   const nestedSession =
     typeof record.session === "object" && record.session
       ? (record.session as Record<string, unknown>).id
@@ -245,6 +251,7 @@ function extractConversationId(eventPayload: unknown): string | null {
   if (typeof nestedSession === "string") {
     return nestedSession;
   }
+
   return null;
 }
 

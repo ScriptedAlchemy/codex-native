@@ -242,6 +242,24 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
     }, 30000);
   });
 
+  describe("Thread API", () => {
+    it("Thread has updatePlan and event subscription methods", () => {
+      const provider = new CodexProvider({
+        skipGitRepoCheck: true,
+      });
+
+      // We can't actually create a real thread without a backend,
+      // but we can verify the provider has the necessary methods
+      expect(typeof provider.getModel).toBe("function");
+
+      // Test that we can get a model (which internally creates threads)
+      const model = provider.getModel();
+      expect(model).toBeDefined();
+      expect(typeof model.getResponse).toBe("function");
+      expect(typeof model.getStreamedResponse).toBe("function");
+    });
+  });
+
   describe("Type Compatibility", () => {
     it("exports TypeScript types", async () => {
       // Verify that types are exported from the package

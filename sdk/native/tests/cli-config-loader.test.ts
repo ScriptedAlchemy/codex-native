@@ -1,3 +1,5 @@
+/// <reference path="./types.d.ts" />
+
 import { describe, it, expect, afterEach } from "@jest/globals";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -117,18 +119,19 @@ describe("loadCliConfig", () => {
       pluginPaths: [cliPluginPath],
     });
 
-    expect(result.plugins).toHaveLength(3);
-    const inlinePlugin = result.plugins[1]!;
-    const cliPlugin = result.plugins[2]!;
-
-    const pluginSpecs = result.plugins.map((p) => p.spec);
+    const plugins = result.plugins ?? [];
+    expect(plugins).toHaveLength(3);
+    const pluginSpecs = plugins.map((p) => p.spec);
     expect(pluginSpecs).toEqual([
       "./plugins/config-plugin.js",
       "<inline>",
       cliPluginPath,
     ]);
-    expect((inlinePlugin.plugin as { inline: boolean }).inline).toBe(true);
-    expect(typeof cliPlugin.plugin).toBe("function");
+    const [, inlinePlugin, cliPlugin] = plugins;
+    expect(inlinePlugin).toBeDefined();
+    expect(cliPlugin).toBeDefined();
+    expect(((inlinePlugin as any).plugin as { inline: boolean }).inline).toBe(true);
+    expect(typeof (cliPlugin as any).plugin).toBe("function");
   });
 
   it("respects --no-config while still loading CLI plugins", async () => {
@@ -147,10 +150,40 @@ describe("loadCliConfig", () => {
 
     expect(result.configPath).toBeNull();
     expect(result.config).toBeNull();
-    expect(result.plugins).toHaveLength(1);
-    const [cliPlugin] = result.plugins;
-    expect(cliPlugin).toBeDefined();
-    expect(cliPlugin!.resolvedPath).toBe(pluginPath);
+    const plugins = result.plugins ?? [];
+    expect(plugins).toHaveLength(1);
+    const resolvedPath = plugins[0]?.resolvedPath;
+    expect(resolvedPath).toBeDefined();
+    const [actualPath, expectedPath] = await Promise.all([
+      fs.realpath(resolvedPath!),
+      fs.realpath(pluginPath),
+    ]);
+    expect(actualPath).toBe(expectedPath);
+  });
+
+  it("loads allowReservedInterceptors config option", async () => {
+    const dir = await createTempDir();
+    const configPath = path.join(dir, "codex.config.js");
+    await fs.writeFile(
+      configPath,
+      [
+        "module.exports = {",
+        "  allowReservedInterceptors: true,",
+        "  interceptors: [{",
+        "    toolName: 'exec_command',",
+        "    handler: () => ({ output: 'intercepted', success: true })",
+        "  }],",
+        "};",
+      ].join("\n"),
+    );
+
+    const result = await loadCliConfig({ cwd: dir });
+
+    expect(result.configPath).toBe(configPath);
+    expect(result.config?.allowReservedInterceptors).toBe(true);
+    expect(result.config?.interceptors).toHaveLength(1);
+    expect(result.warnings).toHaveLength(0);
+    expect(result.plugins ?? []).toHaveLength(0);
   });
 });
 

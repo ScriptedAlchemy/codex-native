@@ -47,6 +47,28 @@ export type NativeTuiRequest = {
   apiKey?: string;
 };
 
+export type PlanStatus = "pending" | "in_progress" | "completed";
+
+export type NativeEmitPlanUpdateRequest = {
+  threadId: string;
+  explanation?: string;
+  plan: Array<{
+    step: string;
+    status: PlanStatus;
+  }>;
+};
+
+export type NativeModifyPlanRequest = {
+  threadId: string;
+  operations: PlanOperation[];
+};
+
+export type PlanOperation =
+  | { type: "add"; item: { step: string; status?: PlanStatus } }
+  | { type: "update"; index: number; updates: { step?: string; status?: PlanStatus } }
+  | { type: "remove"; index: number }
+  | { type: "reorder"; newOrder: number[] };
+
 export type NativeToolInterceptorNativeContext = {
   invocation: NativeToolInvocation;
   token: string;
@@ -94,6 +116,8 @@ export type NativeBinding = {
   registerApprovalCallback?(
     handler: (request: ApprovalRequest) => boolean | Promise<boolean>,
   ): void;
+  emitPlanUpdate(request: NativeEmitPlanUpdateRequest): Promise<void>;
+  modifyPlan(request: NativeModifyPlanRequest): Promise<void>;
   // SSE test helpers (exposed for TypeScript tests)
   ev_completed(id: string): string;
   ev_response_created(id: string): string;

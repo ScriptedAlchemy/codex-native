@@ -9,6 +9,7 @@ import { ThreadOptions } from "./threadOptions";
 import { TurnOptions } from "./turnOptions";
 import { createOutputSchemaFile, normalizeOutputSchema } from "./outputSchemaFile";
 import { runTui } from "./tui";
+import { getNativeBinding } from "./nativeBinding";
 import type { NativeTuiRequest, NativeTuiExitInfo } from "./nativeBinding";
 
 /**
@@ -59,6 +60,22 @@ function convertRustEventToThreadEvent(rustEvent: any): ThreadEvent {
     return {
       type: "error",
       message: rustEvent.Error.message,
+    };
+  }
+  // Handle plan_update_scheduled synthetic event
+  if (rustEvent.type === "plan_update_scheduled" && rustEvent.plan) {
+    const planData = rustEvent.plan;
+    const planItems = planData.plan || [];
+    return {
+      type: "item.completed",
+      item: {
+        id: `plan-${Date.now()}`,
+        type: "todo_list",
+        items: planItems.map((item: any) => ({
+          text: item.step,
+          completed: item.status === "completed",
+        })),
+      },
     };
   }
   // If it's already in the correct format, return as-is
@@ -142,10 +159,136 @@ export class Thread {
   private _options: CodexOptions;
   private _id: string | null;
   private _threadOptions: ThreadOptions;
+  private _eventListeners: Array<(event: ThreadEvent) => void> = [];
 
   /** Returns the ID of the thread. Populated after the first turn starts. */
   public get id(): string | null {
     return this._id;
+  }
+
+  /**
+   * Register an event listener for thread events.
+   * @param listener Callback function that receives ThreadEvent objects
+   * @returns Unsubscribe function to remove the listener
+   */
+  onEvent(listener: (event: ThreadEvent) => void): () => void {
+    this._eventListeners.push(listener);
+    return () => {
+      const index = this._eventListeners.indexOf(listener);
+      if (index !== -1) {
+        this._eventListeners.splice(index, 1);
+      }
+    };
+  }
+
+  /**
+   * Remove an event listener.
+   * @param listener The listener function to remove
+   */
+  offEvent(listener: (event: ThreadEvent) => void): void {
+    const index = this._eventListeners.indexOf(listener);
+    if (index !== -1) {
+      this._eventListeners.splice(index, 1);
+    }
+  }
+
+  /**
+   * Programmatically update the agent's plan/todo list.
+   * The plan will be applied at the start of the next turn.
+   *
+   * @param args The plan update arguments
+   * @throws Error if no thread ID is available
+   */
+  updatePlan(args: {
+    explanation?: string;
+    plan: Array<{
+      step: string;
+      status: "pending" | "in_progress" | "completed";
+    }>;
+  }): void {
+    if (!this._id) {
+      throw new Error("Cannot update plan: no active thread");
+    }
+
+    const binding = getNativeBinding();
+    if (!binding || typeof binding.emitPlanUpdate !== 'function') {
+      throw new Error("emitPlanUpdate is not available in this build");
+    }
+
+    binding.emitPlanUpdate({
+      threadId: this._id,
+      explanation: args.explanation,
+      plan: args.plan,
+    });
+  }
+
+  /**
+   * Modify the agent's plan/todo list with granular operations.
+   * Changes will be applied at the start of the next turn.
+   *
+   * @param operations Array of operations to perform on the plan
+   * @throws Error if no thread ID is available
+   */
+  modifyPlan(operations: Array<
+    | { type: "add"; item: { step: string; status?: "pending" | "in_progress" | "completed" } }
+    | { type: "update"; index: number; updates: Partial<{ step: string; status: "pending" | "in_progress" | "completed" }> }
+    | { type: "remove"; index: number }
+    | { type: "reorder"; newOrder: number[] }
+  >): void {
+    if (!this._id) {
+      throw new Error("Cannot modify plan: no active thread");
+    }
+
+    const binding = getNativeBinding();
+    if (!binding || typeof binding.modifyPlan !== 'function') {
+      throw new Error("modifyPlan is not available in this build");
+    }
+
+    binding.modifyPlan({
+      threadId: this._id,
+      operations,
+    });
+  }
+
+  /**
+   * Add a new todo item to the agent's plan.
+   *
+   * @param step The todo step description
+   * @param status The initial status (defaults to "pending")
+   */
+  addTodo(step: string, status: "pending" | "in_progress" | "completed" = "pending"): void {
+    this.modifyPlan([{ type: "add", item: { step, status } }]);
+  }
+
+  /**
+   * Update an existing todo item.
+   *
+   * @param index The index of the todo item to update
+   * @param updates The updates to apply
+   */
+  updateTodo(
+    index: number,
+    updates: Partial<{ step: string; status: "pending" | "in_progress" | "completed" }>
+  ): void {
+    this.modifyPlan([{ type: "update", index, updates }]);
+  }
+
+  /**
+   * Remove a todo item from the plan.
+   *
+   * @param index The index of the todo item to remove
+   */
+  removeTodo(index: number): void {
+    this.modifyPlan([{ type: "remove", index }]);
+  }
+
+  /**
+   * Reorder the todo items in the plan.
+   *
+   * @param newOrder Array of indices representing the new order
+   */
+  reorderTodos(newOrder: number[]): void {
+    this.modifyPlan([{ type: "reorder", newOrder }]);
   }
 
   /** Compacts the conversation history for this thread using Codex's builtin compaction. */
@@ -236,7 +379,7 @@ export class Thread {
         try {
           parsed = JSON.parse(item);
         } catch (error) {
-          throw new Error(`Failed to parse item: ${item}`, { cause: error });
+          throw new Error(`Failed to parse item: ${item}. Parse error: ${error}`);
         }
 
         // Skip null events (used for Raw events that should not be emitted)
@@ -254,6 +397,17 @@ export class Thread {
         if (threadEvent.type === "thread.started") {
           this._id = threadEvent.thread_id;
         }
+
+        // Notify event listeners
+        for (const listener of this._eventListeners) {
+          try {
+            listener(threadEvent);
+          } catch (error) {
+            // Don't let listener errors break the stream
+            console.warn("Thread event listener threw error:", error);
+          }
+        }
+
         yield threadEvent;
       }
     } finally {

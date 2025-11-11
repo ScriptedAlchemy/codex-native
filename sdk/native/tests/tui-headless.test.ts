@@ -3,6 +3,16 @@ import { describe, it, expect, beforeAll } from "@jest/globals";
 let binding: any;
 
 beforeAll(async () => {
+  const { createRequire } = await import("node:module");
+  const req = createRequire(import.meta.url);
+
+  try {
+    binding = req("../index.cjs");
+  } catch {
+    // Fallback to compiled N-API binding entry
+    const mod = await import("../index.js");
+    binding = mod.default ?? mod;
+  }
   binding = await import("../index.js");
 });
 
@@ -18,6 +28,7 @@ describe("tuiTestRun headless snapshots", () => {
       lines: ["first", "second"],
     });
     expect(frames).toHaveLength(1);
+    expect(frames[0]?.length ?? 0).toBeGreaterThan(0);
     const firstFrame = frames[0]!;
     expect(typeof firstFrame).toBe("string");
     expect(firstFrame.length).toBeGreaterThan(0);
@@ -36,6 +47,9 @@ describe("tuiTestRun headless snapshots", () => {
       viewport: { x: 0, y: 5, width: 20, height: 1 },
       lines: [long],
     });
+    const screen = frames[0] ?? "";
+    const cellCount = Array.from(screen.replace(/\n/g, "")).length;
+    expect(cellCount).toBeGreaterThanOrEqual(long.length);
     expect(frames).toHaveLength(1);
     const firstFrame = frames[0]!;
     expect(typeof firstFrame).toBe("string");

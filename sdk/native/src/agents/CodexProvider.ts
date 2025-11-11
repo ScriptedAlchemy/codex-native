@@ -196,12 +196,27 @@ class CodexModel implements Model {
         oss: this.options.oss,
       });
 
+      const planItem = turn.items
+        .filter((item): item is Extract<ThreadItem, { type: "todo_list" }> => item.type === "todo_list")
+        .slice(-1)[0];
+
       // Convert Codex response to ModelResponse format
-      return {
+      const response: {
+        usage: Usage;
+        output: AgentOutputItem[];
+        responseId: string | undefined;
+        plan?: { items: Array<{ text: string; completed: boolean }> };
+      } = {
         usage: this.convertUsage(turn.usage),
         output: this.convertItemsToOutput(turn.items, turn.finalResponse),
         responseId: thread.id || undefined,
       };
+
+      if (planItem) {
+        response.plan = { items: planItem.items };
+      }
+
+      return response;
     } finally {
       // Clean up temporary image files
       await this.cleanupTempFiles();
@@ -777,6 +792,7 @@ class CodexModel implements Model {
     responseId: string;
     usage: any;
     output: AgentOutputItem[];
+    plan?: { items: any[] };
   } {
     const messageItems = items.filter(
       (item): item is Extract<ThreadItem, { type: "agent_message" }> => item.type === "agent_message"
@@ -793,12 +809,29 @@ class CodexModel implements Model {
       outputTokensDetails: usage.outputTokensDetails?.[0],
     };
 
-    return {
+    // Include latest plan information from todo_list items
+    const latestPlan = items
+      .filter((item): item is Extract<ThreadItem, { type: "todo_list" }> => item.type === "todo_list")
+      .slice(-1)[0]; // Get the most recent plan
+
+    const response: {
+      id: string;
+      responseId: string;
+      usage: any;
+      output: AgentOutputItem[];
+      plan?: { items: any[] };
+    } = {
       id: responseId,
       responseId,
       usage: usageData,
       output,
     };
+
+    if (latestPlan) {
+      response.plan = { items: latestPlan.items };
+    }
+
+    return response;
   }
 
   /**
@@ -901,6 +934,15 @@ class CodexModel implements Model {
             },
           } as StreamEvent);
           textAccumulator.delete("reasoning");
+        } else if (event.item.type === "todo_list") {
+          // Emit plan update event for OpenAI Agents consumers
+          events.push({
+            type: "model",
+            event: {
+              type: "plan_update",
+              items: event.item.items,
+            },
+          } as StreamEvent);
         }
         break;
 
