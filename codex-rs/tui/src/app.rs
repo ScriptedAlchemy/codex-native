@@ -39,6 +39,7 @@ use std::thread;
 use std::time::Duration;
 use tokio::select;
 use tokio::sync::mpsc::unbounded_channel;
+use tokio_util::sync::CancellationToken;
 
 #[cfg(not(debug_assertions))]
 use crate::history_cell::UpdateAvailableHistoryCell;
@@ -95,10 +96,18 @@ impl App {
         initial_images: Vec<PathBuf>,
         resume_selection: ResumeSelection,
         feedback: codex_feedback::CodexFeedback,
+        shutdown_token: Option<CancellationToken>,
     ) -> Result<AppExitInfo> {
         use tokio_stream::StreamExt;
         let (app_event_tx, mut app_event_rx) = unbounded_channel();
         let app_event_tx = AppEventSender::new(app_event_tx);
+        let cancellation_task = shutdown_token.map(|token| {
+            let tx = app_event_tx.clone();
+            tokio::spawn(async move {
+                token.cancelled().await;
+                tx.send(AppEvent::ExitRequest);
+            })
+        });
 
         let conversation_manager = Arc::new(ConversationManager::new(
             auth_manager.clone(),
@@ -222,6 +231,9 @@ impl App {
                 app.handle_tui_event(tui, event).await?
             }
         } {}
+        if let Some(handle) = &cancellation_task {
+            handle.abort();
+        }
         tui.terminal.clear()?;
         Ok(AppExitInfo {
             token_usage: app.token_usage(),

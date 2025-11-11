@@ -23,6 +23,7 @@ use codex_protocol::config_types::SandboxMode;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use std::fs::OpenOptions;
 use std::path::PathBuf;
+use tokio_util::sync::CancellationToken;
 use tracing::error;
 use tracing_appender::non_blocking;
 use tracing_subscriber::EnvFilter;
@@ -96,6 +97,7 @@ use std::io::Write as _;
 pub async fn run_main(
     mut cli: Cli,
     codex_linux_sandbox_exe: Option<PathBuf>,
+    shutdown_token: Option<CancellationToken>,
 ) -> std::io::Result<AppExitInfo> {
     let (sandbox_mode, approval_policy) = if cli.full_auto {
         (
@@ -272,6 +274,7 @@ pub async fn run_main(
         cli_kv_overrides,
         active_profile,
         feedback,
+        shutdown_token,
     )
     .await
     .map_err(|err| std::io::Error::other(err.to_string()))
@@ -284,6 +287,7 @@ async fn run_ratatui_app(
     cli_kv_overrides: Vec<(String, toml::Value)>,
     active_profile: Option<String>,
     feedback: codex_feedback::CodexFeedback,
+    shutdown_token: Option<CancellationToken>,
 ) -> color_eyre::Result<AppExitInfo> {
     color_eyre::install()?;
 
@@ -456,6 +460,7 @@ async fn run_ratatui_app(
         images,
         resume_selection,
         feedback,
+        shutdown_token,
     )
     .await;
 

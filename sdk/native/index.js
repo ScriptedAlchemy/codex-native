@@ -572,6 +572,7 @@ if (!nativeBinding) {
 }
 
 module.exports = nativeBinding
+module.exports.TuiSession = nativeBinding.TuiSession
 module.exports.callToolBuiltin = nativeBinding.callToolBuiltin
 module.exports.clearRegisteredTools = nativeBinding.clearRegisteredTools
 module.exports.cloudTasksApply = nativeBinding.cloudTasksApply
@@ -593,4 +594,5 @@ module.exports.runThread = nativeBinding.runThread
 module.exports.runThreadStream = nativeBinding.runThreadStream
 module.exports.runTui = nativeBinding.runTui
 module.exports.sse = nativeBinding.sse
+module.exports.startTui = nativeBinding.startTui
 module.exports.tuiTestRun = nativeBinding.tuiTestRun

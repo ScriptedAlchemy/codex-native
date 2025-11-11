@@ -375,7 +375,7 @@ async fn cli_main(codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()
                 &mut interactive.config_overrides,
                 root_config_overrides.clone(),
             );
-            let exit_info = codex_tui::run_main(interactive, codex_linux_sandbox_exe).await?;
+            let exit_info = codex_tui::run_main(interactive, codex_linux_sandbox_exe, None).await?;
             handle_app_exit(exit_info)?;
         }
         Some(Subcommand::Exec(mut exec_cli)) => {
@@ -408,7 +408,7 @@ async fn cli_main(codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()
                 last,
                 config_overrides,
             );
-            let exit_info = codex_tui::run_main(interactive, codex_linux_sandbox_exe).await?;
+            let exit_info = codex_tui::run_main(interactive, codex_linux_sandbox_exe, None).await?;
             handle_app_exit(exit_info)?;
         }
         Some(Subcommand::Login(mut login_cli)) => {

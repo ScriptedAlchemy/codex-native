@@ -67,6 +67,7 @@ use serde_json::json;
 use std::fmt;
 use std::io::{self, Write};
 use tempfile::NamedTempFile;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 // Avoid clashes with the `json!` macro imported above when returning data.
@@ -1175,7 +1176,94 @@ impl From<AppExitInfo> for TuiExitInfo {
   }
 }
 
-fn run_tui_sync(options: InternalTuiRequest) -> napi::Result<TuiExitInfo> {
+struct TuiSessionState {
+  join: Option<tokio::task::JoinHandle<napi::Result<TuiExitInfo>>>,
+  closed: bool,
+}
+
+#[napi]
+pub struct TuiSession {
+  state: Arc<Mutex<TuiSessionState>>,
+  cancel_token: CancellationToken,
+}
+
+impl TuiSession {
+  fn new(
+    join: tokio::task::JoinHandle<napi::Result<TuiExitInfo>>,
+    cancel_token: CancellationToken,
+  ) -> Self {
+    Self {
+      state: Arc::new(Mutex::new(TuiSessionState {
+        join: Some(join),
+        closed: false,
+      })),
+      cancel_token,
+    }
+  }
+
+  fn lock_state(&self) -> napi::Result<std::sync::MutexGuard<'_, TuiSessionState>> {
+    self
+      .state
+      .lock()
+      .map_err(|err| napi::Error::from_reason(format!("TUI session mutex poisoned: {err}")))
+  }
+
+  async fn wait_internal(&self) -> napi::Result<TuiExitInfo> {
+    let join_handle = {
+      let mut state = self.lock_state()?;
+      if state.closed {
+        return Err(napi::Error::from_reason("TUI session already closed"));
+      }
+      state
+        .join
+        .take()
+        .ok_or_else(|| napi::Error::from_reason("TUI session already awaited"))?
+    };
+
+    let result = join_handle
+      .await
+      .map_err(|err| napi::Error::from_reason(format!("Task join error: {err}")))?;
+
+    {
+      let mut state = self.lock_state()?;
+      state.closed = true;
+    }
+
+    result
+  }
+}
+
+#[napi]
+impl TuiSession {
+  #[napi]
+  pub async fn wait(&self) -> napi::Result<TuiExitInfo> {
+    self.wait_internal().await
+  }
+
+  #[napi]
+  pub fn shutdown(&self) {
+    self.cancel_token.cancel();
+  }
+
+  #[napi(getter)]
+  pub fn closed(&self) -> bool {
+    match self.state.lock() {
+      Ok(state) => state.closed,
+      Err(_) => true,
+    }
+  }
+}
+
+impl Drop for TuiSession {
+  fn drop(&mut self) {
+    self.cancel_token.cancel();
+  }
+}
+
+fn run_tui_sync(
+  options: InternalTuiRequest,
+  shutdown_token: Option<CancellationToken>,
+) -> napi::Result<TuiExitInfo> {
   let InternalTuiRequest {
     cli,
     base_url,
@@ -1236,8 +1324,8 @@ fn run_tui_sync(options: InternalTuiRequest) -> napi::Result<TuiExitInfo> {
 
   let runtime = tokio::runtime::Runtime::new()
     .map_err(|e| napi::Error::from_reason(format!("Failed to create runtime: {e}")))?;
-  let result = runtime.block_on(async {
-    codex_tui::run_main(cli, linux_sandbox_path.clone())
+  let result = runtime.block_on(async move {
+    codex_tui::run_main(cli, linux_sandbox_path.clone(), shutdown_token)
       .await
       .map_err(|err| napi::Error::from_reason(err.to_string()))
   });
@@ -1250,11 +1338,19 @@ fn run_tui_sync(options: InternalTuiRequest) -> napi::Result<TuiExitInfo> {
 }
 
 #[napi]
-pub async fn run_tui(req: TuiRequest) -> napi::Result<TuiExitInfo> {
+pub fn start_tui(req: TuiRequest) -> napi::Result<TuiSession> {
   let options = req.into_internal()?;
-  tokio::task::spawn_blocking(move || run_tui_sync(options))
-    .await
-    .map_err(|e| napi::Error::from_reason(format!("Task join error: {e}")))?
+  let cancel_token = CancellationToken::new();
+  let blocking_token = cancel_token.clone();
+  let join_handle =
+    tokio::task::spawn_blocking(move || run_tui_sync(options, Some(blocking_token)));
+  Ok(TuiSession::new(join_handle, cancel_token))
+}
+
+#[napi]
+pub async fn run_tui(req: TuiRequest) -> napi::Result<TuiExitInfo> {
+  let session = start_tui(req)?;
+  session.wait().await
 }
 
 struct TempSchemaFile {
