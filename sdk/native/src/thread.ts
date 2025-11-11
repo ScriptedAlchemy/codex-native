@@ -62,6 +62,22 @@ function convertRustEventToThreadEvent(rustEvent: any): ThreadEvent {
       message: rustEvent.Error.message,
     };
   }
+  // Handle plan_update_scheduled synthetic event
+  if (rustEvent.type === "plan_update_scheduled" && rustEvent.plan) {
+    const planData = rustEvent.plan;
+    const planItems = planData.plan || [];
+    return {
+      type: "item.completed",
+      item: {
+        id: `plan-${Date.now()}`,
+        type: "todo_list",
+        items: planItems.map((item: any) => ({
+          text: item.step,
+          completed: item.status === "completed",
+        })),
+      },
+    };
+  }
   // If it's already in the correct format, return as-is
   if (rustEvent.type) {
     return rustEvent;

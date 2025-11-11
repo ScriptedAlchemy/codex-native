@@ -3,11 +3,15 @@ import { describe, it, expect, beforeAll } from "@jest/globals";
 let binding: any;
 
 beforeAll(async () => {
+  const { createRequire } = await import("node:module");
+  const req = createRequire(import.meta.url);
+
   try {
-    binding = require("../index.cjs");
+    binding = req("../index.cjs");
   } catch {
     // Fallback to compiled N-API binding entry
-    binding = require("../index.js");
+    const mod = await import("../index.js");
+    binding = mod.default ?? mod;
   }
 });
 
@@ -38,7 +42,7 @@ describe("tuiTestRun headless snapshots", () => {
       viewport: { x: 0, y: 5, width: 20, height: 1 },
       lines: [long],
     });
-    const screen = frames[0];
+    const screen = frames[0] ?? "";
     const countA = Array.from(screen).filter((c) => c === "A").length;
     expect(countA).toBe(long.length);
   });

@@ -68,3 +68,7 @@ napi-bindings = ["napi", "napi-derive"]
 [profile.release]
 lto = true
 strip = "symbols"
+
+[patch.crates-io]
+ratatui = { git = "https://github.com/nornagon/ratatui", branch = "nornagon-v0.29.0-patch" }
+crossterm = { git = "https://github.com/nornagon/crossterm", branch = "nornagon/color-query" }

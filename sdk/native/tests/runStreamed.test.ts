@@ -154,6 +154,59 @@ describe("Codex runStreamed with native binding", () => {
     }
   });
 
+  it("emits todo_list events when a plan update is scheduled", async () => {
+    const { url, close } = await startResponsesTestProxy({
+      statusCode: 200,
+      responseBodies: [
+        sse(
+          responseStarted("response_1"),
+          assistantMessage("First response", "item_1"),
+          responseCompleted("response_1"),
+        ),
+        sse(
+          responseStarted("response_2"),
+          assistantMessage("Second response", "item_2"),
+          responseCompleted("response_2"),
+        ),
+      ],
+    });
+
+    try {
+      const client = createClient(url);
+      const thread = client.startThread();
+
+      const first = await thread.runStreamed("first input");
+      for await (const _ of first.events) {
+        // drain events
+      }
+
+      thread.updatePlan({
+        plan: [
+          { step: "Implement feature", status: "in_progress" },
+          { step: "Write tests", status: "completed" },
+        ],
+      });
+
+      const second = await thread.runStreamed("second input");
+      const events: any[] = [];
+      for await (const event of second.events) {
+        events.push(event);
+      }
+
+      const planEvent = events.find(
+        (event) => event.type === "item.completed" && (event as any).item?.type === "todo_list",
+      ) as { type: "item.completed"; item: { items: Array<{ text: string; completed: boolean }> } } | undefined;
+
+      expect(planEvent).toBeDefined();
+      expect(planEvent?.item.items).toEqual([
+        { text: "Implement feature", completed: false },
+        { text: "Write tests", completed: true },
+      ]);
+    } finally {
+      await close();
+    }
+  });
+
   it("applies output schema turn options when streaming", async () => {
     const { url, close, requests } = await startResponsesTestProxy({
       statusCode: 200,

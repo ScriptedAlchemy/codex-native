@@ -592,5 +592,5 @@ module.exports.registerToolInterceptor = nativeBinding.registerToolInterceptor
 module.exports.runThread = nativeBinding.runThread
 module.exports.runThreadStream = nativeBinding.runThreadStream
 module.exports.runTui = nativeBinding.runTui
-module.exports.tuiTestRun = nativeBinding.tuiTestRun
 module.exports.sse = nativeBinding.sse
+module.exports.tuiTestRun = nativeBinding.tuiTestRun

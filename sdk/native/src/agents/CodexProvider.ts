@@ -196,12 +196,27 @@ class CodexModel implements Model {
         oss: this.options.oss,
       });
 
+      const planItem = turn.items
+        .filter((item): item is Extract<ThreadItem, { type: "todo_list" }> => item.type === "todo_list")
+        .slice(-1)[0];
+
       // Convert Codex response to ModelResponse format
-      return {
+      const response: {
+        usage: Usage;
+        output: AgentOutputItem[];
+        responseId: string | undefined;
+        plan?: { items: Array<{ text: string; completed: boolean }> };
+      } = {
         usage: this.convertUsage(turn.usage),
         output: this.convertItemsToOutput(turn.items, turn.finalResponse),
         responseId: thread.id || undefined,
       };
+
+      if (planItem) {
+        response.plan = { items: planItem.items };
+      }
+
+      return response;
     } finally {
       // Clean up temporary image files
       await this.cleanupTempFiles();

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { describe, expect, it, beforeAll, jest } from "@jest/globals";
+import type { ThreadItem } from "../src/items";
 
 // Setup native binding for tests
 setupNativeBinding();
@@ -450,6 +451,43 @@ it("throws if working directory is not git and skipGitRepoCheck is not provided"
         expect(typeof thread.updateTodo).toBe("function");
         expect(typeof thread.removeTodo).toBe("function");
         expect(typeof thread.reorderTodos).toBe("function");
+      } finally {
+        await close();
+      }
+    });
+
+    it("Thread.run surfaces scheduled plan updates in returned items", async () => {
+      const { url, close } = await startResponsesTestProxy({
+        statusCode: 200,
+        responseBodies: [
+          sse(responseStarted("response_1"), assistantMessage("First", "item_1"), responseCompleted("response_1")),
+          sse(responseStarted("response_2"), assistantMessage("Second", "item_2"), responseCompleted("response_2")),
+        ],
+      });
+
+      try {
+        const client = createClient(url);
+        const thread = client.startThread({ skipGitRepoCheck: true });
+
+        await thread.run("first input");
+
+        thread.updatePlan({
+          plan: [
+            { step: "Implement feature", status: "in_progress" },
+            { step: "Write tests", status: "completed" },
+          ],
+        });
+
+        const result = await thread.run("second input");
+        const todoItem = result.items.find(
+          (item: ThreadItem): item is Extract<ThreadItem, { type: "todo_list" }> => item.type === "todo_list",
+        );
+
+        expect(todoItem).toBeDefined();
+        expect(todoItem?.items).toEqual([
+          { text: "Implement feature", completed: false },
+          { text: "Write tests", completed: true },
+        ]);
       } finally {
         await close();
       }
