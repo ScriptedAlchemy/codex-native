@@ -1009,9 +1009,12 @@ async fn test_source_filter_excludes_non_matching_sessions() {
         .map(|item| item.path.as_path())
         .collect();
 
-    assert_eq!(paths.len(), 1);
-    assert!(paths.iter().all(|path| {
+    assert_eq!(paths.len(), 2);
+    assert!(paths.iter().any(|path| {
         path.ends_with("rollout-2025-08-02T10-00-00-00000000-0000-0000-0000-00000000002a.jsonl")
+    }));
+    assert!(paths.iter().any(|path| {
+        path.ends_with("rollout-2025-08-01T10-00-00-00000000-0000-0000-0000-00000000004d.jsonl")
     }));
 
     let all_sessions = get_conversations(home, 10, None, NO_SOURCE_FILTER, None, TEST_PROVIDER)
