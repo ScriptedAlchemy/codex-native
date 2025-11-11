@@ -3,10 +3,6 @@ import fsPromises from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-import {
-  type NativeRunRequest,
-  getNativeBinding,
-} from "../nativeBinding";
 import { type NativeRunRequest, getNativeBinding } from "../nativeBinding";
 import { parseApprovalModeFlag, parseSandboxModeFlag } from "./optionParsers";
 import { emitWarnings, runBeforeStartHooks, runEventHooks } from "./hooks";
@@ -233,23 +229,21 @@ function extractConversationId(eventPayload: unknown): string | null {
   if (!eventPayload || typeof eventPayload !== "object") {
     return null;
   }
+
   const record = eventPayload as Record<string, unknown>;
+
   if (typeof record.session_id === "string") {
     return record.session_id;
   }
+
   const sessionConfigured = record.SessionConfigured ?? record.sessionConfigured;
-  if (
-    sessionConfigured &&
-    typeof sessionConfigured === "object" &&
-    typeof (sessionConfigured as Record<string, unknown>).session_id === "string"
-  ) {
-    return (sessionConfigured as Record<string, string>).session_id;
   if (sessionConfigured && typeof sessionConfigured === "object") {
     const configuredSessionId = (sessionConfigured as Record<string, unknown>).session_id;
     if (typeof configuredSessionId === "string") {
       return configuredSessionId;
     }
   }
+
   const nestedSession =
     typeof record.session === "object" && record.session
       ? (record.session as Record<string, unknown>).id
@@ -257,6 +251,7 @@ function extractConversationId(eventPayload: unknown): string | null {
   if (typeof nestedSession === "string") {
     return nestedSession;
   }
+
   return null;
 }
 

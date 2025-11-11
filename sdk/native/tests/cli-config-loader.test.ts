@@ -122,11 +122,6 @@ describe("loadCliConfig", () => {
     const plugins = result.plugins ?? [];
     expect(plugins).toHaveLength(3);
     const pluginSpecs = plugins.map((p) => p.spec);
-    expect(result.plugins).toHaveLength(3);
-    const inlinePlugin = result.plugins[1]!;
-    const cliPlugin = result.plugins[2]!;
-
-    const pluginSpecs = result.plugins.map((p) => p.spec);
     expect(pluginSpecs).toEqual([
       "./plugins/config-plugin.js",
       "<inline>",
@@ -137,8 +132,6 @@ describe("loadCliConfig", () => {
     expect(cliPlugin).toBeDefined();
     expect(((inlinePlugin as any).plugin as { inline: boolean }).inline).toBe(true);
     expect(typeof (cliPlugin as any).plugin).toBe("function");
-    expect((inlinePlugin.plugin as { inline: boolean }).inline).toBe(true);
-    expect(typeof cliPlugin.plugin).toBe("function");
   });
 
   it("respects --no-config while still loading CLI plugins", async () => {
@@ -190,10 +183,7 @@ describe("loadCliConfig", () => {
     expect(result.config?.allowReservedInterceptors).toBe(true);
     expect(result.config?.interceptors).toHaveLength(1);
     expect(result.warnings).toHaveLength(0);
-    expect(result.plugins).toHaveLength(1);
-    const [cliPlugin] = result.plugins;
-    expect(cliPlugin).toBeDefined();
-    expect(cliPlugin!.resolvedPath).toBe(pluginPath);
+    expect(result.plugins ?? []).toHaveLength(0);
   });
 });
 

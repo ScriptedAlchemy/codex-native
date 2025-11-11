@@ -64,9 +64,9 @@ use ratatui::prelude::CrosstermBackend;
 use serde_json::Map as JsonMap;
 use serde_json::Value as JsonValue;
 use serde_json::json;
+use std::fmt;
 use std::io::{self, Write};
 use tempfile::NamedTempFile;
-use std::fmt;
 use uuid::Uuid;
 
 // Avoid clashes with the `json!` macro imported above when returning data.
@@ -1088,7 +1088,6 @@ pub fn tui_test_run(req: TuiTestRequest) -> napi::Result<Vec<String>> {
   use ratatui::layout::Rect;
   use ratatui::text::Line;
 
-  let backend = MemoryBackend::new(req.width, req.height);
   let backend = Vt100Backend::new(req.width, req.height);
   let mut term = codex_tui::custom_terminal::Terminal::with_options(backend)
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
@@ -1329,6 +1328,7 @@ struct MemoryBackend {
 }
 
 impl MemoryBackend {
+  #[allow(dead_code)]
   fn new(width: u16, height: u16) -> Self {
     let w = width as usize;
     let h = height as usize;
@@ -1339,15 +1339,6 @@ impl MemoryBackend {
       grid,
       cursor: Position { x: 0, y: 0 },
     }
-  }
-  fn as_string(&self) -> String {
-    let mut out = String::new();
-    for row in &self.grid {
-      let line: String = row.iter().collect();
-      out.push_str(&line);
-      out.push('\n');
-    }
-    out
   }
 }
 
@@ -1362,6 +1353,85 @@ impl Write for MemoryBackend {
 }
 
 impl Backend for MemoryBackend {
+  fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
+  where
+    I: Iterator<Item = (u16, u16, &'a Cell)>,
+  {
+    for (x, y, cell) in content {
+      if (x as usize) < self.grid[0].len() && (y as usize) < self.grid.len() {
+        let ch = cell.symbol().chars().next().unwrap_or(' ');
+        self.grid[y as usize][x as usize] = ch;
+        self.cursor = Position { x, y };
+      }
+    }
+    Ok(())
+  }
+
+  fn hide_cursor(&mut self) -> io::Result<()> {
+    Ok(())
+  }
+
+  fn show_cursor(&mut self) -> io::Result<()> {
+    Ok(())
+  }
+
+  fn get_cursor_position(&mut self) -> io::Result<Position> {
+    Ok(self.cursor)
+  }
+
+  fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
+    self.cursor = position.into();
+    Ok(())
+  }
+
+  fn clear(&mut self) -> io::Result<()> {
+    for row in &mut self.grid {
+      for ch in row.iter_mut() {
+        *ch = ' ';
+      }
+    }
+    Ok(())
+  }
+
+  fn clear_region(&mut self, _clear_type: ClearType) -> io::Result<()> {
+    self.clear()
+  }
+
+  fn append_lines(&mut self, _line_count: u16) -> io::Result<()> {
+    Ok(())
+  }
+
+  fn size(&self) -> io::Result<Size> {
+    Ok(Size::new(self.width, self.height))
+  }
+
+  fn window_size(&mut self) -> io::Result<WindowSize> {
+    Ok(WindowSize {
+      columns_rows: Size::new(self.width, self.height),
+      pixels: Size {
+        width: 640,
+        height: 480,
+      },
+    })
+  }
+
+  fn flush(&mut self) -> io::Result<()> {
+    Ok(())
+  }
+
+  fn scroll_region_up(&mut self, _region: std::ops::Range<u16>, _scroll_by: u16) -> io::Result<()> {
+    Ok(())
+  }
+
+  fn scroll_region_down(
+    &mut self,
+    _region: std::ops::Range<u16>,
+    _scroll_by: u16,
+  ) -> io::Result<()> {
+    Ok(())
+  }
+}
+
 // --- VT100-based backend for TUI snapshots ---
 struct Vt100Backend {
   inner: CrosstermBackend<vt100::Parser>,
@@ -1404,48 +1474,6 @@ impl Backend for Vt100Backend {
   where
     I: Iterator<Item = (u16, u16, &'a Cell)>,
   {
-    for (x, y, cell) in content {
-      if (x as usize) < self.grid[0].len() && (y as usize) < self.grid.len() {
-        let ch = cell.symbol().chars().next().unwrap_or(' ');
-        self.grid[y as usize][x as usize] = ch;
-        self.cursor = Position { x, y };
-      }
-    }
-    Ok(())
-  }
-  fn hide_cursor(&mut self) -> io::Result<()> {
-    Ok(())
-  }
-  fn show_cursor(&mut self) -> io::Result<()> {
-    Ok(())
-  }
-  fn get_cursor_position(&mut self) -> io::Result<Position> {
-    Ok(self.cursor)
-  }
-  fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
-    self.cursor = position.into();
-    Ok(())
-  }
-  fn clear(&mut self) -> io::Result<()> {
-    for row in &mut self.grid {
-      for ch in row.iter_mut() {
-        *ch = ' ';
-      }
-    }
-    Ok(())
-  }
-  fn clear_region(&mut self, _clear_type: ClearType) -> io::Result<()> {
-    self.clear()
-  }
-  fn append_lines(&mut self, _line_count: u16) -> io::Result<()> {
-    Ok(())
-  }
-  fn size(&self) -> io::Result<Size> {
-    Ok(Size::new(self.width, self.height))
-  }
-  fn window_size(&mut self) -> io::Result<WindowSize> {
-    Ok(WindowSize {
-      columns_rows: Size::new(self.width, self.height),
     self.inner.draw(content)?;
     Ok(())
   }
@@ -1494,43 +1522,6 @@ impl Backend for Vt100Backend {
       },
     })
   }
-  fn flush(&mut self) -> io::Result<()> {
-    Ok(())
-  }
-  fn scroll_region_up(&mut self, _region: std::ops::Range<u16>, _scroll_by: u16) -> io::Result<()> {
-    Ok(())
-  }
-  fn scroll_region_down(
-    &mut self,
-    _region: std::ops::Range<u16>,
-    _scroll_by: u16,
-  ) -> io::Result<()> {
-    Ok(())
-  }
-}
-fn parse_sandbox_mode(input: Option<&str>) -> napi::Result<Option<SandboxModeCliArg>> {
-  match input {
-    None => Ok(None),
-    Some("read-only") => Ok(Some(SandboxModeCliArg::ReadOnly)),
-    Some("workspace-write") => Ok(Some(SandboxModeCliArg::WorkspaceWrite)),
-    Some("danger-full-access") => Ok(Some(SandboxModeCliArg::DangerFullAccess)),
-    Some(other) => Err(napi::Error::from_reason(format!(
-      "Unsupported sandbox mode: {other}"
-    ))),
-  }
-}
-
-fn parse_approval_mode(input: Option<&str>) -> napi::Result<Option<ApprovalModeCliArg>> {
-  match input {
-    None => Ok(None),
-    Some("never") => Ok(Some(ApprovalModeCliArg::Never)),
-    Some("on-request") => Ok(Some(ApprovalModeCliArg::OnRequest)),
-    Some("on-failure") => Ok(Some(ApprovalModeCliArg::OnFailure)),
-    Some("untrusted") => Ok(Some(ApprovalModeCliArg::Untrusted)),
-    Some(other) => Err(napi::Error::from_reason(format!(
-      "Unsupported approval mode: {other}"
-    ))),
-  }
 
   fn flush(&mut self) -> io::Result<()> {
     self.inner.writer_mut().flush()
@@ -1540,14 +1531,11 @@ fn parse_approval_mode(input: Option<&str>) -> napi::Result<Option<ApprovalModeC
     self.inner.scroll_region_up(region, scroll_by)
   }
 
-  fn scroll_region_down(
-    &mut self,
-    region: std::ops::Range<u16>,
-    scroll_by: u16,
-  ) -> io::Result<()> {
+  fn scroll_region_down(&mut self, region: std::ops::Range<u16>, scroll_by: u16) -> io::Result<()> {
     self.inner.scroll_region_down(region, scroll_by)
   }
 }
+
 /// Generic enum parser macro to reduce duplication in CLI argument parsing.
 ///
 /// # Example
