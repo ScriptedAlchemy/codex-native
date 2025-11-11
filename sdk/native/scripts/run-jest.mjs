@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { existsSync } from "node:fs";
+
+const require = createRequire(import.meta.url);
 
 const incomingArgs = process.argv.slice(2);
 const hasRunInBand = incomingArgs.includes("--runInBand") || incomingArgs.includes("-i");
@@ -54,19 +57,37 @@ for (const candidate of jestBinCandidates) {
 }
 
 if (!jestBin) {
-  console.error("Unable to locate jest executable. Tried:", jestBinCandidates.join(", "));
-  process.exit(1);
+  const specifiers = ["jest/bin/jest.js", "jest/bin/jest.cjs", "jest/bin/jest"];
+  for (const specifier of specifiers) {
+    try {
+      jestBin = require.resolve(specifier);
+      break;
+    } catch {
+      // continue
+    }
+  }
 }
 
-const isCmd = process.platform === "win32" && jestBin.toLowerCase().endsWith(".cmd");
+let usePnpmExec = false;
+if (!jestBin) {
+  usePnpmExec = true;
+}
+
 const spawnOptions = {
   stdio: "inherit",
   env: process.env,
 };
 
-const result = isCmd
-  ? spawnSync(jestBin, sanitizedArgs, { ...spawnOptions, shell: true })
-  : spawnSync(jestBin, sanitizedArgs, spawnOptions);
+let result;
+if (usePnpmExec) {
+  const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  result = spawnSync(pnpmCommand, ["exec", "jest", ...sanitizedArgs], spawnOptions);
+} else {
+  const isCmd = process.platform === "win32" && jestBin.toLowerCase().endsWith(".cmd");
+  result = isCmd
+    ? spawnSync(jestBin, sanitizedArgs, { ...spawnOptions, shell: true })
+    : spawnSync(jestBin, sanitizedArgs, spawnOptions);
+}
 
 if (result.error) {
   console.error(result.error);
