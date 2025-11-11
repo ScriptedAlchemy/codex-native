@@ -492,5 +492,215 @@ it("throws if working directory is not git and skipGitRepoCheck is not provided"
         await close();
       }
     });
+
+    it("Thread.addTodo adds a new todo item to the plan", async () => {
+      const { url, close } = await startResponsesTestProxy({
+        statusCode: 200,
+        responseBodies: [
+          sse(responseStarted("response_1"), assistantMessage("First", "item_1"), responseCompleted("response_1")),
+          sse(responseStarted("response_2"), assistantMessage("Second", "item_2"), responseCompleted("response_2")),
+        ],
+      });
+
+      try {
+        const client = createClient(url);
+        const thread = client.startThread({ skipGitRepoCheck: true });
+
+        await thread.run("first input");
+
+        // Set initial plan
+        thread.updatePlan({
+          plan: [{ step: "Existing task", status: "pending" }],
+        });
+
+        // Add a new todo
+        thread.addTodo("New task", "in_progress");
+
+        const result = await thread.run("second input");
+        const todoItem = result.items.find(
+          (item: ThreadItem): item is Extract<ThreadItem, { type: "todo_list" }> => item.type === "todo_list",
+        );
+
+        expect(todoItem).toBeDefined();
+        expect(todoItem?.items).toHaveLength(2);
+        expect(todoItem?.items[1]).toEqual({ text: "New task", completed: false });
+      } finally {
+        await close();
+      }
+    });
+
+    it("Thread.updateTodo updates an existing todo item", async () => {
+      const { url, close } = await startResponsesTestProxy({
+        statusCode: 200,
+        responseBodies: [
+          sse(responseStarted("response_1"), assistantMessage("First", "item_1"), responseCompleted("response_1")),
+          sse(responseStarted("response_2"), assistantMessage("Second", "item_2"), responseCompleted("response_2")),
+        ],
+      });
+
+      try {
+        const client = createClient(url);
+        const thread = client.startThread({ skipGitRepoCheck: true });
+
+        await thread.run("first input");
+
+        // Set initial plan
+        thread.updatePlan({
+          plan: [
+            { step: "Task 1", status: "pending" },
+            { step: "Task 2", status: "pending" },
+          ],
+        });
+
+        // Update the first task
+        thread.updateTodo(0, { status: "completed" });
+        // Update the second task's text and status
+        thread.updateTodo(1, { step: "Updated Task 2", status: "in_progress" });
+
+        const result = await thread.run("second input");
+        const todoItem = result.items.find(
+          (item: ThreadItem): item is Extract<ThreadItem, { type: "todo_list" }> => item.type === "todo_list",
+        );
+
+        expect(todoItem).toBeDefined();
+        expect(todoItem?.items).toEqual([
+          { text: "Task 1", completed: true },
+          { text: "Updated Task 2", completed: false },
+        ]);
+      } finally {
+        await close();
+      }
+    });
+
+    it("Thread.removeTodo removes a todo item from the plan", async () => {
+      const { url, close } = await startResponsesTestProxy({
+        statusCode: 200,
+        responseBodies: [
+          sse(responseStarted("response_1"), assistantMessage("First", "item_1"), responseCompleted("response_1")),
+          sse(responseStarted("response_2"), assistantMessage("Second", "item_2"), responseCompleted("response_2")),
+        ],
+      });
+
+      try {
+        const client = createClient(url);
+        const thread = client.startThread({ skipGitRepoCheck: true });
+
+        await thread.run("first input");
+
+        // Set initial plan with 3 items
+        thread.updatePlan({
+          plan: [
+            { step: "Task 1", status: "pending" },
+            { step: "Task 2", status: "pending" },
+            { step: "Task 3", status: "pending" },
+          ],
+        });
+
+        // Remove the middle task
+        thread.removeTodo(1);
+
+        const result = await thread.run("second input");
+        const todoItem = result.items.find(
+          (item: ThreadItem): item is Extract<ThreadItem, { type: "todo_list" }> => item.type === "todo_list",
+        );
+
+        expect(todoItem).toBeDefined();
+        expect(todoItem?.items).toHaveLength(2);
+        expect(todoItem?.items).toEqual([
+          { text: "Task 1", completed: false },
+          { text: "Task 3", completed: false },
+        ]);
+      } finally {
+        await close();
+      }
+    });
+
+    it("Thread.reorderTodos reorders todo items in the plan", async () => {
+      const { url, close } = await startResponsesTestProxy({
+        statusCode: 200,
+        responseBodies: [
+          sse(responseStarted("response_1"), assistantMessage("First", "item_1"), responseCompleted("response_1")),
+          sse(responseStarted("response_2"), assistantMessage("Second", "item_2"), responseCompleted("response_2")),
+        ],
+      });
+
+      try {
+        const client = createClient(url);
+        const thread = client.startThread({ skipGitRepoCheck: true });
+
+        await thread.run("first input");
+
+        // Set initial plan with 3 items
+        thread.updatePlan({
+          plan: [
+            { step: "First", status: "pending" },
+            { step: "Second", status: "pending" },
+            { step: "Third", status: "pending" },
+          ],
+        });
+
+        // Reorder: move last item to first position [2, 0, 1]
+        thread.reorderTodos([2, 0, 1]);
+
+        const result = await thread.run("second input");
+        const todoItem = result.items.find(
+          (item: ThreadItem): item is Extract<ThreadItem, { type: "todo_list" }> => item.type === "todo_list",
+        );
+
+        expect(todoItem).toBeDefined();
+        expect(todoItem?.items).toEqual([
+          { text: "Third", completed: false },
+          { text: "First", completed: false },
+          { text: "Second", completed: false },
+        ]);
+      } finally {
+        await close();
+      }
+    });
+
+    it("Thread.modifyPlan supports multiple operations in one call", async () => {
+      const { url, close } = await startResponsesTestProxy({
+        statusCode: 200,
+        responseBodies: [
+          sse(responseStarted("response_1"), assistantMessage("First", "item_1"), responseCompleted("response_1")),
+          sse(responseStarted("response_2"), assistantMessage("Second", "item_2"), responseCompleted("response_2")),
+        ],
+      });
+
+      try {
+        const client = createClient(url);
+        const thread = client.startThread({ skipGitRepoCheck: true });
+
+        await thread.run("first input");
+
+        // Set initial plan
+        thread.updatePlan({
+          plan: [
+            { step: "Task 1", status: "pending" },
+            { step: "Task 2", status: "pending" },
+          ],
+        });
+
+        // Apply multiple operations at once
+        thread.modifyPlan([
+          { type: "update", index: 0, updates: { status: "completed" } },
+          { type: "add", item: { step: "Task 3", status: "pending" } },
+          { type: "remove", index: 1 },
+        ]);
+
+        const result = await thread.run("second input");
+        const todoItem = result.items.find(
+          (item: ThreadItem): item is Extract<ThreadItem, { type: "todo_list" }> => item.type === "todo_list",
+        );
+
+        expect(todoItem).toBeDefined();
+        expect(todoItem?.items).toEqual([
+          { text: "Task 1", completed: true },
+          { text: "Task 3", completed: false },
+        ]);
+      } finally {
+        await close();
+      }
+    });
   });
 });

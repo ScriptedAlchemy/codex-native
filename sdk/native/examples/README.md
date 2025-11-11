@@ -7,6 +7,11 @@ This directory contains example scripts demonstrating various features of the `@
 ### `/basic` - Core Features
 Basic SDK functionality and common use cases.
 
+- **`plan-management.ts`** — Programmatic plan/todo control
+  - Replace the agent plan from code
+  - Add, update, reorder, and remove todo items
+  - Inspect plan updates returned from `thread.run`
+
 - **`streaming-deltas.ts`** — Real-time streaming response examples
   - Text streaming with incremental updates
   - Multi-modal input (text + images)
