@@ -117,6 +117,19 @@ Quick scripts to validate local environments.
   - Confirms TLS trust store configuration by hitting `https://api.github.com`
   - Highlights command outputs and exit codes for fast debugging
 
+### `/tui` - Terminal UI
+Examples that interact with the Codex TUI, either programmatically through the SDK or by spawning the packaged CLI.
+
+- **`programmatic-launch.ts`** — Launch the TUI directly from Node.js using `runTui`
+  - Passes an initial prompt
+  - Demonstrates launch options (sandbox/approval policies)
+  - Prints exit information (conversation id, token usage)
+
+- **`launch-cli.ts`** — Spawn the `codex-native tui` CLI from a script
+  - Runs the CLI entry point with custom prompts
+  - Inherits stdio so the TUI renders in the current terminal
+  - Shows how to adjust environment variables for automation
+
 ## Running Examples
 
 ### Prerequisites
@@ -137,6 +150,7 @@ Using `tsx`:
 npx tsx examples/basic/streaming-deltas.ts
 npx tsx examples/tools/tool-override-example.ts
 npx tsx examples/agents/agents-integration.ts
+npx tsx examples/tui/programmatic-launch.ts
 ```
 
 ## Example Categories by Feature
@@ -158,7 +172,7 @@ npx tsx examples/agents/agents-integration.ts
 
 ### Integration Patterns
 - **OpenAI Agents**: All files in `/agents` and `/provider`
-- **Direct SDK Usage**: Files in `/basic` and `/tools`
+- **Direct SDK Usage**: Files in `/basic`, `/tools`, and `/tui`
 
 ## Additional Resources
 
