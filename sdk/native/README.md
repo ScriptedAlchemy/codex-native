@@ -70,7 +70,8 @@ for await (const event of events) {
 
 ### Structured output
 
-The Codex agent can produce a JSON response that conforms to a specified schema. The schema can be provided for each turn as a plain JSON object.
+The Codex agent can produce a JSON response that conforms to a specified schema. The schema
+can be provided for each turn as a plain JSON object.
 
 ```typescript
 const schema = {
@@ -87,7 +88,9 @@ const turn = await thread.run("Summarize repository status", { outputSchema: sch
 console.log(turn.finalResponse);
 ```
 
-You can also create a JSON schema from a [Zod schema](https://github.com/colinhacks/zod) using the [`zod-to-json-schema`](https://www.npmjs.com/package/zod-to-json-schema) package and setting the `target` to `"openAi"`.
+You can also create a JSON schema from a [Zod schema](https://github.com/colinhacks/zod)
+using the [`zod-to-json-schema`](https://www.npmjs.com/package/zod-to-json-schema)
+package and setting the `target` to "openAi".
 
 ```typescript
 const schema = z.object({
@@ -100,6 +103,75 @@ const turn = await thread.run("Summarize repository status", {
 });
 console.log(turn.finalResponse);
 ```
+
+## Command-line interface
+
+In addition to the programmatic API, the package ships a `codex-native` CLI that mirrors the
+Rust `codex` binary. The CLI is available after `pnpm install` (or via `npx codex-native`).
+
+```bash
+# Run a one-off Codex turn using the native SDK
+codex-native run "Diagnose the failing integration test"
+
+# Launch the full-screen TUI backed by the native bindings
+codex-native tui
+```
+
+### Configuration discovery
+
+`codex-native` automatically merges configuration from the following locations (in priority order):
+
+1. The CLI flags supplied on the command line
+2. A `codex.config.*` file in the working directory (`.js`, `.cjs`, `.mjs`, `.ts`)
+3. A `codexNative` field in `package.json`
+
+Configuration files can export either an object or a function. The function form receives a
+context `{ cwd, configPath }` so you can derive settings dynamically.
+
+```typescript
+// codex.config.ts
+import type { CodexNativeConfig } from "@codex-native/sdk/cli";
+
+const config: CodexNativeConfig = {
+  defaults: {
+    run: { model: "gpt-5-codex" },
+    tui: { resumePicker: false },
+  },
+  tools: [
+    {
+      name: "read_me",
+      description: "Show the project README",
+      handler: async () => ({ output: await fs.promises.readFile("README.md", "utf8") }),
+    },
+  ],
+  interceptors: [
+    {
+      toolName: "shell",
+      handler: async ({ invocation, callBuiltin }) => {
+        console.log("shell call", invocation);
+        return callBuiltin();
+      },
+    },
+  ],
+};
+
+export default config;
+```
+
+Multiple `--plugin` flags can be passed to load additional modules. A plugin may export either a
+config object or a function that returns one. Plugin configs are merged on top of the base config.
+
+### Hooks and approvals
+
+Config files can specify hooks that run before every turn (`beforeStart`) and when streaming
+events (`onEvent`). You can also register an `approvals` callback to gate sensitive tool usage.
+These map directly to the native bindings so the same logic applies in both CLI and SDK usage.
+
+### TUI mode
+
+`codex-native tui` launches the same Ratatui-based interface used by the Rust `codex` tool. The
+CLI honors the same configuration sources listed above, so you can keep CLI, SDK, and TUI
+settings in a single `codex.config.ts` file.
 
 ### Attaching images
 
@@ -172,7 +244,9 @@ await codex.review({
 
 ### Working directory controls
 
-Codex runs in the current working directory by default. To avoid unrecoverable errors, Codex requires the working directory to be a Git repository. You can skip the Git repository check by passing the `skipGitRepoCheck` option when creating a thread.
+Codex runs in the current working directory by default. To avoid unrecoverable errors, Codex
+requires the working directory to be a Git repository. You can skip the Git repository check by
+passing the `skipGitRepoCheck` option when creating a thread.
 
 ```typescript
 const thread = codex.startThread({
@@ -672,6 +746,16 @@ pnpm run release    # Publish all packages
 ```
 
 npm automatically installs the correct platform package as an optional dependency.
+
+## Releasing
+
+1. Update the version in `package.json` and keep the optional dependency versions in sync.
+2. Record the changes in `CHANGELOG.md` (add a new section for the release).
+3. Regenerate build artifacts: `pnpm run build`.
+4. Run the full test suite: `pnpm run test` (which invokes the native Jest runner).
+5. Publish platform binaries: `pnpm run publish:platforms` (or `npm run publish:platforms`).
+6. Publish the SDK itself: `node scripts/publish-sdk.mjs` (the `release` script chains everything).
+7. Tag the release in git.
 
 ## License
 
