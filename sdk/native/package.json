@@ -12,6 +12,9 @@
       "require": "./dist/index.cjs"
     }
   },
+  "bin": {
+    "codex-native": "dist/cli.cjs"
+  },
   "files": [
     "dist",
     "README.md",

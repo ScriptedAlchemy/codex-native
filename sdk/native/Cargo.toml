@@ -14,6 +14,7 @@ serde_json = "1"
 tempfile = "3"
 async-trait = "0.1"
 anyhow = "1"
+ratatui = "0.29.0"
 
 [dependencies.napi]
 version = "3"
@@ -50,6 +51,9 @@ path = "../../codex-rs/protocol"
 
 [dependencies.codex-cloud-tasks-client]
 path = "../../codex-rs/cloud-tasks-client"
+
+[dependencies.codex-tui]
+path = "../../codex-rs/tui"
 
 [build-dependencies]
 napi-build = "2"
