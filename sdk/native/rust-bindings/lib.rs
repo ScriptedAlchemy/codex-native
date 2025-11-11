@@ -849,33 +849,9 @@ pub fn tui_test_run(req: TuiTestRequest) -> napi::Result<Vec<String>> {
   codex_tui::insert_history::insert_history_lines(&mut term, lines)
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
-  // Extract just the viewport content
-  let backend = term.backend();
-  let mut result = String::new();
-  for y in vp.y..(vp.y + vp.height) {
-    if y >= req.height {
-      break;
-    }
-    for x in vp.x..(vp.x + vp.width) {
-      if x >= req.width {
-        break;
-      }
-      if let Some(row) = backend.grid.get(y as usize) {
-        if let Some(cell) = row.get(x as usize) {
-          result.push(cell.symbol());
-        } else {
-          result.push(' ');
-        }
-      } else {
-        result.push(' ');
-      }
-    }
-    if y < (vp.y + vp.height - 1) {
-      result.push('\n');
-    }
-  }
-
-  Ok(vec![result])
+  // Return the full screen content like the Rust tests do
+  let snapshot = term.backend().as_string();
+  Ok(vec![snapshot])
 }
 #[napi(object)]
 pub struct TokenUsageSummary {
