@@ -4,6 +4,21 @@ This directory contains example scripts demonstrating various features of the `@
 
 ## Directory Structure
 
+### Root Level - Direct SDK Examples
+Basic examples using the Native SDK directly (without OpenAI Agents framework).
+
+- **`basic_streaming.ts`** — Direct SDK streaming
+  - Real-time streaming without Agents framework
+  - Handling stream events directly
+  - Token usage tracking
+  - Simple streaming patterns
+
+- **`structured_output.ts`** — Direct SDK structured output
+  - JSON schema validation with direct Thread API
+  - Zod schema integration
+  - Type-safe structured responses
+  - Multiple schema examples (code analysis, task breakdown)
+
 ### `/basic` - Core Features
 Basic SDK functionality and common use cases.
 
@@ -114,6 +129,43 @@ Advanced multi-agent workflows.
   - Multi-agent workflow tracing
   - Error tracing and debugging
 
+- **`multi-agent-handoffs.ts`** — Advanced multi-agent handoffs
+  - Complex agent delegation patterns
+  - Orchestrating multi-step workflows
+  - Context preservation across agents
+  - Production-ready handoff patterns
+
+- **`streaming-responses.ts`** — Streaming with real-time updates
+  - Real-time streaming deltas
+  - Processing incremental updates
+  - Building responsive user experiences
+  - Custom stream event processing
+
+- **`structured-output.ts`** — Comprehensive structured output
+  - Multiple JSON schema examples
+  - Code analysis structured responses
+  - Complex nested data structures
+  - Task breakdown and planning schemas
+
+- **`context-sessions.ts`** — Context management and sessions
+  - Creating and resuming conversation sessions
+  - Managing conversation history
+  - Multi-turn conversations with memory
+  - Context preservation across runs
+
+- **`guardrails-validation.ts`** — Guardrails and validation
+  - Input validation before execution
+  - Output validation after execution
+  - Content filtering and safety checks
+  - Rate limiting and resource constraints
+
+- **`real-world-code-refactor.ts`** — Production code refactoring pipeline
+  - Building production-ready workflows
+  - Multiple specialized agents (Analyzer, Refactorer, Tester, Documenter)
+  - Structured data between agents
+  - Error handling and validation
+  - Practical integration patterns
+
 ### `/diagnostics` - Troubleshooting Utilities
 Quick scripts to validate local environments.
 
@@ -134,6 +186,12 @@ Examples that interact with the Codex TUI, either programmatically through the S
   - Runs the CLI entry point with custom prompts
   - Inherits stdio so the TUI renders in the current terminal
   - Shows how to adjust environment variables for automation
+
+- **`thread-transition.ts`** — Transition from programmatic to TUI mode
+  - Start thread programmatically with automated work
+  - Transition to interactive TUI mode
+  - Continue same session in TUI
+  - Seamless handoff between modes
 
 ## Running Examples
 
@@ -162,22 +220,27 @@ npx tsx examples/tui/programmatic-launch.ts
 
 ### Getting Started
 1. `provider/codex-provider-run.ts` — Simplest example
-2. `basic/streaming-deltas.ts` — Core streaming features
-3. `tools/automatic-tool-registration.ts` — Working with tools
+2. `basic_streaming.ts` — Direct SDK streaming
+3. `basic/streaming-deltas.ts` — Core streaming features with Agents
+4. `tools/automatic-tool-registration.ts` — Working with tools
 
 ### Advanced Features
-- **Multi-Agent**: `agents/agents-integration.ts`, `agents/agents-multi-agent-workflow.ts`
-- **Agent Handoffs**: `agents/agents-handoffs.ts`
-- **Guardrails**: `agents/agents-guardrails.ts`
-- **Structured Output**: `agents/agents-structured-output.ts`
-- **Streaming**: `agents/agents-streaming.ts`
+- **Multi-Agent**: `agents/agents-integration.ts`, `agents/agents-multi-agent-workflow.ts`, `agents/real-world-code-refactor.ts`
+- **Agent Handoffs**: `agents/agents-handoffs.ts`, `agents/multi-agent-handoffs.ts`
+- **Guardrails**: `agents/agents-guardrails.ts`, `agents/guardrails-validation.ts`
+- **Structured Output**: `agents/agents-structured-output.ts`, `agents/structured-output.ts`, `structured_output.ts`
+- **Streaming**: `agents/agents-streaming.ts`, `agents/streaming-responses.ts`, `basic_streaming.ts`
+- **Context Management**: `agents/context-sessions.ts`
 - **Tracing**: `agents/agents-tracing.ts`
 - **Tool Override**: `tools/tool-override-example.ts`
 - **Code Review**: `basic/review-example.ts`
+- **Plan Management**: `basic/plan-management.ts`
+- **TUI Integration**: `tui/thread-transition.ts`, `tui/programmatic-launch.ts`
 
 ### Integration Patterns
 - **OpenAI Agents**: All files in `/agents` and `/provider`
-- **Direct SDK Usage**: Files in `/basic`, `/tools`, and `/tui`
+- **Direct SDK Usage**: Root-level files (`basic_streaming.ts`, `structured_output.ts`), plus `/basic`, `/tools`, and `/tui`
+- **TUI Mode**: All files in `/tui`, including programmatic-to-TUI transitions
 
 ## Additional Resources
 
