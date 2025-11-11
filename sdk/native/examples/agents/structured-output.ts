@@ -25,95 +25,165 @@
 import os from 'node:os';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
-import { z } from 'zod';
-import { Agent, run, withTrace } from '@openai/agents';
+import { Agent, Runner, run, withTrace } from '@openai/agents';
 import { CodexProvider } from '../../src/index';
 
 // ============================================================================
-// Define Schemas with Zod
+// Define JSON Schemas
 // ============================================================================
 
 // Schema for code analysis results
-const CodeAnalysisSchema = z.object({
-  complexity: z.enum(['low', 'medium', 'high']),
-  maintainability: z.number().min(0).max(10),
-  issues: z.array(
-    z.object({
-      severity: z.enum(['info', 'warning', 'error']),
-      category: z.string(),
-      description: z.string(),
-      line: z.number().optional(),
-    })
-  ),
-  suggestions: z.array(z.string()),
-  summary: z.string(),
-});
+const CodeAnalysisSchema = {
+  type: 'object' as const,
+  properties: {
+    complexity: { type: 'string' as const, enum: ['low', 'medium', 'high'] },
+    maintainability: { type: 'number' as const, minimum: 0, maximum: 10 },
+    issues: {
+      type: 'array' as const,
+      items: {
+        type: 'object' as const,
+        properties: {
+          severity: { type: 'string' as const, enum: ['info', 'warning', 'error'] },
+          category: { type: 'string' as const },
+          description: { type: 'string' as const }
+        },
+        required: ['severity', 'category', 'description'],
+        additionalProperties: false,
+      },
+    },
+    suggestions: { type: 'array' as const, items: { type: 'string' as const } },
+    summary: { type: 'string' as const },
+  },
+  required: ['complexity', 'maintainability', 'issues', 'suggestions', 'summary'],
+  additionalProperties: false,
+} ;
 
 // Schema for test plan
-const TestPlanSchema = z.object({
-  testCases: z.array(
-    z.object({
-      name: z.string(),
-      description: z.string(),
-      type: z.enum(['unit', 'integration', 'e2e']),
-      priority: z.enum(['high', 'medium', 'low']),
-      estimatedTime: z.string(),
-    })
-  ),
-  coverage: z.object({
-    expectedPercentage: z.number().min(0).max(100),
-    criticalPaths: z.array(z.string()),
-  }),
-  dependencies: z.array(z.string()),
-});
+const TestPlanSchema = {
+  type: 'object' as const,
+  properties: {
+    testCases: {
+      type: 'array' as const,
+      items: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string' as const },
+          description: { type: 'string' as const },
+          type: { type: 'string' as const, enum: ['unit', 'integration', 'e2e'] },
+          priority: { type: 'string' as const, enum: ['high', 'medium', 'low'] },
+          estimatedTime: { type: 'string' as const },
+        },
+        required: ['name', 'description', 'type', 'priority', 'estimatedTime'],
+        additionalProperties: false,
+      },
+    },
+    coverage: {
+      type: 'object' as const,
+      properties: {
+        expectedPercentage: { type: 'number' as const, minimum: 0, maximum: 100 },
+        criticalPaths: { type: 'array' as const, items: { type: 'string' as const } },
+      },
+      required: ['expectedPercentage', 'criticalPaths'],
+      additionalProperties: false,
+    },
+    dependencies: { type: 'array' as const, items: { type: 'string' as const } },
+  },
+  required: ['testCases', 'coverage', 'dependencies'],
+  additionalProperties: false,
+} ;
 
 // Schema for API documentation
-const APIDocSchema = z.object({
-  endpoints: z.array(
-    z.object({
-      method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']),
-      path: z.string(),
-      description: z.string(),
-      parameters: z.array(
-        z.object({
-          name: z.string(),
-          type: z.string(),
-          required: z.boolean(),
-          description: z.string(),
-        })
-      ),
-      responses: z.array(
-        z.object({
-          status: z.number(),
-          description: z.string(),
-        })
-      ),
-    })
-  ),
-});
+const APIDocSchema = {
+  type: 'object' as const,
+  properties: {
+    endpoints: {
+      type: 'array' as const,
+      items: {
+        type: 'object' as const,
+        properties: {
+          method: { type: 'string' as const, enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] },
+          path: { type: 'string' as const },
+          description: { type: 'string' as const },
+          parameters: {
+            type: 'array' as const,
+            items: {
+              type: 'object' as const,
+              properties: {
+                name: { type: 'string' as const },
+                type: { type: 'string' as const },
+                required: { type: 'boolean' as const },
+                description: { type: 'string' as const },
+              },
+              required: ['name', 'type', 'required', 'description'],
+              additionalProperties: false,
+            },
+          },
+          responses: {
+            type: 'array' as const,
+            items: {
+              type: 'object' as const,
+              properties: {
+                status: { type: 'number' as const },
+                description: { type: 'string' as const },
+              },
+              required: ['status', 'description'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['method', 'path', 'description', 'parameters', 'responses'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['endpoints'],
+  additionalProperties: false,
+} ;
 
 // Schema for performance metrics
-const PerformanceAnalysisSchema = z.object({
-  metrics: z.object({
-    timeComplexity: z.string(),
-    spaceComplexity: z.string(),
-    estimatedExecutionTime: z.string(),
-  }),
-  bottlenecks: z.array(
-    z.object({
-      location: z.string(),
-      issue: z.string(),
-      impact: z.enum(['low', 'medium', 'high']),
-    })
-  ),
-  optimizations: z.array(
-    z.object({
-      description: z.string(),
-      expectedImprovement: z.string(),
-      difficulty: z.enum(['easy', 'medium', 'hard']),
-    })
-  ),
-});
+const PerformanceAnalysisSchema = {
+  type: 'object' as const,
+  properties: {
+    metrics: {
+      type: 'object' as const,
+      properties: {
+        timeComplexity: { type: 'string' as const },
+        spaceComplexity: { type: 'string' as const },
+        estimatedExecutionTime: { type: 'string' as const },
+      },
+      required: ['timeComplexity', 'spaceComplexity', 'estimatedExecutionTime'],
+      additionalProperties: false,
+    },
+    bottlenecks: {
+      type: 'array' as const,
+      items: {
+        type: 'object' as const,
+        properties: {
+          location: { type: 'string' as const },
+          issue: { type: 'string' as const },
+          impact: { type: 'string' as const, enum: ['low', 'medium', 'high'] },
+        },
+        required: ['location', 'issue', 'impact'],
+        additionalProperties: false,
+      },
+    },
+    optimizations: {
+      type: 'array' as const,
+      items: {
+        type: 'object' as const,
+        properties: {
+          description: { type: 'string' as const },
+          expectedImprovement: { type: 'string' as const },
+          difficulty: { type: 'string' as const, enum: ['easy', 'medium', 'hard'] },
+        },
+        required: ['description', 'expectedImprovement', 'difficulty'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['metrics', 'bottlenecks', 'optimizations'],
+  additionalProperties: false,
+} ;
 
 async function main() {
   console.log('📊 Structured Output with JSON Schemas\n');
@@ -133,6 +203,8 @@ async function main() {
 
   const codexModel = await codexProvider.getModel();
 
+  const runner = new Runner({ modelProvider: codexProvider });
+
   // ============================================================================
   // Example 1: Code Analysis with Structured Output
   // ============================================================================
@@ -146,7 +218,12 @@ async function main() {
     instructions: `You are a code analysis expert. Analyze code for complexity,
 maintainability, and issues. Provide structured output with specific metrics
 and actionable suggestions.`,
-    outputSchema: CodeAnalysisSchema,
+    outputType: {
+      type: 'json_schema',
+      schema: CodeAnalysisSchema,
+      name: 'CodeAnalysis',
+      strict: true,
+    },
   });
 
   await withTrace('Code Analysis', async () => {
@@ -170,16 +247,11 @@ function processUserData(users) {
     console.log('Analyzing code...');
     console.log(sampleCode);
 
-    const result = await run(
-      analysisAgent,
-      `Analyze this JavaScript function:\n\n${sampleCode}`,
-      { outputType: CodeAnalysisSchema }
-      `Analyze this JavaScript function:\n\n${sampleCode}`
-    );
+    const result = await runner.run(analysisAgent, `Analyze this JavaScript function:\n\n${sampleCode}`);
 
     // The output is now structured according to our schema
     try {
-      const analysis = JSON.parse(result.finalOutput);
+      const analysis = result.finalOutput as any;
       console.log('\n✓ Structured Analysis Result:');
       console.log(`  Complexity: ${analysis.complexity}`);
       console.log(`  Maintainability: ${analysis.maintainability}/10`);
@@ -210,7 +282,12 @@ function processUserData(users) {
     model: codexModel,
     instructions: `You are a test planning expert. Create comprehensive test plans
 with detailed test cases, coverage goals, and dependencies.`,
-    outputSchema: TestPlanSchema,
+    outputType: {
+      type: 'json_schema',
+      schema: TestPlanSchema,
+      name: 'TestPlan',
+      strict: true,
+    },
   });
 
   await withTrace('Test Planning', async () => {
@@ -218,15 +295,10 @@ with detailed test cases, coverage goals, and dependencies.`,
 
     console.log(`\nGenerating test plan for: ${feature}`);
 
-    const result = await run(
-      testPlannerAgent,
-      `Create a comprehensive test plan for: ${feature}`,
-      { outputType: TestPlanSchema }
-      `Create a comprehensive test plan for: ${feature}`
-    );
+    const result = await runner.run(testPlannerAgent, `Create a comprehensive test plan for: ${feature}`);
 
     try {
-      const testPlan = JSON.parse(result.finalOutput);
+      const testPlan = result.finalOutput as any;
       console.log('\n✓ Structured Test Plan:');
       console.log(`  Test Cases: ${testPlan.testCases?.length || 0}`);
       console.log(`  Expected Coverage: ${testPlan.coverage?.expectedPercentage}%`);
@@ -257,7 +329,12 @@ with detailed test cases, coverage goals, and dependencies.`,
     model: codexModel,
     instructions: `You are an API documentation expert. Generate comprehensive
 API documentation with endpoints, parameters, and response formats.`,
-    outputSchema: APIDocSchema,
+    outputType: {
+      type: 'json_schema',
+      schema: APIDocSchema,
+      name: 'APIDoc',
+      strict: true,
+    },
   });
 
   await withTrace('API Documentation', async () => {
@@ -273,15 +350,10 @@ router.delete('/users/:id', deleteUser);
     console.log('\nGenerating API docs for:');
     console.log(apiCode);
 
-    const result = await run(
-      apiDocAgent,
-      `Generate API documentation for these endpoints:\n\n${apiCode}`,
-      { outputType: APIDocSchema }
-      `Generate API documentation for these endpoints:\n\n${apiCode}`
-    );
+    const result = await runner.run(apiDocAgent, `Generate API documentation for these endpoints:\n\n${apiCode}`);
 
     try {
-      const apiDocs = JSON.parse(result.finalOutput);
+      const apiDocs = result.finalOutput as any;
       console.log('\n✓ Structured API Documentation:');
       console.log(`  Endpoints: ${apiDocs.endpoints?.length || 0}`);
 
@@ -311,7 +383,12 @@ router.delete('/users/:id', deleteUser);
     model: codexModel,
     instructions: `You are a performance optimization expert. Analyze code for
 complexity, bottlenecks, and optimization opportunities.`,
-    outputSchema: PerformanceAnalysisSchema,
+    outputType: {
+      type: 'json_schema',
+      schema: PerformanceAnalysisSchema,
+      name: 'PerformanceAnalysis',
+      strict: true,
+    },
   });
 
   await withTrace('Performance Analysis', async () => {
@@ -332,15 +409,10 @@ function findDuplicates(array) {
     console.log('\nAnalyzing performance of:');
     console.log(algorithmCode);
 
-    const result = await run(
-      perfAgent,
-      `Analyze the performance of this algorithm:\n\n${algorithmCode}`,
-      { outputType: PerformanceAnalysisSchema }
-      `Analyze the performance of this algorithm:\n\n${algorithmCode}`
-    );
+    const result = await runner.run(perfAgent, `Analyze the performance of this algorithm:\n\n${algorithmCode}`);
 
     try {
-      const perfAnalysis = JSON.parse(result.finalOutput);
+      const perfAnalysis = result.finalOutput as any;
       console.log('\n✓ Structured Performance Analysis:');
       console.log(`  Time Complexity: ${perfAnalysis.metrics?.timeComplexity}`);
       console.log(`  Space Complexity: ${perfAnalysis.metrics?.spaceComplexity}`);

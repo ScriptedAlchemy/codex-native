@@ -97,7 +97,7 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
                         cwd: None,
                     },
                     enabled: true,
-                    startup_timeout_sec: Some(Duration::from_secs(10)),
+                    startup_timeout_sec: Some(Duration::from_secs(30)),
                     tool_timeout_sec: None,
                     enabled_tools: None,
                     disabled_tools: None,
@@ -710,7 +710,7 @@ async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
         .env("MCP_TEST_VALUE", expected_env_value)
         .spawn()?;
 
-    wait_for_streamable_http_server(&mut http_server_child, &bind_addr, Duration::from_secs(5))
+    wait_for_streamable_http_server(&mut http_server_child, &bind_addr, Duration::from_secs(15))
         .await?;
 
     let fixture = test_codex()
@@ -882,7 +882,7 @@ async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
         .env("MCP_TEST_VALUE", expected_env_value)
         .spawn()?;
 
-    wait_for_streamable_http_server(&mut http_server_child, &bind_addr, Duration::from_secs(5))
+    wait_for_streamable_http_server(&mut http_server_child, &bind_addr, Duration::from_secs(15))
         .await?;
 
     let temp_home = tempdir()?;

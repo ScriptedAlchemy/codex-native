@@ -117,24 +117,13 @@ async function main() {
   // Configure Handoffs
   // ============================================================================
 
-  productManager.handoffs = [
-    handoff(architect, { when: 'technical design is needed' }),
-  ];
+  productManager.handoffs = [handoff(architect)];
 
-  architect.handoffs = [
-    handoff(developer, { when: 'implementation is needed' }),
-    handoff(documenter, { when: 'documentation is needed' }),
-  ];
+  architect.handoffs = [handoff(developer), handoff(documenter)];
 
-  developer.handoffs = [
-    handoff(tester, { when: 'code is ready for testing' }),
-    handoff(documenter, { when: 'code documentation is needed' }),
-  ];
+  developer.handoffs = [handoff(tester), handoff(documenter)];
 
-  tester.handoffs = [
-    handoff(developer, { when: 'bugs need to be fixed' }),
-    handoff(documenter, { when: 'test documentation is needed' }),
-  ];
+  tester.handoffs = [handoff(developer), handoff(documenter)];
 
   // ============================================================================
   // Example: Full Development Workflow
@@ -157,7 +146,7 @@ async function main() {
 
   if (ensureResult(pmResult, 'the remaining workflow steps')) {
     console.log('\n[Product Manager Output]');
-    console.log(pmResult.finalOutput.substring(0, 300) + '...\n');
+    console.log((pmResult.finalOutput ?? '').substring(0, 300) + '...\n');
 
     // Step 2: Architect designs the system
     console.log('\n🏗️  Step 2: Architect designing system...');
@@ -165,13 +154,13 @@ async function main() {
     const archResult = await runExampleStep('Architect design', () =>
       run(
         architect,
-        `Based on these requirements, design the architecture:\n\n${pmResult.finalOutput}`
+        `Based on these requirements, design the architecture:\n\n${pmResult.finalOutput ?? ''}`
       )
     );
 
     if (ensureResult(archResult, 'the remaining workflow steps')) {
       console.log('\n[Architect Output]');
-      console.log(archResult.finalOutput.substring(0, 300) + '...\n');
+      console.log((archResult.finalOutput ?? '').substring(0, 300) + '...\n');
 
       // Step 3: Developer implements
       console.log('\n💻 Step 3: Developer implementing...');
@@ -179,13 +168,13 @@ async function main() {
       const devResult = await runExampleStep('Developer implementation', () =>
         run(
           developer,
-          `Based on this architecture, implement the code:\n\n${archResult.finalOutput}`
+          `Based on this architecture, implement the code:\n\n${archResult.finalOutput ?? ''}`
         )
       );
 
       if (ensureResult(devResult, 'the remaining workflow steps')) {
         console.log('\n[Developer Output]');
-        console.log(devResult.finalOutput.substring(0, 300) + '...\n');
+        console.log((devResult.finalOutput ?? '').substring(0, 300) + '...\n');
 
         // Step 4: Tester tests
         console.log('\n🧪 Step 4: Tester testing...');
@@ -193,13 +182,13 @@ async function main() {
         const testResult = await runExampleStep('Tester review', () =>
           run(
             tester,
-            `Review and test this implementation:\n\n${devResult.finalOutput}`
+            `Review and test this implementation:\n\n${devResult.finalOutput ?? ''}`
           )
         );
 
         if (ensureResult(testResult, 'the remaining workflow steps')) {
           console.log('\n[Tester Output]');
-          console.log(testResult.finalOutput.substring(0, 300) + '...\n');
+          console.log((testResult.finalOutput ?? '').substring(0, 300) + '...\n');
 
           // Step 5: Documenter writes docs
           console.log('\n📚 Step 5: Documenter writing documentation...');
@@ -207,13 +196,13 @@ async function main() {
           const docResult = await runExampleStep('Documenter write-up', () =>
             run(
               documenter,
-              `Write documentation for this feature:\n\nRequirements: ${pmResult.finalOutput.substring(0, 200)}\n\nImplementation: ${devResult.finalOutput.substring(0, 200)}`
+              `Write documentation for this feature:\n\nRequirements: ${(pmResult.finalOutput ?? '').substring(0, 200)}\n\nImplementation: ${(devResult.finalOutput ?? '').substring(0, 200)}`
             )
           );
 
           if (ensureResult(docResult, 'the remaining workflow steps')) {
             console.log('\n[Documenter Output]');
-            console.log(docResult.finalOutput.substring(0, 300) + '...\n');
+            console.log((docResult.finalOutput ?? '').substring(0, 300) + '...\n');
           }
         }
       }
@@ -266,11 +255,11 @@ async function main() {
 
     console.log('\n[Combined Results]');
     console.log('\nAPI Design:');
-    console.log(apiDesign.finalOutput.substring(0, 200) + '...');
+    console.log((apiDesign.finalOutput ?? '').substring(0, 200) + '...');
     console.log('\nDatabase Design:');
-    console.log(dbDesign.finalOutput.substring(0, 200) + '...');
+    console.log((dbDesign.finalOutput ?? '').substring(0, 200) + '...');
     console.log('\nSecurity Design:');
-    console.log(securityDesign.finalOutput.substring(0, 200) + '...');
+    console.log((securityDesign.finalOutput ?? '').substring(0, 200) + '...');
   }
 
   console.log('\n\nExample: Iterative Refinement Workflow');
@@ -288,29 +277,29 @@ async function main() {
   );
 
   if (ensureResult(currentCode, 'iterative workflow steps')) {
-    console.log('Code:', currentCode.finalOutput.substring(0, 200) + '...\n');
+    console.log('Code:', (currentCode.finalOutput ?? '').substring(0, 200) + '...\n');
 
     // Test and get feedback
     console.log('🔄 Iteration 2: Testing and feedback');
     const testFeedback = await runExampleStep('Testing feedback', () =>
       run(
         tester,
-        `Test this code and provide feedback:\n\n${currentCode.finalOutput}`
+        `Test this code and provide feedback:\n\n${currentCode.finalOutput ?? ''}`
       )
     );
     if (ensureResult(testFeedback, 'iterative workflow steps')) {
-      console.log('Feedback:', testFeedback.finalOutput.substring(0, 200) + '...\n');
+      console.log('Feedback:', testFeedback.finalOutput?.substring(0, 200) + '...\n');
 
       // Refine based on feedback
       console.log('🔄 Iteration 3: Refining based on feedback');
       const refinedCode = await runExampleStep('Refined implementation', () =>
         run(
           developer,
-          `Improve this code based on feedback:\n\nOriginal: ${currentCode.finalOutput}\n\nFeedback: ${testFeedback.finalOutput}`
+          `Improve this code based on feedback:\n\nOriginal: ${currentCode.finalOutput ?? ''}\n\nFeedback: ${testFeedback.finalOutput ?? ''}`
         )
       );
       if (ensureResult(refinedCode, 'iterative workflow steps')) {
-        console.log('Refined Code:', refinedCode.finalOutput.substring(0, 200) + '...\n');
+        console.log('Refined Code:', refinedCode.finalOutput?.substring(0, 200) + '...\n');
       }
     }
   }

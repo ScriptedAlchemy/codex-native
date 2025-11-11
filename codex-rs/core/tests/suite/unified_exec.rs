@@ -1206,7 +1206,7 @@ async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
     let second_args = serde_json::json!({
         "chars": "",
         "session_id": 0,
-        "yield_time_ms": 800,
+        "yield_time_ms": 1_500,
     });
 
     let responses = vec![

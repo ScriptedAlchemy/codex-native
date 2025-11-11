@@ -67,12 +67,13 @@ async function main() {
       input: 'Explain how async/await works in JavaScript in 2-3 paragraphs.',
       modelSettings: {},
       tools: [],
-      outputType: { type: 'text' },
       handoffs: [],
-      tracing: { enabled: false },
-    });
+      tracing: {} as any,
+      outputType: { type: 'json_schema', name: 'Text', strict: false, schema: { type: 'object', properties: {}, required: [] } } as any,
+    } as any);
 
-    for await (const chunk of streamResult) {
+    for await (const c of streamResult as any) {
+      const chunk: any = c;
       if (chunk.type === 'output_text_delta') {
         const text = chunk.delta;
         for (const char of text) {
@@ -138,12 +139,13 @@ function quickSort(arr) {
       input: `Analyze this quicksort implementation:\n\n${sampleCode}`,
       modelSettings: {},
       tools: [],
-      outputType: { type: 'text' },
       handoffs: [],
-      tracing: { enabled: false },
-    });
+      tracing: {} as any,
+      outputType: { type: 'json_schema', name: 'Text', strict: false, schema: { type: 'object', properties: {}, required: [] } } as any,
+    } as any);
 
-    for await (const event of streamResult) {
+    for await (const e of streamResult as any) {
+      const event: any = e;
       switch (event.type) {
         case 'response_started':
           console.log('📡 Response started...');
@@ -223,12 +225,13 @@ function calculateAverage(numbers) {
       input: `Find and fix the bug in this code:\n\n${buggyCode}\n\nError: "TypeError: Cannot read property of undefined"`,
       modelSettings: {},
       tools: [],
-      outputType: { type: 'text' },
       handoffs: [],
-      tracing: { enabled: false },
-    });
+      tracing: {} as any,
+      outputType: { type: 'json_schema', name: 'Text', strict: false, schema: { type: 'object', properties: {}, required: [] } } as any,
+    } as any);
 
-    for await (const event of streamResult) {
+    for await (const e of streamResult as any) {
+      const event: any = e;
       switch (event.type) {
         case 'response_started':
           console.log('🔍 Starting debug analysis...\n');
@@ -291,27 +294,28 @@ function calculateAverage(numbers) {
       input: `Summarize: ${text}`,
       modelSettings: {},
       tools: [],
-      outputType: { type: 'text' },
       handoffs: [],
-      tracing: { enabled: false },
-    });
+      tracing: {} as any,
+      outputType: { type: 'json_schema', name: 'Text', strict: false, schema: { type: 'object', properties: {}, required: [] } } as any,
+    } as any);
     
     const questionStream = codexModel.getStreamedResponse({
       systemInstructions: 'Generate insightful questions about text.',
       input: `Generate 2 questions about: ${text}`,
       modelSettings: {},
       tools: [],
-      outputType: { type: 'text' },
       handoffs: [],
-      tracing: { enabled: false },
-    });
+      tracing: {} as any,
+      outputType: { type: 'json_schema', name: 'Text', strict: false, schema: { type: 'object', properties: {}, required: [] } } as any,
+    } as any);
 
     // Process both streams concurrently
     const results = await Promise.all([
       (async () => {
         console.log('[Summarizer] Starting...');
         let output = '';
-        for await (const event of summaryStream) {
+        for await (const e of summaryStream as any) {
+          const event: any = e;
           if (event.type === 'output_text_delta') {
             output += event.delta;
           } else if (event.type === 'response_done') {
@@ -323,7 +327,8 @@ function calculateAverage(numbers) {
       (async () => {
         console.log('[QuestionGenerator] Starting...');
         let output = '';
-        for await (const event of questionStream) {
+        for await (const e of questionStream as any) {
+          const event: any = e;
           if (event.type === 'output_text_delta') {
             output += event.delta;
           } else if (event.type === 'response_done') {

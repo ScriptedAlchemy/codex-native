@@ -170,23 +170,9 @@ each using Codex as their backend through the provider.
         maxTokens: 1000,
       },
       tools: [],
-      outputType: {
-        type: "json_schema",
-        schema: {
-          type: "object",
-          properties: {
-            answer: {
-              type: "string",
-              description: "The answer to the question",
-            },
-          },
-          required: ["answer"],
-          additionalProperties: false,
-        },
-      },
       handoffs: [],
-      tracing: { enabled: false },
-    });
+      tracing: {} as any,
+    } as any);
 
     console.log("\n✓ Response received:");
     console.log(`  Input tokens: ${response.usage.inputTokens}`);
@@ -194,11 +180,7 @@ each using Codex as their backend through the provider.
     console.log(`  Response ID: ${response.responseId}`);
     console.log(`\n  Output items: ${response.output.length}`);
 
-    for (const item of response.output) {
-      if (!item.type || item.type === "message") {
-        console.log(`\n  Message: ${item.content[0]?.type === "output_text" ? item.content[0].text : "(non-text)"}`);
-      }
-    }
+    console.log("\n  Output items:", response.output.length);
   } catch (error) {
     console.error("\n✗ Error:", error instanceof Error ? error.message : String(error));
   }

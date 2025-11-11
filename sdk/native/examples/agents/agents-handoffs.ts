@@ -75,9 +75,7 @@ async function main() {
   });
 
   // Configure handoff: CodeReviewer can hand off to TestWriter
-  codeReviewer.handoffs = [handoff(testWriter, {
-    when: 'code needs tests',
-  })];
+  codeReviewer.handoffs = [handoff(testWriter)];
 
   console.log('\nQuery: "Review this function and ensure it has tests: function add(a, b) { return a + b; }"\n');
 
@@ -133,13 +131,9 @@ async function main() {
   });
 
   // Set up handoff chain
-  architect.handoffs = [handoff(developer, {
-    when: 'implementation is needed',
-  })];
+  architect.handoffs = [handoff(developer)];
 
-  developer.handoffs = [handoff(qa, {
-    when: 'code is ready for QA review',
-  })];
+  developer.handoffs = [handoff(qa)];
 
   console.log('\nQuery: "Design a user authentication system"\n');
 
@@ -203,11 +197,7 @@ async function main() {
   });
 
   // Configure multiple handoffs
-  router.handoffs = [
-    handoff(bugFixer, { when: 'bug report or error' }),
-    handoff(featureDeveloper, { when: 'feature request' }),
-    handoff(supportAgent, { when: 'question or help needed' }),
-  ];
+  router.handoffs = [handoff(bugFixer), handoff(featureDeveloper), handoff(supportAgent)];
 
   console.log('\nQuery: "I found a bug where the login button doesn\'t work"\n');
 

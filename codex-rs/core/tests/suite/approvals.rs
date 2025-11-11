@@ -107,7 +107,7 @@ impl ActionKind {
                         path = path
                     ),
                 ];
-                let event = shell_event(call_id, &command, 1_000, with_escalated_permissions)?;
+                let event = shell_event(call_id, &command, 3_000, with_escalated_permissions)?;
                 Ok((event, Some(command)))
             }
             ActionKind::FetchUrl {
@@ -128,7 +128,7 @@ impl ActionKind {
                 );
 
                 let command = vec!["python3".to_string(), "-c".to_string(), script];
-                let event = shell_event(call_id, &command, 1_000, with_escalated_permissions)?;
+                let event = shell_event(call_id, &command, 3_000, with_escalated_permissions)?;
                 Ok((event, Some(command)))
             }
             ActionKind::RunCommand { command } => {
@@ -136,11 +136,11 @@ impl ActionKind {
                     .iter()
                     .map(std::string::ToString::to_string)
                     .collect();
-                let event = shell_event(call_id, &command, 1_000, with_escalated_permissions)?;
+                let event = shell_event(call_id, &command, 3_000, with_escalated_permissions)?;
                 Ok((event, Some(command)))
             }
             ActionKind::RunUnifiedExecCommand { command } => {
-                let event = exec_command_event(call_id, command, Some(1000))?;
+                let event = exec_command_event(call_id, command, Some(3000))?;
                 Ok((
                     event,
                     Some(vec![

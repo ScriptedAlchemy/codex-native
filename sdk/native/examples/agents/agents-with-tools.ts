@@ -33,15 +33,16 @@ import { promises as fs } from 'node:fs';
 import { z } from 'zod';
 import { Agent, run, withTrace } from '@openai/agents';
 import { CodexProvider, codexTool } from '../../src/index';
+import type { SerializedTool } from '../../src/agents/types';
 
 // Define a weather tool using zod for type-safe parameters
-const getWeatherTool = codexTool({
+const getWeatherTool: SerializedTool = codexTool({
   name: 'get_weather',
   description: 'Get the weather for a given city',
   parameters: z.object({
     city: z.string().describe('The city to get weather for'),
   }),
-  execute: async (input) => {
+  execute: async (input: any) => {
     console.log(`[debug] Getting weather for ${input.city}\n`);
     // Simulate weather API call
     const weatherConditions = ['sunny', 'cloudy', 'rainy', 'snowy'];
@@ -49,7 +50,7 @@ const getWeatherTool = codexTool({
     const temp = Math.floor(Math.random() * 30) + 10;
     return `The weather in ${input.city} is ${condition} with a temperature of ${temp}°C`;
   },
-  codexExecute: async (input) => {
+  codexExecute: async (input: any) => {
     const weatherConditions = ['sunny', 'cloudy', 'rainy', 'snowy'];
     const condition = weatherConditions[Math.floor(Math.random() * weatherConditions.length)];
     const temp = Math.floor(Math.random() * 30) + 10;
@@ -58,7 +59,7 @@ const getWeatherTool = codexTool({
 });
 
 // Define a temperature conversion tool
-const convertTemperatureTool = codexTool({
+const convertTemperatureTool: SerializedTool = codexTool({
   name: 'convert_temperature',
   description: 'Convert temperature between Celsius and Fahrenheit',
   parameters: z.object({
@@ -66,7 +67,7 @@ const convertTemperatureTool = codexTool({
     from: z.enum(['celsius', 'fahrenheit']).describe('The unit to convert from'),
     to: z.enum(['celsius', 'fahrenheit']).describe('The unit to convert to'),
   }),
-  execute: async (input) => {
+  execute: async (input: any) => {
     console.log(`[debug] Converting ${input.value}°${input.from[0].toUpperCase()} to ${input.to}\n`);
 
     if (input.from === input.to) {
@@ -82,7 +83,7 @@ const convertTemperatureTool = codexTool({
 
     return `${input.value}°${input.from === 'celsius' ? 'C' : 'F'} is ${result.toFixed(1)}°${input.to === 'celsius' ? 'C' : 'F'}`;
   },
-  codexExecute: async (input) => {
+  codexExecute: async (input: any) => {
     if (input.from === input.to) {
       return `${input.value}°${input.from === 'celsius' ? 'C' : 'F'}`;
     }

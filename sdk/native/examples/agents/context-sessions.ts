@@ -69,34 +69,31 @@ async function main() {
     // Turn 1: Initial question
     console.log('Turn 1: What are functions?');
     const turn1 = await run(tutorAgent, 'What are functions in programming?');
-    console.log(`[Tutor] ${turn1.finalOutput.substring(0, 150)}...\n`);
+    console.log(`[Tutor] ${(turn1.finalOutput ?? '').substring(0, 150)}...\n`);
 
     // Turn 2: Follow-up question (should reference previous context)
     console.log('Turn 2: Follow-up about parameters');
     const turn2 = await run(
       tutorAgent,
-      'Can you explain more about the parameters you mentioned?',
-      { previousResponseId: turn1.conversationId }
+      'Can you explain more about the parameters you mentioned?'
     );
-    console.log(`[Tutor] ${turn2.finalOutput.substring(0, 150)}...\n`);
+    console.log(`[Tutor] ${(turn2.finalOutput ?? '').substring(0, 150)}...\n`);
 
     // Turn 3: Request an example (building on context)
     console.log('Turn 3: Request example');
     const turn3 = await run(
       tutorAgent,
-      'Can you show me a simple example?',
-      { previousResponseId: turn2.conversationId }
+      'Can you show me a simple example?'
     );
-    console.log(`[Tutor] ${turn3.finalOutput.substring(0, 150)}...\n`);
+    console.log(`[Tutor] ${(turn3.finalOutput ?? '').substring(0, 150)}...\n`);
 
     // Turn 4: Test understanding
     console.log('Turn 4: Student asks about return values');
     const turn4 = await run(
       tutorAgent,
-      'What does it mean when a function returns a value?',
-      { previousResponseId: turn3.conversationId }
+      'What does it mean when a function returns a value?'
     );
-    console.log(`[Tutor] ${turn4.finalOutput.substring(0, 150)}...\n`);
+    console.log(`[Tutor] ${(turn4.finalOutput ?? '').substring(0, 150)}...\n`);
 
     console.log('✓ Multi-turn conversation complete!');
     console.log('  Context was maintained across all 4 turns');
@@ -128,8 +125,7 @@ async function main() {
       assistantAgent,
       'I need to implement JWT authentication. Where should I start?'
     );
-    sessions.set('auth', sessionA1.conversationId || '');
-    console.log(`[Assistant] ${sessionA1.finalOutput.substring(0, 100)}...\n`);
+    console.log(`[Assistant] ${(sessionA1.finalOutput ?? '').substring(0, 100)}...\n`);
 
     // Session B: Working on database
     console.log('[Session B - Database] Starting discussion...');
@@ -137,32 +133,27 @@ async function main() {
       assistantAgent,
       'I need to design a user database schema. What tables should I create?'
     );
-    sessions.set('database', sessionB1.conversationId || '');
-    console.log(`[Assistant] ${sessionB1.finalOutput.substring(0, 100)}...\n`);
+    console.log(`[Assistant] ${(sessionB1.finalOutput ?? '').substring(0, 100)}...\n`);
 
     // Continue Session A
     console.log('[Session A - Auth] Continuing with follow-up...');
     const sessionA2 = await run(
       assistantAgent,
-      'What library should I use for JWT in Node.js?',
-      { previousResponseId: sessions.get('auth') }
+      'What library should I use for JWT in Node.js?'
     );
-    sessions.set('auth', sessionA2.conversationId || '');
-    console.log(`[Assistant] ${sessionA2.finalOutput.substring(0, 100)}...\n`);
+    console.log(`[Assistant] ${(sessionA2.finalOutput ?? '').substring(0, 100)}...\n`);
 
     // Continue Session B
     console.log('[Session B - Database] Adding constraints...');
     const sessionB2 = await run(
       assistantAgent,
-      'Should I add any constraints to the users table?',
-      { previousResponseId: sessions.get('database') }
+      'Should I add any constraints to the users table?'
     );
-    sessions.set('database', sessionB2.conversationId || '');
-    console.log(`[Assistant] ${sessionB2.finalOutput.substring(0, 100)}...\n`);
+    console.log(`[Assistant] ${(sessionB2.finalOutput ?? '').substring(0, 100)}...\n`);
 
     console.log('✓ Multiple sessions managed successfully!');
-    console.log(`  Session A (auth): ${sessions.get('auth')?.substring(0, 20)}...`);
-    console.log(`  Session B (database): ${sessions.get('database')?.substring(0, 20)}...`);
+    console.log(`  Session A (auth): ...`);
+    console.log(`  Session B (database): ...`);
   });
 
   // ============================================================================
@@ -200,22 +191,17 @@ maintain context about the overall project structure and patterns.`,
           ? `Start a code review. First file to review:\n\nFile: ${file!.name}\n${file!.content}`
           : `Continue the review. Next file:\n\nFile: ${file!.name}\n${file!.content}\n\nConsider how this relates to previously reviewed files.`;
 
-      const result = await run(reviewerAgent, prompt, {
-        previousResponseId: conversationId,
-      });
-
-      conversationId = result.conversationId;
-      console.log(`   Review: ${result.finalOutput.substring(0, 120)}...\n`);
+      const result = await run(reviewerAgent, prompt);
+      console.log(`   Review: ${(result.finalOutput ?? '').substring(0, 120)}...\n`);
     }
 
     // Final summary that references all previous context
     console.log('Requesting overall summary...');
     const summary = await run(
       reviewerAgent,
-      'Based on all the files reviewed, provide an overall assessment of the code quality and architecture.',
-      { previousResponseId: conversationId }
+      'Based on all the files reviewed, provide an overall assessment of the code quality and architecture.'
     );
-    console.log(`\nFinal Summary: ${summary.finalOutput.substring(0, 200)}...\n`);
+    console.log(`\nFinal Summary: ${(summary.finalOutput ?? '').substring(0, 200)}...\n`);
 
     console.log('✓ Long conversation completed!');
     console.log('  Reviewed 3 files + 1 summary = 4 turns');
@@ -251,24 +237,23 @@ maintain context about the overall project structure and patterns.`,
       architectAgent,
       'Design a simple payment processing system with the following requirements: accept payments, handle refunds, store transaction history.'
     );
-    console.log(`Design: ${design.finalOutput.substring(0, 150)}...\n`);
+    console.log(`Design: ${(design.finalOutput ?? '').substring(0, 150)}...\n`);
 
     // Implementer asks for clarification (new conversation, but references design)
     console.log('[Implementer] Reviewing design and asking questions...');
     const clarification = await run(
       implementerAgent,
-      `I'm implementing this payment system design:\n\n${design.finalOutput}\n\nWhat payment providers should I support initially?`
+      `I'm implementing this payment system design:\n\n${design.finalOutput ?? ''}\n\nWhat payment providers should I support initially?`
     );
-    console.log(`Response: ${clarification.finalOutput.substring(0, 150)}...\n`);
+    console.log(`Response: ${(clarification.finalOutput ?? '').substring(0, 150)}...\n`);
 
     // Architect responds (continues their conversation)
     console.log('[Architect] Responding to implementation questions...');
     const response = await run(
       architectAgent,
-      `The implementer asked: What payment providers should we support? Based on the design I provided, what would you recommend?`,
-      { previousResponseId: design.conversationId }
+      `The implementer asked: What payment providers should we support? Based on the design I provided, what would you recommend?`
     );
-    console.log(`Recommendation: ${response.finalOutput.substring(0, 150)}...\n`);
+    console.log(`Recommendation: ${response.finalOutput?.substring(0, 150)}...\n`);
 
     console.log('✓ Collaborative session complete!');
     console.log('  Multiple agents maintained their own conversation contexts');

@@ -29,6 +29,7 @@
 
 import { Agent, run } from '@openai/agents';
 import { CodexProvider } from '../../src/index';
+import type { ModelRequest } from '../../src/agents';
 
 async function streamingTextExample() {
   console.log('\n' + '='.repeat(70));
@@ -62,16 +63,16 @@ async function streamingTextExample() {
     input: 'Explain how neural networks work in 3 paragraphs',
     modelSettings: {},
     tools: [],
-    outputType: { type: 'text' as const },
     handoffs: [],
-    tracing: { enabled: false },
   };
 
   let fullText = '';
   let fullReasoning = '';
+  let sawDelta = false;
 
   // Stream the response
-  for await (const event of model.getStreamedResponse(request)) {
+  for await (const e of model.getStreamedResponse(request as any) as any) {
+    const event: any = e;
     switch (event.type) {
       case 'response_started':
         console.log('[Stream started]');
@@ -83,6 +84,7 @@ async function streamingTextExample() {
         // Text is provided as a complete block in output_text_done
         process.stdout.write(event.delta);
         fullText += event.delta;
+        sawDelta = true;
         break;
 
       case 'output_text_done':
@@ -90,6 +92,18 @@ async function streamingTextExample() {
         fullText = event.text;
         console.log(event.text);
         console.log('\n[Text generation complete]');
+        break;
+
+      case 'response.completed':
+        // OpenAI Responses-style completion (provider may emit this)
+        if (!sawDelta) {
+          const completedText = event?.response?.output_text;
+          if (typeof completedText === 'string' && completedText.length > 0) {
+            fullText = completedText;
+            console.log(completedText);
+            console.log('\n[Text generation complete]');
+          }
+        }
         break;
 
       case 'reasoning_delta':
@@ -110,6 +124,29 @@ async function streamingTextExample() {
         console.log(`  Input tokens: ${event.response.usage.inputTokens}`);
         console.log(`  Output tokens: ${event.response.usage.outputTokens}`);
         console.log(`  Total tokens: ${event.response.usage.totalTokens}`);
+        // If no deltas were printed and no output_text_done was received,
+        // print the final text from the response payload.
+        if (!sawDelta && !fullText) {
+          const outputItems = event?.response?.output;
+          if (Array.isArray(outputItems)) {
+            const texts: string[] = [];
+            for (const item of outputItems) {
+              if (item?.type === 'message' && item?.role === 'assistant' && Array.isArray(item?.content)) {
+                for (const c of item.content) {
+                  if (c?.type === 'output_text' && typeof c?.text === 'string') {
+                    texts.push(c.text);
+                  }
+                }
+              }
+            }
+            const finalText = texts.join('\n').trim();
+            if (finalText.length > 0) {
+              fullText = finalText;
+              console.log('\n' + finalText);
+              console.log('\n[Text generation complete]');
+            }
+          }
+        }
         break;
 
       case 'error':
@@ -149,20 +186,17 @@ async function streamingWithImageExample() {
 
   const request = {
     systemInstructions: 'You are a helpful assistant that can analyze images.',
-    input: [
-      { type: 'input_text' as const, text: 'Describe what you see in this image concisely' },
-      { type: 'input_image' as const, image: imageUrl }
-    ],
+    input: `Describe what you see in this image concisely: ${imageUrl}`,
     modelSettings: {},
     tools: [],
-    outputType: { type: 'text' as const },
     handoffs: [],
-    tracing: { enabled: false },
   };
 
   let responseText = '';
+  let sawDelta = false;
 
-  for await (const event of model.getStreamedResponse(request)) {
+  for await (const e of model.getStreamedResponse(request as any) as any) {
+    const event: any = e;
     switch (event.type) {
       case 'response_started':
         console.log('[Stream started - processing image...]');
@@ -172,12 +206,24 @@ async function streamingWithImageExample() {
       case 'output_text_delta':
         process.stdout.write(event.delta);
         responseText += event.delta;
+        sawDelta = true;
         break;
 
       case 'output_text_done':
         responseText = event.text;
         console.log(event.text);
         console.log('\n[Text generation complete]');
+        break;
+
+      case 'response.completed':
+        if (!sawDelta) {
+          const completedText = event?.response?.output_text;
+          if (typeof completedText === 'string' && completedText.length > 0) {
+            responseText = completedText;
+            console.log(completedText);
+            console.log('\n[Text generation complete]');
+          }
+        }
         break;
 
       case 'reasoning_done':
@@ -189,6 +235,27 @@ async function streamingWithImageExample() {
       case 'response_done':
         console.log(`\n[Response done]`);
         console.log(`  Tokens used: ${event.response.usage.totalTokens}`);
+        if (!sawDelta && !responseText) {
+          const outputItems = event?.response?.output;
+          if (Array.isArray(outputItems)) {
+            const texts: string[] = [];
+            for (const item of outputItems) {
+              if (item?.type === 'message' && item?.role === 'assistant' && Array.isArray(item?.content)) {
+                for (const c of item.content) {
+                  if (c?.type === 'output_text' && typeof c?.text === 'string') {
+                    texts.push(c.text);
+                  }
+                }
+              }
+            }
+            const finalText = texts.join('\n').trim();
+            if (finalText.length > 0) {
+              responseText = finalText;
+              console.log('\n' + finalText);
+              console.log('\n[Text generation complete]');
+            }
+          }
+        }
         break;
 
       case 'error':
@@ -220,12 +287,8 @@ async function detailedStreamEventExample() {
   console.log('  • output_text_delta - Incremental text chunk');
   console.log('  • reasoning_delta - Incremental reasoning (if emitted)');
   console.log('  • reasoning_done - Reasoning complete (includes full reasoning)');
-  console.log('  • response_done - Full response complete with usage stats');
-  console.log('  • error - An error occurred\n');
-  console.log('  • output_text_delta - Incremental text chunk (not currently emitted)');
-  console.log('  • output_text_done - Text generation complete (includes full text)');
-  console.log('  • reasoning_delta - Incremental reasoning (not currently emitted)');
-  console.log('  • reasoning_done - Reasoning complete (includes full reasoning)');
+  console.log('  • response.created - OpenAI Responses-style start metadata');
+  console.log('  • response.completed - OpenAI Responses-style completion with usage and output_text');
   console.log('  • response_done - Full response complete with usage stats');
   console.log('  • error - An error occurred\n');
   console.log('Note: Currently only complete blocks are emitted (reasoning_done, output_text_done)');
@@ -239,20 +302,20 @@ async function detailedStreamEventExample() {
     input: 'Count from 1 to 5 and explain each number.',
     modelSettings: {},
     tools: [],
-    outputType: { type: 'text' as const },
+    outputType: { type: 'json_schema' as const, schema: { type: 'object' as const, properties: {}, required: [], additionalProperties: false }, name: 'text', strict: false },
     handoffs: [],
-    tracing: { enabled: false },
-  };
+  } as unknown as ModelRequest;
 
   const eventCounts = new Map<string, number>();
 
-  for await (const event of model.getStreamedResponse(request)) {
+  for await (const e of model.getStreamedResponse(request) as any) {
+    const event: any = e;
     // Track event counts
-    const count = eventCounts.get(event.type) || 0;
-    eventCounts.set(event.type, count + 1);
+    const count = eventCounts.get(event.type as string) || 0;
+    eventCounts.set(event.type as string, count + 1);
 
     // Log each event type
-    switch (event.type) {
+    switch (event.type as string) {
       case 'response_started':
         console.log(`[${event.type}]`);
         break;
@@ -260,33 +323,50 @@ async function detailedStreamEventExample() {
       case 'output_text_delta':
         // Delta events are not currently emitted, but handler is here for future compatibility
         if (count < 3) {
-          console.log(`[${event.type}] delta="${event.delta}"`);
+          console.log(`[${event.type}] delta="${(event as any).delta}"`);
         } else if (count === 3) {
           console.log(`[${event.type}] ... (${count} more delta events) ...`);
         }
         break;
 
-      case 'output_text_done':
-        console.log(`[${event.type}] text length=${event.text.length}`);
+      case 'response_done':
+        console.log(`[${event.type}] usage=${JSON.stringify(event.response?.usage)}`);
         break;
 
-      case 'reasoning_delta':
-        // Delta events are not currently emitted, but handler is here for future compatibility
-        if (count < 3) {
-          console.log(`[${event.type}] delta="${event.delta}"`);
+      case 'response.created':
+        console.log(`[${event.type}] id=${event.response?.id ?? 'unknown'}`);
+        break;
+
+      case 'response.completed': {
+        const usage = event.response?.usage;
+        const text = event.response?.output_text;
+        console.log(
+          `[${event.type}] usage=${JSON.stringify(usage)}${typeof text === 'string' && text.length ? ` text_len=${text.length}` : ''}`
+        );
+        break;
+      }
+
+      case 'model':
+        // Some Codex-specific payloads are wrapped under type 'model'
+        // Normalize a couple of known subtypes for readability.
+        try {
+          const inner = event.event;
+          if (inner?.type === 'reasoning_delta') {
+            console.log(`[reasoning_delta] delta_len=${(inner.delta ?? '').length}`);
+          } else if (inner?.type === 'reasoning_done') {
+            console.log(`[reasoning_done] len=${(inner.reasoning ?? '').length}`);
+          } else if (inner?.type === 'error') {
+            console.log(`[error] ${inner.error?.message ?? 'unknown error'}`);
+          } else {
+            console.log(`[${event.type}]`);
+          }
+        } catch {
+          console.log(`[${event.type}]`);
         }
         break;
 
-      case 'reasoning_done':
-        console.log(`[${event.type}] reasoning length=${event.reasoning.length}`);
-        break;
-
-      case 'response_done':
-        console.log(`[${event.type}] usage=${JSON.stringify(event.response.usage)}`);
-        break;
-
-      case 'error':
-        console.log(`[${event.type}] message="${event.error.message}"`);
+      default:
+        console.log(`[${event.type}] (unhandled event type)`);
         break;
     }
   }

@@ -211,7 +211,7 @@ async function main() {
       console.log('✓ Input validated, processing...');
       try {
         const result = await run(assistantAgent, input);
-        console.log(`✓ Response: ${result.finalOutput.substring(0, 80)}...`);
+        console.log(`✓ Response: ${result.finalOutput?.substring(0, 80)}...`);
       } catch (error) {
         console.log(`✗ Error: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -236,14 +236,14 @@ async function main() {
 
       console.log('\n✓ Response received, validating output...');
 
-      const validation = validateOutput(result.finalOutput);
+      const validation = validateOutput(result.finalOutput ?? '');
 
       if (!validation.valid) {
         console.log(`❌ Output BLOCKED: ${validation.reason}`);
         console.log('Response was filtered for safety');
       } else {
         console.log('✓ Output validated');
-        console.log(`Response: ${result.finalOutput.substring(0, 100)}...`);
+        console.log(`Response: ${result.finalOutput?.substring(0, 100)}...`);
       }
     } catch (error) {
       console.log(`✗ Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -277,7 +277,7 @@ async function main() {
       console.log('  ✓ Allowed, processing...');
       try {
         const result = await run(assistantAgent, `Quick question ${i}: What is ${i} + ${i}?`);
-        console.log(`  ✓ Response: ${result.finalOutput.substring(0, 50)}...`);
+        console.log(`  ✓ Response: ${result.finalOutput?.substring(0, 50)}...`);
       } catch (error) {
         console.log(`  ✗ Error: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -322,7 +322,7 @@ async function main() {
       console.log('  ✓ Passed content policy');
       try {
         const result = await run(assistantAgent, request);
-        console.log(`  ✓ Response: ${result.finalOutput.substring(0, 60)}...\n`);
+        console.log(`  ✓ Response: ${result.finalOutput?.substring(0, 60)}...\n`);
       } catch (error) {
         console.log(`  ✗ Error: ${error instanceof Error ? error.message : String(error)}\n`);
       }
@@ -372,7 +372,7 @@ async function main() {
         const result = await run(assistantAgent, input);
 
         // Layer 4: Output validation
-        const outputValidation = validateOutput(result.finalOutput);
+        const outputValidation = validateOutput(result.finalOutput ?? '');
         if (!outputValidation.valid) {
           return { success: false, error: `Output validation: ${outputValidation.reason}` };
         }

@@ -218,7 +218,7 @@ export class Thread {
       threadId: this._id,
       images,
       model: options?.model,
-      oss: options?.oss,
+      oss: turnOptions?.oss ?? options?.oss,
       sandboxMode: options?.sandboxMode,
       approvalMode: options?.approvalMode,
       workspaceWriteOptions: options?.workspaceWriteOptions,

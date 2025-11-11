@@ -66,7 +66,7 @@ async function main() {
   await withTrace('Basic Tracing Example', async () => {
     const result = await run(tracedAgent, 'Explain how tracing works in AI agents');
     console.log('\n[Response]');
-    console.log(result.finalOutput.substring(0, 200) + '...');
+    console.log((result.finalOutput ?? '').substring(0, 200) + '...');
     console.log('\n✓ Trace captured');
   });
 
@@ -90,7 +90,7 @@ async function main() {
     await withTrace('Step 1: Planning', async () => {
       const plan = await run(nestedAgent, 'Create a plan for building a web application');
       console.log('\n[Planning Step]');
-      console.log(plan.finalOutput.substring(0, 150) + '...');
+      console.log((plan.finalOutput ?? '').substring(0, 150) + '...');
     });
 
     await withTrace('Step 2: Implementation', async () => {
@@ -99,13 +99,13 @@ async function main() {
         'Describe the implementation phase'
       );
       console.log('\n[Implementation Step]');
-      console.log(implementation.finalOutput.substring(0, 150) + '...');
+      console.log((implementation.finalOutput ?? '').substring(0, 150) + '...');
     });
 
     await withTrace('Step 3: Testing', async () => {
       const testing = await run(nestedAgent, 'Describe the testing phase');
       console.log('\n[Testing Step]');
-      console.log(testing.finalOutput.substring(0, 150) + '...');
+      console.log((testing.finalOutput ?? '').substring(0, 150) + '...');
     });
 
     console.log('\n✓ Nested traces captured');
@@ -137,17 +137,18 @@ async function main() {
 
     console.log('\n[Performance Metrics]');
     console.log(`  Duration: ${duration}ms`);
-    console.log(`  Input tokens: ${result.usage?.inputTokens || 'N/A'}`);
-    console.log(`  Output tokens: ${result.usage?.outputTokens || 'N/A'}`);
-    console.log(`  Total tokens: ${result.usage?.totalTokens || 'N/A'}`);
+    const usage = (result as any).usage;
+    console.log(`  Input tokens: ${usage?.inputTokens ?? 'N/A'}`);
+    console.log(`  Output tokens: ${usage?.outputTokens ?? 'N/A'}`);
+    console.log(`  Total tokens: ${usage?.totalTokens ?? 'N/A'}`);
 
-    if (result.usage?.totalTokens) {
-      const tokensPerSecond = (result.usage.totalTokens / duration) * 1000;
+    if (usage?.totalTokens) {
+      const tokensPerSecond = (usage.totalTokens / duration) * 1000;
       console.log(`  Tokens/second: ${tokensPerSecond.toFixed(2)}`);
     }
 
     console.log('\n[Response]');
-    console.log(result.finalOutput.substring(0, 200) + '...');
+    console.log((result.finalOutput ?? '').substring(0, 200) + '...');
   });
 
   console.log('\n✓ Example 3 completed');
@@ -179,7 +180,7 @@ async function main() {
         'Analyze the problem: How to improve code quality?'
       );
       console.log('\n[Agent 1 Output]');
-      console.log(analysis.finalOutput.substring(0, 150) + '...');
+      console.log((analysis.finalOutput ?? '').substring(0, 150) + '...');
     });
 
     await withTrace('Agent 2: Solution Proposal', async () => {
@@ -188,7 +189,7 @@ async function main() {
         'Propose solutions for improving code quality'
       );
       console.log('\n[Agent 2 Output]');
-      console.log(solution.finalOutput.substring(0, 150) + '...');
+      console.log((solution.finalOutput ?? '').substring(0, 150) + '...');
     });
 
     console.log('\n✓ Multi-agent trace captured');
@@ -214,7 +215,7 @@ async function main() {
     await withTrace('Error Tracing Example', async () => {
       const result = await run(errorAgent, 'This should work normally');
       console.log('\n[Response]');
-      console.log(result.finalOutput.substring(0, 200) + '...');
+      console.log((result.finalOutput ?? '').substring(0, 200) + '...');
       console.log('\n✓ No errors occurred');
     });
   } catch (error) {

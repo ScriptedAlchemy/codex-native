@@ -148,7 +148,7 @@ function calculateDiscount(price, discountPercent) {
       codeReviewAgent,
       `Review this JavaScript function and suggest improvements:\n\n${sampleCode}`
     );
-    console.log('\nReview Result:', reviewResult.finalOutput.substring(0, 200) + '...\n');
+    console.log('\nReview Result:', (reviewResult.finalOutput ?? '').substring(0, 200) + '...\n');
 
     // Step 2: Write tests based on review
     console.log('[Step 2] Test Writer creating tests based on review...');
@@ -164,7 +164,7 @@ ${reviewResult.finalOutput}
 
 Create tests that cover the cases mentioned in the review.`
     );
-    console.log('\nTest Result:', testResult.finalOutput.substring(0, 200) + '...\n');
+    console.log('\nTest Result:', (testResult.finalOutput ?? '').substring(0, 200) + '...\n');
   });
 
   // ============================================================================
@@ -191,7 +191,7 @@ Create tests that cover the cases mentioned in the review.`
         `Analyze this request and recommend which specialist should handle it: "${request}"`
       );
 
-      console.log('Triage Decision:', triageResult.finalOutput.substring(0, 150) + '...\n');
+      console.log('Triage Decision:', (triageResult.finalOutput ?? '').substring(0, 150) + '...\n');
 
       // In a real implementation, you would parse the triage result
       // and dynamically route to the appropriate specialist agent

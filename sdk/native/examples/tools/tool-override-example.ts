@@ -4,9 +4,9 @@ console.log("🔧 Tool Override Examples\n");
 console.log("This demonstrates how to override Codex's built-in tools");
 console.log("with custom implementations.\n");
 
-console.log("=" .repeat(70));
+console.log("=".repeat(70));
 console.log("Example 1: Override read_file with a mock implementation");
-console.log("=" .repeat(70));
+console.log("=".repeat(70));
 
 const codex1 = new Codex();
 
@@ -24,11 +24,9 @@ codex1.registerTool({
     },
     required: ["target_file"],
   },
-  handler: async ({ target_file }) => {
+  handler: async ({ target_file }: any) => {
     console.log(`  📄 Mock read_file called for: ${target_file}`);
-    return JSON.stringify({
-      content: `[MOCK CONTENT] This is fake content for ${target_file}`,
-    });
+    return { output: `[MOCK CONTENT] This is fake content for ${target_file}`, success: true };
   },
 });
 
@@ -37,7 +35,7 @@ console.log(
   "  When Codex tries to read files, it will use the mock implementation\n",
 );
 
-console.log("=" .repeat(70));
+console.log("=".repeat(70));
 console.log("Example 2: Override grep with a logging wrapper");
 console.log("=" .repeat(70));
 
@@ -59,16 +57,14 @@ codex2.registerTool({
     },
     required: ["pattern"],
   },
-  handler: async ({ pattern, path, output_mode }) => {
+  handler: async ({ pattern, path, output_mode }: any) => {
     console.log(`  🔍 Grep override called:`);
     console.log(`     Pattern: ${pattern}`);
     console.log(`     Path: ${path || "(workspace root)"}`);
     console.log(`     Mode: ${output_mode || "content"}`);
 
     // Return mock results
-    return JSON.stringify({
-      matches: [`Mock result for pattern: ${pattern}`],
-    });
+    return { output: JSON.stringify({ matches: [`Mock result for pattern: ${pattern}`] }), success: true };
   },
 });
 
@@ -93,25 +89,19 @@ codex3.registerTool({
     },
     required: ["command"],
   },
-  handler: async ({ command }) => {
+  handler: async ({ command }: any) => {
     console.log(`  🛡️  Shell command intercepted: ${command}`);
 
     // Check if command is blocked
     for (const blocked of BLOCKED_COMMANDS) {
       if (command.includes(blocked)) {
         console.log(`  ❌ BLOCKED: Command contains dangerous pattern "${blocked}"`);
-        return JSON.stringify({
-          error: `Command blocked for safety: contains "${blocked}"`,
-          exit_code: 1,
-        });
+        return { error: `Command blocked for safety: contains "${blocked}"`, success: false };
       }
     }
 
     console.log(`  ✓ Command allowed (would execute in real implementation)`);
-    return JSON.stringify({
-      stdout: "[Mock output] Command would run here",
-      exit_code: 0,
-    });
+    return { output: JSON.stringify({ stdout: "[Mock output] Command would run here" }), success: true };
   },
 });
 
@@ -129,23 +119,19 @@ const fileTools = [
   {
     name: "read_file",
     handler: async ({ target_file }: any) => {
-      return JSON.stringify({ content: `[READ] ${target_file}` });
+      return { output: JSON.stringify({ content: `[READ] ${target_file}` }), success: true };
     },
   },
   {
     name: "write",
     handler: async ({ file_path, contents }: any) => {
-      return JSON.stringify({ success: true, path: file_path });
+      return { output: JSON.stringify({ path: file_path, wrote: true }), success: true };
     },
   },
   {
     name: "search_replace",
     handler: async ({ file_path, old_string, new_string }: any) => {
-      return JSON.stringify({
-        success: true,
-        file: file_path,
-        replacements: 1,
-      });
+      return { output: JSON.stringify({ file: file_path, replacements: 1 }), success: true };
     },
   },
 ];
@@ -173,7 +159,7 @@ codex5.registerTool({
   name: "grep",
   description: "Custom grep",
   parameters: { type: "object", properties: {} },
-  handler: async () => "custom",
+  handler: async () => ({ output: "custom", success: true }),
 });
 
 console.log("✓ Registered custom grep");

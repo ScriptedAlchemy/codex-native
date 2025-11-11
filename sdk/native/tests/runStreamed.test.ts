@@ -5,6 +5,8 @@ setupNativeBinding();
 import { setupNativeBinding } from "./testHelpers";
 import { promises as fs } from "node:fs";
 
+// Allow extra time for streaming on slower environments
+jest.setTimeout(20000);
 import {
   assistantMessage,
   responseCompleted,

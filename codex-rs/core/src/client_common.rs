@@ -365,11 +365,62 @@ pub(crate) fn create_text_param_for_request(
         return None;
     }
 
+    // Determine strictness based on the top-level schema. If the schema explicitly allows
+    // additional properties (boolean true or a nested schema), relax strict mode so callers
+    // can opt into permissive outputs. Otherwise, default to strict mode for better guarantees.
+    let strict = output_schema
+        .as_ref()
+        .map(|schema| {
+            match schema {
+                Value::Object(map) => {
+                    // 1) If additionalProperties is permissive (true or a schema), relax strict.
+                    let ap_relaxes =
+                        matches!(map.get("additionalProperties"), Some(Value::Bool(true)))
+                            || map
+                                .get("additionalProperties")
+                                .map(|v| !v.is_boolean())
+                                .unwrap_or(false);
+
+                    if ap_relaxes {
+                        return false;
+                    }
+
+                    // 2) If 'required' is missing or does not include all defined properties,
+                    //    relax strict to allow optional fields without erroring.
+                    let props_keys: Option<std::collections::HashSet<&str>> = map
+                        .get("properties")
+                        .and_then(|v| v.as_object())
+                        .map(|props| props.keys().map(std::string::String::as_str).collect());
+                    let required_keys: Option<std::collections::HashSet<&str>> =
+                        map.get("required").and_then(|v| v.as_array()).map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str())
+                                .collect::<std::collections::HashSet<&str>>()
+                        });
+
+                    let required_relaxes = match (props_keys, required_keys) {
+                        // If there are properties but no required list, relax.
+                        (Some(_), None) => true,
+                        // If both exist and required != all properties, relax.
+                        (Some(props), Some(req)) => !props.is_subset(&req),
+                        // Otherwise keep strict (non-object schemas, or no properties).
+                        _ => false,
+                    };
+
+                    // If neither condition relaxes, keep strict.
+                    !required_relaxes
+                }
+                // Non-object roots (e.g., arrays, strings) default to strict
+                _ => true,
+            }
+        })
+        .unwrap_or(true);
+
     Some(TextControls {
         verbosity: verbosity.map(std::convert::Into::into),
         format: output_schema.as_ref().map(|schema| TextFormat {
             r#type: TextFormatType::JsonSchema,
-            strict: true,
+            strict,
             schema: schema.clone(),
             name: "codex_output_schema".to_string(),
         }),

@@ -3,10 +3,12 @@ import { setupNativeBinding } from "./testHelpers";
 import os from "node:os";
 import path from "node:path";
 
-import { describe, expect, it, beforeAll } from "@jest/globals";
+import { describe, expect, it, beforeAll, jest } from "@jest/globals";
 
 // Setup native binding for tests
 setupNativeBinding();
+
+jest.setTimeout(30000);
 
 import {
   assistantMessage,

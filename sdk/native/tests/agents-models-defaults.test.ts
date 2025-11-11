@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeAll } from "@jest/globals";
+import { spawnSync } from "node:child_process";
 import { setupNativeBinding } from "./testHelpers";
 import {
   startResponsesTestProxy,
@@ -107,9 +108,97 @@ describe("Agents models defaults/resolution with CodexProvider", () => {
     }).rejects.toThrow(/Invalid model "gpt-4\.1"/);
   });
 
-  const ossEnv = process.env.CODEX_NATIVE_RUN_OSS_TEST;
-  const shouldRunOss = (!isCI && ossEnv !== "0") || ossEnv === "1";
-  (shouldRunOss ? it : it.skip)("accepts OSS model when provider is configured for OSS", async () => {
+function parseEnvBoolean(value: string | undefined): boolean | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true" || normalized === "yes") {
+    return true;
+  }
+  if (normalized === "0" || normalized === "false" || normalized === "no") {
+    return false;
+  }
+  return null;
+}
+
+type OllamaEndpoint = {
+  hostname: string;
+  port: number;
+  protocol: "http:" | "https:";
+};
+
+function resolveOllamaEndpoint(): OllamaEndpoint {
+  const raw = process.env.OLLAMA_HOST?.trim();
+  if (!raw) {
+    return { hostname: "127.0.0.1", port: 11434, protocol: "http:" };
+  }
+  try {
+    const candidate = raw.includes("://") ? raw : `http://${raw}`;
+    const url = new URL(candidate);
+    const protocol = (url.protocol === "https:" ? "https:" : "http:") as OllamaEndpoint["protocol"];
+    const port =
+      url.port !== ""
+        ? Number.parseInt(url.port, 10)
+        : protocol === "https:"
+          ? 443
+          : 11434;
+    return {
+      hostname: url.hostname || "127.0.0.1",
+      port: Number.isFinite(port) ? port : 11434,
+      protocol,
+    };
+  } catch {
+    return { hostname: raw, port: 11434, protocol: "http:" };
+  }
+}
+
+function isOllamaAvailable(): boolean {
+  try {
+    const endpoint = resolveOllamaEndpoint();
+    const moduleName = endpoint.protocol === "https:" ? "node:https" : "node:http";
+    const script = `
+const mod = require(${JSON.stringify(moduleName)});
+const options = ${JSON.stringify({
+  hostname: endpoint.hostname,
+  port: endpoint.port,
+  path: "/api/version",
+  method: "GET",
+  timeout: 500,
+})};
+const req = mod.request(options, (res) => {
+  res.resume();
+  res.on("end", () => {
+    process.exit(res.statusCode && res.statusCode >= 200 && res.statusCode < 300 ? 0 : 1);
+  });
+});
+req.on("timeout", () => {
+  req.destroy();
+  process.exit(1);
+});
+req.on("error", () => process.exit(1));
+req.end();
+setTimeout(() => process.exit(1), 1500).unref();
+`;
+    const result = spawnSync(process.execPath, ["-e", script], { stdio: "ignore" });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+const ossEnv = process.env.CODEX_NATIVE_RUN_OSS_TEST;
+const ossEnvPreference = parseEnvBoolean(ossEnv);
+const autoDetectedOllama = ossEnvPreference === null && !isCI && isOllamaAvailable();
+if (ossEnvPreference === null && !autoDetectedOllama) {
+  console.warn(
+    "Skipping OSS integration test: no running Ollama server detected. " +
+      'Set CODEX_NATIVE_RUN_OSS_TEST=1 to force running the test.',
+  );
+}
+const shouldRunOss = ossEnvPreference === true || (ossEnvPreference === null && autoDetectedOllama);
+
+(shouldRunOss ? it : it.skip)("accepts OSS model when provider is configured for OSS", async () => {
     const { Agent, Runner } = await import("@openai/agents");
     const { url, close } = await startResponsesTestProxy({
       statusCode: 200,
