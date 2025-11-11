@@ -25,9 +25,52 @@ export type NativeRunRequest = {
   reviewHint?: string;
 };
 
+export type NativeTuiRequest = {
+  prompt?: string;
+  images?: string[];
+  model?: string;
+  oss?: boolean;
+  sandboxMode?: SandboxMode;
+  approvalMode?: ApprovalMode;
+  resumeSessionId?: string;
+  resumeLast?: boolean;
+  resumePicker?: boolean;
+  fullAuto?: boolean;
+  dangerouslyBypassApprovalsAndSandbox?: boolean;
+  workingDirectory?: string;
+  configProfile?: string;
+  configOverrides?: string[];
+  addDir?: string[];
+  webSearch?: boolean;
+  linuxSandboxPath?: string;
+  baseUrl?: string;
+  apiKey?: string;
+};
+
 export type NativeToolInterceptorNativeContext = {
   invocation: NativeToolInvocation;
   token: string;
+};
+
+export type NativeTokenUsage = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+};
+
+export type NativeUpdateActionKind = "npmGlobalLatest" | "bunGlobalLatest" | "brewUpgrade";
+
+export type NativeUpdateActionInfo = {
+  kind: NativeUpdateActionKind;
+  command: string;
+};
+
+export type NativeTuiExitInfo = {
+  tokenUsage: NativeTokenUsage;
+  conversationId?: string;
+  updateAction?: NativeUpdateActionInfo;
 };
 
 export type NativeBinding = {
@@ -37,6 +80,13 @@ export type NativeBinding = {
     onEvent: (err: unknown, eventJson?: string) => void,
   ): Promise<void>;
   compactThread(request: NativeRunRequest): Promise<string[]>;
+  runTui(request: NativeTuiRequest): Promise<NativeTuiExitInfo>;
+  tuiTestRun?(request: {
+    width: number;
+    height: number;
+    viewport: { x: number; y: number; width: number; height: number };
+    lines: string[];
+  }): Promise<string[]>;
   callToolBuiltin(token: string, invocation?: NativeToolInvocation): Promise<NativeToolResult>;
   clearRegisteredTools(): void;
   registerTool(info: NativeToolInfo, handler: (call: NativeToolInvocation) => Promise<NativeToolResult> | NativeToolResult): void;
@@ -74,8 +124,6 @@ export type NativeBinding = {
     baseUrl?: string,
     apiKey?: string,
   ): Promise<string>;
-  clearRegisteredTools(): void;
-  registerTool(info: NativeToolInfo, handler: (call: NativeToolInvocation) => Promise<NativeToolResult> | NativeToolResult): void;
 };
 
 export type NativeToolInfo = {

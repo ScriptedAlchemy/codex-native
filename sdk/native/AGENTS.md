@@ -70,6 +70,22 @@ Real-time updates during generation:
 - `reasoning_done` - Reasoning output
 - `response_done` - Full response with usage
 
+## Local CLI pairing
+
+For quick smoke tests you can reuse the same configuration with the packaged CLI:
+
+```bash
+# Run a one-off turn using the shared config state
+codex-native run "Re-run the failing end-to-end test"
+
+# Launch the native TUI using the same codex.config.ts settings
+codex-native tui
+```
+
+The CLI loads `codex.config.*` files and plugins in the same way as the Agents provider, so you
+can validate tool registration, interceptors, and approval flows locally before wiring them into
+the Agent runner.
+
 ## Architecture
 
 ### How It Works

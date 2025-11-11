@@ -85,7 +85,66 @@ export declare function runThread(req: RunRequest): Promise<Array<string>>
 
 export declare function runThreadStream(req: RunRequest, onEvent: (err: unknown, eventJson?: string) => void): Promise<void>
 
+export declare function runTui(req: TuiRequest): Promise<TuiExitInfo>
+
 export declare function sse(events: Array<string>): string
+
+export interface TokenUsageSummary {
+  inputTokens: number
+  cachedInputTokens: number
+  outputTokens: number
+  reasoningOutputTokens: number
+  totalTokens: number
+}
+
+export interface TuiExitInfo {
+  tokenUsage: TokenUsageSummary
+  conversationId?: string
+  updateAction?: UpdateActionInfo
+}
+
+export interface TuiRequest {
+  prompt?: string
+  images?: Array<string>
+  model?: string
+  oss?: boolean
+  sandboxMode?: string
+  approvalMode?: string
+  resumeSessionId?: string
+  resumeLast?: boolean
+  resumePicker?: boolean
+  fullAuto?: boolean
+  dangerouslyBypassApprovalsAndSandbox?: boolean
+  workingDirectory?: string
+  configProfile?: string
+  configOverrides?: Array<string>
+  addDir?: Array<string>
+  webSearch?: boolean
+  linuxSandboxPath?: string
+  baseUrl?: string
+  apiKey?: string
+}
+
+export interface TuiTestRequest {
+  width: number
+  height: number
+  viewport: TuiTestViewport
+  lines: Array<string>
+}
+
+export declare function tuiTestRun(req: TuiTestRequest): Array<string>
+
+export interface TuiTestViewport {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface UpdateActionInfo {
+  kind: string
+  command: string
+}
 
 export interface WorkspaceWriteOptions {
   networkAccess?: boolean

@@ -14,6 +14,8 @@ serde_json = "1"
 tempfile = "3"
 async-trait = "0.1"
 anyhow = "1"
+ratatui = "0.29.0"
+vt100 = "0.16.2"
 
 [dependencies.napi]
 version = "3"
@@ -51,6 +53,9 @@ path = "../../codex-rs/protocol"
 [dependencies.codex-cloud-tasks-client]
 path = "../../codex-rs/cloud-tasks-client"
 
+[dependencies.codex-tui]
+path = "../../codex-rs/tui"
+
 [build-dependencies]
 napi-build = "2"
 
@@ -64,3 +69,12 @@ napi-bindings = ["napi", "napi-derive"]
 [profile.release]
 lto = true
 strip = "symbols"
+
+# The upstream crates have not yet released the fixes required for the Codex TUI:
+# - ratatui: pending patch to expose color/style APIs needed by codex-tui
+# - crossterm: pending fix for color querying on macOS 13+/Linux
+# These overrides point to the upstream authors' branches until new crates.io
+# releases land. Keep this block in sync with upstream progress.
+[patch.crates-io]
+ratatui = { git = "https://github.com/nornagon/ratatui", branch = "nornagon-v0.29.0-patch" }
+crossterm = { git = "https://github.com/nornagon/crossterm", branch = "nornagon/color-query" }
