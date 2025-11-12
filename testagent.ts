@@ -1,3 +1,22 @@
+/**
+ * Test Agent - TUI Launcher Utility
+ *
+ * A comprehensive CLI wrapper for launching the Codex Native SDK TUI.
+ * Useful for testing TUI functionality and demonstrating all available options.
+ *
+ * This is a development/testing utility located in the project root.
+ * For production examples, see sdk/native/examples/tui/
+ *
+ * Usage:
+ *   npx tsx testagent.ts [options] [prompt...]
+ *   npx tsx testagent.ts --help
+ *
+ * Examples:
+ *   npx tsx testagent.ts "Review the codebase"
+ *   npx tsx testagent.ts --resume-last
+ *   npx tsx testagent.ts --full-auto --sandbox workspace-write
+ */
+
 import process from "node:process";
 import path from "node:path";
 
