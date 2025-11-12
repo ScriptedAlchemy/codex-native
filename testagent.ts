@@ -24,7 +24,8 @@ import process from "node:process";
 import path from "node:path";
 
 import {
-  runTui,
+  Codex,
+  type ThreadOptions,
   type ApprovalMode,
   type NativeTuiExitInfo,
   type NativeTuiRequest,
@@ -33,14 +34,16 @@ import {
 
 type ParsedArgs = {
   request: NativeTuiRequest;
+  prompt?: string;
   showHelp: boolean;
 };
 
+const DEFAULT_MODEL = "gpt-5-codex-mini";
 const DEFAULT_PROMPT =
   "Review the latest Git changes in this repository and suggest the next actions.";
 
 async function main(): Promise<void> {
-  const { request, showHelp } = parseArgs(process.argv.slice(2));
+  const { request, prompt, showHelp } = parseArgs(process.argv.slice(2));
 
   if (showHelp) {
     printUsage();
@@ -55,25 +58,63 @@ async function main(): Promise<void> {
     return;
   }
 
-  const launchRequest: NativeTuiRequest = {
+  const resolvedWorkingDirectory = request.workingDirectory ?? process.cwd();
+  const model = request.model ?? DEFAULT_MODEL;
+  const initialPrompt =
+    prompt ??
+    (request.resumeSessionId || request.resumePicker || request.resumeLast
+      ? undefined
+      : DEFAULT_PROMPT);
+
+  const tuiRequest: NativeTuiRequest = {
     ...request,
-    prompt:
-      request.prompt ??
-      (request.resumeSessionId || request.resumePicker || request.resumeLast
-        ? undefined
-        : DEFAULT_PROMPT),
     sandboxMode: request.sandboxMode ?? "workspace-write",
     approvalMode: request.approvalMode ?? "on-request",
-    workingDirectory: request.workingDirectory ?? process.cwd(),
-    model: request.model ?? "gpt-5-codex-mini",
+    workingDirectory: resolvedWorkingDirectory,
+    model,
   };
 
-  logLaunchInfo(launchRequest);
+  logLaunchInfo(tuiRequest, initialPrompt);
 
+  const codex = new Codex({
+    baseUrl: request.baseUrl,
+    apiKey: request.apiKey,
+  });
+
+  const threadOptions: ThreadOptions = {
+    model,
+    sandboxMode: tuiRequest.sandboxMode,
+    approvalMode: tuiRequest.approvalMode,
+    workingDirectory: resolvedWorkingDirectory,
+    fullAuto: request.fullAuto,
+    oss: request.oss,
+    skipGitRepoCheck: true,
+  };
+
+  if (request.addDir && request.addDir.length > 0) {
+    threadOptions.workspaceWriteOptions = {
+      writableRoots: request.addDir.map((dir) => path.resolve(dir)),
+    };
+  }
+
+  const thread = codex.startThread(threadOptions);
+
+  let session: Awaited<ReturnType<typeof thread.launchTui>> | null = null;
   try {
-    const exitInfo = await runTui(launchRequest);
+    session = await thread.launchTui(tuiRequest);
+
+    if (initialPrompt) {
+      await thread.run(initialPrompt);
+      session.shutdown();
+    }
+
+    const exitInfo = await session.wait();
     summarizeExit(exitInfo);
   } catch (error) {
+    if (session && !session.closed) {
+      session.shutdown();
+      await session.wait().catch(() => {});
+    }
     console.error("Failed to launch Codex TUI:", error);
     process.exitCode = 1;
   }
@@ -84,13 +125,14 @@ function parseArgs(argv: string[]): ParsedArgs {
   const promptParts: string[] = [];
   const configOverrides: string[] = [];
   const addDirs: string[] = [];
+  let prompt: string | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     switch (token) {
       case "-h":
       case "--help":
-        return { request, showHelp: true };
+        return { request, prompt, showHelp: true };
       case "--full-auto":
         request.fullAuto = true;
         continue;
@@ -192,10 +234,10 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   if (promptParts.length > 0) {
-    request.prompt = promptParts.join(" ");
+    prompt = promptParts.join(" ");
   }
 
-  return { request, showHelp: false };
+  return { request, prompt, showHelp: false };
 }
 
 function parseSandboxMode(value: string): SandboxMode {
@@ -234,9 +276,9 @@ function extractValue(token: string, prefix: string): string {
   return value;
 }
 
-function logLaunchInfo(request: NativeTuiRequest): void {
+function logLaunchInfo(request: NativeTuiRequest, prompt?: string): void {
   const details = [
-    request.prompt ? `prompt="${truncate(request.prompt, 60)}"` : undefined,
+    prompt ? `prompt="${truncate(prompt, 60)}"` : undefined,
     request.resumeSessionId ? `resumeSessionId=${request.resumeSessionId}` : undefined,
     request.resumeLast ? "resumeLast=true" : undefined,
     request.resumePicker ? "resumePicker=true" : undefined,
