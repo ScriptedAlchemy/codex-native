@@ -32,6 +32,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -929,9 +930,9 @@ impl RunRequest {
             "Invalid model \"{trimmed}\" for OSS mode. Use models prefixed with \"gpt-oss:\", e.g. \"gpt-oss:20b\"."
           )));
         }
-      } else if trimmed != "gpt-5" && trimmed != "gpt-5-codex" {
+      } else if trimmed != "gpt-5" && trimmed != "gpt-5-codex" && trimmed != "gpt-5-codex-mini" {
         return Err(napi::Error::from_reason(format!(
-          "Invalid model \"{trimmed}\". Supported models are \"gpt-5\" or \"gpt-5-codex\"."
+          "Invalid model \"{trimmed}\". Supported models are \"gpt-5\", \"gpt-5-codex\", or \"gpt-5-codex-mini\"."
         )));
       }
     }
@@ -1177,7 +1178,7 @@ impl From<AppExitInfo> for TuiExitInfo {
 }
 
 struct TuiSessionState {
-  join: Option<tokio::task::JoinHandle<napi::Result<TuiExitInfo>>>,
+  join: Option<JoinHandle<napi::Result<TuiExitInfo>>>,
   closed: bool,
 }
 
@@ -1188,10 +1189,7 @@ pub struct TuiSession {
 }
 
 impl TuiSession {
-  fn new(
-    join: tokio::task::JoinHandle<napi::Result<TuiExitInfo>>,
-    cancel_token: CancellationToken,
-  ) -> Self {
+  fn new(join: JoinHandle<napi::Result<TuiExitInfo>>, cancel_token: CancellationToken) -> Self {
     Self {
       state: Arc::new(Mutex::new(TuiSessionState {
         join: Some(join),
@@ -1220,9 +1218,12 @@ impl TuiSession {
         .ok_or_else(|| napi::Error::from_reason("TUI session already awaited"))?
     };
 
-    let result = join_handle
+    let join_result = tokio::task::spawn_blocking(move || join_handle.join())
       .await
       .map_err(|err| napi::Error::from_reason(format!("Task join error: {err}")))?;
+
+    let result = join_result
+      .map_err(|err| napi::Error::from_reason(format!("TUI session panicked: {:?}", err)))?;
 
     {
       let mut state = self.lock_state()?;
@@ -1338,18 +1339,17 @@ fn run_tui_sync(
 }
 
 #[napi]
-pub async fn start_tui(req: TuiRequest) -> napi::Result<TuiSession> {
+pub fn start_tui(req: TuiRequest) -> napi::Result<TuiSession> {
   let options = req.into_internal()?;
   let cancel_token = CancellationToken::new();
   let blocking_token = cancel_token.clone();
-  let join_handle =
-    tokio::task::spawn_blocking(move || run_tui_sync(options, Some(blocking_token)));
+  let join_handle = std::thread::spawn(move || run_tui_sync(options, Some(blocking_token)));
   Ok(TuiSession::new(join_handle, cancel_token))
 }
 
 #[napi]
 pub async fn run_tui(req: TuiRequest) -> napi::Result<TuiExitInfo> {
-  let session = start_tui(req).await?;
+  let session = start_tui(req)?;
   session.wait().await
 }
 

@@ -221,6 +221,38 @@ const shouldRunOss = ossEnvPreference === true || (ossEnvPreference === null && 
       await close();
     }
   }, 15000);
+
+  mockTest("accepts gpt-5-codex-mini model", async () => {
+    const { url, close, requests } = await startResponsesTestProxy({
+      statusCode: 200,
+      responseBodies: [
+        sse(
+          responseStarted("response_1"),
+          assistantMessage("mini model ok"),
+          responseCompleted("response_1"),
+        ),
+      ],
+    });
+
+    try {
+      const provider = new CodexProvider({ baseUrl: url, skipGitRepoCheck: true, defaultModel: "gpt-5-codex-mini" });
+      const model = provider.getModel();
+      const result = await model.getResponse({
+        systemInstructions: "Respond plainly.",
+        input: "hello",
+        modelSettings: {},
+        tools: [],
+        outputType: undefined,
+        handoffs: [],
+        tracing: { enabled: false },
+      });
+      expect(result).toBeDefined();
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.json?.model).toBe("gpt-5-codex-mini");
+    } finally {
+      await close();
+    }
+  });
 });
 
 

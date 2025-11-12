@@ -12,7 +12,7 @@ type RunTuiFn = (
   options?: RunTuiOptions,
 ) => Promise<NativeTuiExitInfo>;
 const runTuiMock = jest.fn<RunTuiFn>();
-type StartTuiFn = (request: NativeTuiRequest) => Promise<TuiSession>;
+type StartTuiFn = (request: NativeTuiRequest) => TuiSession | Promise<TuiSession>;
 const startTuiMock = jest.fn<StartTuiFn>();
 
 jest.unstable_mockModule("../src/tui", () => ({
@@ -117,7 +117,7 @@ describe("Thread.tui", () => {
       shutdown: jest.fn(),
       closed: false,
     } as unknown as TuiSession;
-    startTuiMock.mockResolvedValue(session);
+    startTuiMock.mockReturnValue(session);
 
     const thread = new Thread(
       {} as any,
