@@ -153,6 +153,14 @@ jobs:
           targets: ${{ matrix.target }}
           components: clippy
 
+      # Explicitly ensure the stdlib for the requested target is installed.
+      # Newer rustup releases on macOS ended up syncing the default channel
+      # without pulling the cross target, which then caused `can't find crate
+      # for core` failures. Running `rustup target add` here is idempotent and
+      # fixes both macOS cross builds and the linux-musl runners.
+      - name: rustup target add
+        run: rustup target add ${{ matrix.target }}
+
       # Explicit cache restore: split cargo home vs target, so we can
       # avoid caching the large target dir on the gnu-dev job.
       - name: Restore cargo home cache
