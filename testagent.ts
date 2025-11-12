@@ -99,9 +99,9 @@ async function main(): Promise<void> {
 
   const thread = codex.startThread(threadOptions);
 
-  let session: Awaited<ReturnType<typeof thread.launchTui>> | null = null;
+  let session: ReturnType<typeof thread.launchTui> | null = null;
   try {
-    session = await thread.launchTui(tuiRequest);
+    session = thread.launchTui(tuiRequest);
 
     if (initialPrompt) {
       await thread.run(initialPrompt);
