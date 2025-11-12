@@ -68,6 +68,7 @@ async function main(): Promise<void> {
 
   const tuiRequest: NativeTuiRequest = {
     ...request,
+    prompt: initialPrompt,
     sandboxMode: request.sandboxMode ?? "workspace-write",
     approvalMode: request.approvalMode ?? "on-request",
     workingDirectory: resolvedWorkingDirectory,
@@ -102,12 +103,6 @@ async function main(): Promise<void> {
   let session: ReturnType<typeof thread.launchTui> | null = null;
   try {
     session = thread.launchTui(tuiRequest);
-
-    if (initialPrompt) {
-      await thread.run(initialPrompt);
-      session.shutdown();
-    }
-
     const exitInfo = await session.wait();
     summarizeExit(exitInfo);
   } catch (error) {
