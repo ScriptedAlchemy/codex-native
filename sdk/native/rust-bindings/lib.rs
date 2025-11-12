@@ -38,13 +38,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use codex_cloud_tasks_client as cloud;
 use codex_common::{ApprovalModeCliArg, CliConfigOverrides, SandboxModeCliArg};
+use codex_core::BUILT_IN_OSS_MODEL_PROVIDER_ID;
 use codex_core::config::{Config, ConfigOverrides};
 use codex_core::default_client;
 use codex_core::find_conversation_path_by_id_str;
 use codex_core::git_info::get_git_repo_root;
 use codex_core::protocol::{AskForApproval, Op, SessionSource, TokenUsage};
 use codex_core::{AuthManager, ConversationManager};
-use codex_core::BUILT_IN_OSS_MODEL_PROVIDER_ID;
 use codex_core::{
   ExternalInterceptorRegistration, ExternalToolRegistration, FunctionCallError, ToolHandler,
   ToolInterceptor, ToolInvocation, ToolKind, ToolOutput, ToolPayload,
@@ -54,14 +54,13 @@ use codex_core::{
 use codex_exec::exec_events::ThreadEvent as ExecThreadEvent;
 use codex_exec::run_with_thread_event_callback;
 use codex_exec::{Cli, Color, Command, ResumeArgs};
+use codex_protocol::config_types::SandboxMode;
 use codex_tui::AppExitInfo;
 use codex_tui::Cli as TuiCli;
 use codex_tui::update_action::UpdateAction;
-use codex_protocol::config_types::SandboxMode;
 use napi::bindgen_prelude::{Env, Function, Status};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
-use toml::Value as TomlValue;
 use ratatui::backend::Backend;
 use ratatui::backend::ClearType;
 use ratatui::backend::WindowSize;
@@ -76,6 +75,7 @@ use std::fmt;
 use std::io::{self, Write};
 use tempfile::NamedTempFile;
 use tokio_util::sync::CancellationToken;
+use toml::Value as TomlValue;
 use uuid::Uuid;
 
 // Avoid clashes with the `json!` macro imported above when returning data.
@@ -2209,16 +2209,14 @@ fn fork_thread_sync(req: InternalForkRequest) -> napi::Result<ForkResult> {
     .map_err(|e| napi::Error::from_reason(format!("Failed to create runtime: {e}")))?;
 
   runtime.block_on(async move {
-    let (overrides, cli_kv_overrides) =
-      build_config_inputs(&options, linux_sandbox_path.clone())?;
+    let (overrides, cli_kv_overrides) = build_config_inputs(&options, linux_sandbox_path.clone())?;
     let config = Config::load_with_cli_overrides(cli_kv_overrides, overrides)
       .await
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
     if !options.skip_git_repo_check && get_git_repo_root(&config.cwd).is_none() {
       return Err(napi::Error::from_reason(
-        "Not inside a trusted directory and --skip-git-repo-check was not specified."
-          .to_string(),
+        "Not inside a trusted directory and --skip-git-repo-check was not specified.".to_string(),
       ));
     }
 
@@ -2230,9 +2228,11 @@ fn fork_thread_sync(req: InternalForkRequest) -> napi::Result<ForkResult> {
 
     let path_opt = find_conversation_path_by_id_str(&config.codex_home, &thread_id)
       .await
-      .map_err(|e| napi::Error::from_reason(format!(
-        "Failed to resolve conversation path for thread {thread_id}: {e}"
-      )))?;
+      .map_err(|e| {
+        napi::Error::from_reason(format!(
+          "Failed to resolve conversation path for thread {thread_id}: {e}"
+        ))
+      })?;
 
     let path = path_opt.ok_or_else(|| {
       napi::Error::from_reason(format!(

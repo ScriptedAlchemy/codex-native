@@ -114,6 +114,11 @@ Advanced multi-agent workflows.
   - Progress indicators
   - Custom processing of stream events
   - Error handling in streaming
+ 
+- **`agents-fork-into-new-agent.ts`** — Fork thread and continue with another Agent
+  - Fork underlying Codex thread to keep cache benefits
+  - Run a different Agent on the fork with `conversationId`
+  - Isolation from original path with shared context
 
 - **`agents-multi-agent-workflow.ts`** — Complex multi-agent workflows
   - Multiple specialized agents working together
