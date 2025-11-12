@@ -218,9 +218,9 @@ function validateModel(model: string | undefined | null, oss: boolean): void {
     return;
   }
   // Non-OSS mode: restrict to supported hosted models
-  if (trimmed !== "gpt-5" && trimmed !== "gpt-5-codex") {
+  if (trimmed !== "gpt-5" && trimmed !== "gpt-5-codex" && trimmed !== "gpt-5-codex-mini") {
     throw new Error(
-      `Invalid model "${trimmed}". Supported models are "gpt-5" or "gpt-5-codex".`
+      `Invalid model "${trimmed}". Supported models are "gpt-5", "gpt-5-codex", or "gpt-5-codex-mini".`
     );
   }
 }
