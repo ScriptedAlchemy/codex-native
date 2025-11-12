@@ -28,7 +28,7 @@
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
@@ -43,8 +43,8 @@ use codex_core::config::{Config, ConfigOverrides};
 use codex_core::default_client;
 use codex_core::find_conversation_path_by_id_str;
 use codex_core::git_info::get_git_repo_root;
-use codex_core::protocol::{AskForApproval, Op, SessionSource, TokenUsage};
-use codex_core::{AuthManager, ConversationManager};
+use codex_core::protocol::{AskForApproval, SessionSource, TokenUsage};
+use codex_core::{AuthManager, ConversationItem, ConversationManager, RolloutRecorder};
 use codex_core::{
   ExternalInterceptorRegistration, ExternalToolRegistration, FunctionCallError, ToolHandler,
   ToolInterceptor, ToolInvocation, ToolKind, ToolOutput, ToolPayload,
@@ -58,6 +58,7 @@ use codex_protocol::config_types::SandboxMode;
 use codex_tui::AppExitInfo;
 use codex_tui::Cli as TuiCli;
 use codex_tui::update_action::UpdateAction;
+use codex_utils_tokenizer::{EncodingKind, Tokenizer, TokenizerError};
 use napi::bindgen_prelude::{Env, Function, Status};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
@@ -2050,7 +2051,7 @@ pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
   let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
 
   let events_clone = Arc::clone(&events);
-  let error_clone = Arc::clone(&error_holder);
+  let error_clone: Arc<Mutex<Option<napi::Error>>> = Arc::clone(&error_holder);
 
   tokio::task::spawn_blocking(move || {
     run_internal_sync(options, move |event| match event_to_json(&event) {
@@ -2091,7 +2092,7 @@ pub async fn compact_thread(req: RunRequest) -> napi::Result<Vec<String>> {
   let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
 
   let events_clone = Arc::clone(&events);
-  let error_clone = Arc::clone(&error_holder);
+  let error_clone: Arc<Mutex<Option<napi::Error>>> = Arc::clone(&error_holder);
 
   tokio::task::spawn_blocking(move || {
     let schema_file = prepare_schema(options.output_schema.clone())?;
@@ -2272,7 +2273,7 @@ pub async fn run_thread_stream(
 ) -> napi::Result<()> {
   let options = req.into_internal()?;
   let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
-  let error_clone = Arc::clone(&error_holder);
+  let error_clone: Arc<Mutex<Option<napi::Error>>> = Arc::clone(&error_holder);
 
   tokio::task::spawn_blocking(move || {
     run_internal_sync(options, move |event| match event_to_json(&event) {
@@ -2503,4 +2504,327 @@ pub fn sse(events: Vec<String>) -> String {
     .into_iter()
     .map(|event_json| format!("event: response\ndata: {}\n\n", event_json))
     .collect()
+}
+
+// ============================================================================
+// Section 6: Reverie System - Conversation Search and Insights
+// ============================================================================
+//
+#[napi(object)]
+pub struct ReverieConversation {
+  pub id: String,
+  pub path: String,
+  #[napi(js_name = "createdAt")]
+  pub created_at: Option<String>,
+  #[napi(js_name = "updatedAt")]
+  pub updated_at: Option<String>,
+  #[napi(js_name = "headRecords")]
+  pub head_records: Vec<String>,
+  #[napi(js_name = "tailRecords")]
+  pub tail_records: Vec<String>,
+}
+
+#[napi(object)]
+pub struct ReverieSearchResult {
+  pub conversation: ReverieConversation,
+  #[napi(js_name = "relevanceScore")]
+  pub relevance_score: f64,
+  #[napi(js_name = "matchingExcerpts")]
+  pub matching_excerpts: Vec<String>,
+  pub insights: Vec<String>,
+}
+
+#[napi]
+pub async fn reverie_list_conversations(
+  codex_home_path: String,
+  limit: Option<i32>,
+  offset: Option<i32>,
+) -> napi::Result<Vec<ReverieConversation>> {
+  let max_conversations = limit.unwrap_or(50).max(0) as usize;
+  let skip_count = offset.unwrap_or(0).max(0) as usize;
+
+  if max_conversations == 0 {
+    return Ok(Vec::new());
+  }
+
+  let codex_home = Path::new(&codex_home_path);
+  let conversations = load_reverie_conversations(codex_home, max_conversations, skip_count)
+    .await
+    .map_err(|e| napi::Error::from_reason(format!("Failed to load conversations: {e}")))?;
+
+  Ok(conversations)
+}
+
+#[napi]
+pub async fn reverie_search_conversations(
+  codex_home_path: String,
+  query: String,
+  limit: Option<i32>,
+) -> napi::Result<Vec<ReverieSearchResult>> {
+  let trimmed_query = query.trim();
+  if trimmed_query.is_empty() {
+    return Ok(Vec::new());
+  }
+
+  let max_results = limit.unwrap_or(20).max(1) as usize;
+  let search_window = max_results.saturating_mul(5).min(500);
+  let codex_home = Path::new(&codex_home_path);
+  let conversations = load_reverie_conversations(codex_home, search_window, 0)
+    .await
+    .map_err(|e| napi::Error::from_reason(format!("Failed to load conversations: {e}")))?;
+
+  let regex = regex::RegexBuilder::new(&regex::escape(trimmed_query))
+    .case_insensitive(true)
+    .unicode(true)
+    .build()
+    .map_err(|e| napi::Error::from_reason(format!("Invalid search query: {e}")))?;
+
+  let mut results = Vec::new();
+
+  for conv in conversations {
+    let mut relevance_score = 0.0;
+    let mut matching_excerpts = Vec::new();
+    let mut insights = Vec::new();
+
+    for record in conv.head_records.iter().chain(conv.tail_records.iter()) {
+      for mat in regex.find_iter(record) {
+        relevance_score += 1.0;
+        let excerpt_start = mat.start().saturating_sub(50);
+        let excerpt_end = (mat.end() + 50).min(record.len());
+        matching_excerpts.push(format!("...{}...", &record[excerpt_start..excerpt_end]));
+      }
+
+      if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(record)
+        && let Some(content) = extract_insight_from_json(&json_value)
+      {
+        insights.push(content);
+      }
+    }
+
+    if relevance_score > 0.0 {
+      results.push(ReverieSearchResult {
+        conversation: conv,
+        relevance_score,
+        matching_excerpts,
+        insights,
+      });
+    }
+
+    if results.len() >= max_results {
+      break;
+    }
+  }
+
+  results.sort_by(|a, b| {
+    b.relevance_score
+      .partial_cmp(&a.relevance_score)
+      .unwrap_or(std::cmp::Ordering::Equal)
+  });
+  results.truncate(max_results);
+
+  Ok(results)
+}
+
+async fn load_reverie_conversations(
+  codex_home: &Path,
+  limit: usize,
+  offset: usize,
+) -> std::io::Result<Vec<ReverieConversation>> {
+  if limit == 0 {
+    return Ok(Vec::new());
+  }
+
+  let page_size = limit.saturating_add(offset).max(1);
+  let page = RolloutRecorder::list_conversations(
+    codex_home,
+    page_size,
+    None,
+    &[],
+    None,
+    BUILT_IN_OSS_MODEL_PROVIDER_ID,
+  )
+  .await?;
+
+  Ok(
+    page
+      .items
+      .into_iter()
+      .skip(offset)
+      .take(limit)
+      .map(conversation_item_to_reverie)
+      .collect(),
+  )
+}
+
+fn conversation_item_to_reverie(item: ConversationItem) -> ReverieConversation {
+  let id = item
+    .path
+    .file_stem()
+    .and_then(|s| s.to_str())
+    .unwrap_or("unknown")
+    .to_string();
+
+  ReverieConversation {
+    id,
+    path: item.path.to_string_lossy().into_owned(),
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    head_records: serialize_json_records(&item.head),
+    tail_records: serialize_json_records(&item.tail),
+  }
+}
+
+fn serialize_json_records(values: &[serde_json::Value]) -> Vec<String> {
+  values
+    .iter()
+    .map(|value| serde_json::to_string(value).unwrap_or_else(|_| value.to_string()))
+    .collect()
+}
+
+fn extract_insight_from_json(value: &serde_json::Value) -> Option<String> {
+  // Extract meaningful content from JSON records
+  // This is a simplified implementation - you might want more sophisticated parsing
+
+  if let Some(content) = value.get("content").and_then(|c| c.as_str()) {
+    // For assistant messages
+    Some(content.to_string())
+  } else if let Some(text) = value.get("text").and_then(|t| t.as_str()) {
+    // For other text content
+    Some(text.to_string())
+  } else {
+    // For tool outputs
+    value
+      .get("output")
+      .and_then(|o| o.as_str())
+      .map(|output| format!("Tool output: {}", output))
+  }
+}
+
+#[napi]
+pub async fn reverie_get_conversation_insights(
+  conversation_path: String,
+  query: Option<String>,
+) -> napi::Result<Vec<String>> {
+  use std::path::Path;
+  use tokio::fs;
+
+  let path = Path::new(&conversation_path);
+
+  // Read the conversation file
+  let content = fs::read_to_string(path)
+    .await
+    .map_err(|e| napi::Error::from_reason(format!("Failed to read conversation: {e}")))?;
+
+  let mut insights = Vec::new();
+  let lines: Vec<&str> = content.lines().collect();
+
+  for line in lines {
+    if line.trim().is_empty() {
+      continue;
+    }
+
+    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(line)
+      && let Some(insight) = extract_insight_from_json(&json_value)
+    {
+      // Filter by query if provided
+      if let Some(ref q) = query {
+        if insight.to_lowercase().contains(&q.to_lowercase()) {
+          insights.push(insight);
+        }
+      } else {
+        insights.push(insight);
+      }
+    }
+  }
+
+  // Limit to most relevant insights
+  insights.truncate(50);
+
+  Ok(insights)
+}
+
+// ============================================================================
+// Section 7: Tokenizer Helpers
+// ============================================================================
+
+#[napi(object)]
+pub struct TokenizerBaseOptions {
+  pub model: Option<String>,
+  #[napi(ts_type = "\"o200k_base\" | \"cl100k_base\"")]
+  pub encoding: Option<String>,
+}
+
+#[napi(object)]
+pub struct TokenizerEncodeOptions {
+  pub model: Option<String>,
+  #[napi(ts_type = "\"o200k_base\" | \"cl100k_base\"")]
+  pub encoding: Option<String>,
+  #[napi(js_name = "withSpecialTokens")]
+  pub with_special_tokens: Option<bool>,
+}
+
+fn map_tokenizer_error(err: TokenizerError) -> napi::Error {
+  napi::Error::from_reason(format!("Tokenizer error: {err}"))
+}
+
+fn parse_encoding(name: &str) -> Option<EncodingKind> {
+  let normalized = name.replace('-', "_").to_ascii_lowercase();
+  match normalized.as_str() {
+    "o200k_base" => Some(EncodingKind::O200kBase),
+    "cl100k_base" => Some(EncodingKind::Cl100kBase),
+    _ => None,
+  }
+}
+
+fn build_tokenizer(model: Option<&str>, encoding: Option<&str>) -> napi::Result<Tokenizer> {
+  if let Some(enc_name) = encoding {
+    if let Some(kind) = parse_encoding(enc_name) {
+      Tokenizer::new(kind).map_err(map_tokenizer_error)
+    } else {
+      Err(napi::Error::from_reason(format!(
+        "Unknown tokenizer encoding: {enc_name}"
+      )))
+    }
+  } else if let Some(model_name) = model {
+    Tokenizer::for_model(model_name).map_err(map_tokenizer_error)
+  } else {
+    Tokenizer::try_default().map_err(map_tokenizer_error)
+  }
+}
+
+#[napi]
+pub fn tokenizer_count(text: String, options: Option<TokenizerBaseOptions>) -> napi::Result<i64> {
+  let tokenizer = build_tokenizer(
+    options.as_ref().and_then(|o| o.model.as_deref()),
+    options.as_ref().and_then(|o| o.encoding.as_deref()),
+  )?;
+  Ok(tokenizer.count(&text))
+}
+
+#[napi]
+pub fn tokenizer_encode(
+  text: String,
+  options: Option<TokenizerEncodeOptions>,
+) -> napi::Result<Vec<i32>> {
+  let tokenizer = build_tokenizer(
+    options.as_ref().and_then(|o| o.model.as_deref()),
+    options.as_ref().and_then(|o| o.encoding.as_deref()),
+  )?;
+  let with_special_tokens = options
+    .as_ref()
+    .and_then(|o| o.with_special_tokens)
+    .unwrap_or(false);
+  Ok(tokenizer.encode(&text, with_special_tokens))
+}
+
+#[napi]
+pub fn tokenizer_decode(
+  tokens: Vec<i32>,
+  options: Option<TokenizerBaseOptions>,
+) -> napi::Result<String> {
+  let tokenizer = build_tokenizer(
+    options.as_ref().and_then(|o| o.model.as_deref()),
+    options.as_ref().and_then(|o| o.encoding.as_deref()),
+  )?;
+  tokenizer.decode(&tokens).map_err(map_tokenizer_error)
 }

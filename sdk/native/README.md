@@ -584,6 +584,54 @@ const securityResult = await securityAgent.run(
 
 Agents automatically have access to the conversation history, enabling seamless handoffs between specialized agents.
 
+### Reverie Archive APIs
+
+Query past Codex sessions directly from Node.js to surface relevant prior work without leaving the terminal.
+
+```typescript
+import {
+  reverieListConversations,
+  reverieSearchConversations,
+  reverieGetConversationInsights,
+} from "@codex-native/sdk";
+
+const codexHome = process.env.CODEX_HOME ?? `${process.env.HOME}/.codex`;
+
+// List the newest conversations (newest first)
+const conversations = await reverieListConversations(codexHome, 10);
+
+// Search for conversations mentioning "authentication"
+const matches = await reverieSearchConversations(codexHome, "authentication issue", 5);
+
+// Read the highlights/insights from a specific conversation rollout
+const insights = await reverieGetConversationInsights(matches[0].conversation.path, "JWT");
+```
+
+Results include `headRecords` and `tailRecords`, mirroring the summaries used by the Rust CLI/TUI, so you can plug them into custom dashboards or route them back into an agent as `<system notification>`s.
+
+### Tokenizer Helpers (tiktoken)
+
+Access the same tiktoken-powered tokenizer used by Codex from JavaScript for budgeting prompts or implementing local ranking logic.
+
+```typescript
+import {
+  tokenizerCount,
+  tokenizerEncode,
+  tokenizerDecode,
+} from "@codex-native/sdk";
+
+const text = "hello world";
+
+// Count tokens using a specific encoding or model alias
+const tokens = tokenizerEncode(text, { encoding: "cl100k_base" });
+const count = tokenizerCount(text, { encoding: "cl100k_base" });
+
+// Round-trip
+const decoded = tokenizerDecode(tokens, { encoding: "cl100k_base" });
+```
+
+`encoding` accepts `"o200k_base"` or `"cl100k_base"`, and you can also pass `model: "gpt-5"` to mirror Codex’s model-to-encoding mapping. Set `withSpecialTokens: true` when you need precise accounting for schema-guided prompts.
+
 ## API Options
 
 ### Codex Constructor Options

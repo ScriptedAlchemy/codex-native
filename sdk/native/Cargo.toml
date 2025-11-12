@@ -16,6 +16,7 @@ async-trait = "0.1"
 anyhow = "1"
 ratatui = "0.29.0"
 vt100 = "0.16.2"
+regex = "1"
 
 [dependencies.napi]
 version = "3"
@@ -58,6 +59,9 @@ path = "../../codex-rs/protocol"
 
 [dependencies.codex-cloud-tasks-client]
 path = "../../codex-rs/cloud-tasks-client"
+
+[dependencies.codex-utils-tokenizer]
+path = "../../codex-rs/utils/tokenizer"
 
 [dependencies.codex-tui]
 path = "../../codex-rs/tui"

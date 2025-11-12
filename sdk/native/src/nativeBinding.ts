@@ -117,6 +117,39 @@ export type NativeTuiSession = {
   readonly closed: boolean;
 };
 
+// ============================================================================
+// Reverie System Types
+// ============================================================================
+
+export type ReverieConversation = {
+  id: string;
+  path: string;
+  createdAt?: string;
+  updatedAt?: string;
+  headRecords: string[];
+  tailRecords: string[];
+};
+
+export type ReverieSearchResult = {
+  conversation: ReverieConversation;
+  relevanceScore: number;
+  matchingExcerpts: string[];
+  insights: string[];
+};
+
+// ============================================================================
+// Tokenizer Types
+// ============================================================================
+
+export type TokenizerOptions = {
+  model?: string;
+  encoding?: "o200k_base" | "cl100k_base";
+};
+
+export type TokenizerEncodeOptions = TokenizerOptions & {
+  withSpecialTokens?: boolean;
+};
+
 export type NativeBinding = {
   runThread(request: NativeRunRequest): Promise<string[]>;
   runThreadStream(
@@ -172,6 +205,14 @@ export type NativeBinding = {
     baseUrl?: string,
     apiKey?: string,
   ): Promise<string>;
+  // Reverie system - conversation search and insights
+  reverieListConversations(codexHomePath: string, limit?: number, offset?: number): Promise<ReverieConversation[]>;
+  reverieSearchConversations(codexHomePath: string, query: string, limit?: number): Promise<ReverieSearchResult[]>;
+  reverieGetConversationInsights(conversationPath: string, query?: string): Promise<string[]>;
+  // Tokenizer helpers
+  tokenizerCount(text: string, options?: TokenizerOptions): number;
+  tokenizerEncode(text: string, options?: TokenizerEncodeOptions): number[];
+  tokenizerDecode(tokens: number[], options?: TokenizerOptions): string;
 };
 
 export type NativeToolInfo = {
@@ -318,4 +359,53 @@ export function sse(events: string[]): string {
   const binding = getNativeBinding();
   if (!binding) throw new Error("Native binding not available");
   return (binding as any).sse(events);
+}
+
+// Reverie system helpers
+export async function reverieListConversations(
+  codexHomePath: string,
+  limit?: number,
+  offset?: number,
+): Promise<ReverieConversation[]> {
+  const binding = getNativeBinding();
+  if (!binding?.reverieListConversations) throw new Error("Native binding not available or reverie functions not supported");
+  return (binding as any).reverieListConversations(codexHomePath, limit, offset);
+}
+
+export async function reverieSearchConversations(
+  codexHomePath: string,
+  query: string,
+  limit?: number,
+): Promise<ReverieSearchResult[]> {
+  const binding = getNativeBinding();
+  if (!binding?.reverieSearchConversations) throw new Error("Native binding not available or reverie functions not supported");
+  return (binding as any).reverieSearchConversations(codexHomePath, query, limit);
+}
+
+export async function reverieGetConversationInsights(
+  conversationPath: string,
+  query?: string,
+): Promise<string[]> {
+  const binding = getNativeBinding();
+  if (!binding?.reverieGetConversationInsights) throw new Error("Native binding not available or reverie functions not supported");
+  return (binding as any).reverieGetConversationInsights(conversationPath, query);
+}
+
+// Tokenizer helpers
+export function tokenizerCount(text: string, options?: TokenizerOptions): number {
+  const binding = getNativeBinding();
+  if (!binding?.tokenizerCount) throw new Error("Native binding not available or tokenizer functions not supported");
+  return (binding as any).tokenizerCount(text, options);
+}
+
+export function tokenizerEncode(text: string, options?: TokenizerEncodeOptions): number[] {
+  const binding = getNativeBinding();
+  if (!binding?.tokenizerEncode) throw new Error("Native binding not available or tokenizer functions not supported");
+  return (binding as any).tokenizerEncode(text, options);
+}
+
+export function tokenizerDecode(tokens: number[], options?: TokenizerOptions): string {
+  const binding = getNativeBinding();
+  if (!binding?.tokenizerDecode) throw new Error("Native binding not available or tokenizer functions not supported");
+  return (binding as any).tokenizerDecode(tokens, options);
 }

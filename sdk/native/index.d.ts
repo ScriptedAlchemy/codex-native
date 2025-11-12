@@ -123,6 +123,28 @@ export declare function registerTool(info: NativeToolInfo, handler: (call: JsToo
 
 export declare function registerToolInterceptor(toolName: string, handler: (context: JsToolInterceptorContext) => NativeToolResponse | Promise<NativeToolResponse>): void
 
+export interface ReverieConversation {
+  id: string
+  path: string
+  createdAt?: string
+  updatedAt?: string
+  headRecords: Array<string>
+  tailRecords: Array<string>
+}
+
+export declare function reverieGetConversationInsights(conversationPath: string, query?: string | undefined | null): Promise<Array<string>>
+
+export declare function reverieListConversations(codexHomePath: string, limit?: number | undefined | null, offset?: number | undefined | null): Promise<Array<ReverieConversation>>
+
+export declare function reverieSearchConversations(codexHomePath: string, query: string, limit?: number | undefined | null): Promise<Array<ReverieSearchResult>>
+
+export interface ReverieSearchResult {
+  conversation: ReverieConversation
+  relevanceScore: number
+  matchingExcerpts: Array<string>
+  insights: Array<string>
+}
+
 export interface RunRequest {
   prompt: string
   threadId?: string
@@ -152,6 +174,23 @@ export declare function runTui(req: TuiRequest): Promise<TuiExitInfo>
 export declare function sse(events: Array<string>): string
 
 export declare function startTui(req: TuiRequest): TuiSession
+
+export interface TokenizerBaseOptions {
+  model?: string
+  encoding?: "o200k_base" | "cl100k_base"
+}
+
+export declare function tokenizerCount(text: string, options?: TokenizerBaseOptions | undefined | null): number
+
+export declare function tokenizerDecode(tokens: Array<number>, options?: TokenizerBaseOptions | undefined | null): string
+
+export declare function tokenizerEncode(text: string, options?: TokenizerEncodeOptions | undefined | null): Array<number>
+
+export interface TokenizerEncodeOptions {
+  model?: string
+  encoding?: "o200k_base" | "cl100k_base"
+  withSpecialTokens?: boolean
+}
 
 export interface TokenUsageSummary {
   inputTokens: number
