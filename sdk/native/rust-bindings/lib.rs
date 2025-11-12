@@ -1338,7 +1338,7 @@ fn run_tui_sync(
 }
 
 #[napi]
-pub fn start_tui(req: TuiRequest) -> napi::Result<TuiSession> {
+pub async fn start_tui(req: TuiRequest) -> napi::Result<TuiSession> {
   let options = req.into_internal()?;
   let cancel_token = CancellationToken::new();
   let blocking_token = cancel_token.clone();
@@ -1349,7 +1349,7 @@ pub fn start_tui(req: TuiRequest) -> napi::Result<TuiSession> {
 
 #[napi]
 pub async fn run_tui(req: TuiRequest) -> napi::Result<TuiExitInfo> {
-  let session = start_tui(req)?;
+  let session = start_tui(req).await?;
   session.wait().await
 }
 

@@ -12,7 +12,7 @@ type RunTuiFn = (
   options?: RunTuiOptions,
 ) => Promise<NativeTuiExitInfo>;
 const runTuiMock = jest.fn<RunTuiFn>();
-type StartTuiFn = (request: NativeTuiRequest) => TuiSession;
+type StartTuiFn = (request: NativeTuiRequest) => Promise<TuiSession>;
 const startTuiMock = jest.fn<StartTuiFn>();
 
 jest.unstable_mockModule("../src/tui", () => ({
@@ -111,13 +111,13 @@ describe("Thread.tui", () => {
     expect(options).toEqual({});
   });
 
-  it("launchTui returns session handle from binding", () => {
+  it("launchTui returns session handle from binding", async () => {
     const session = {
       wait: jest.fn(),
       shutdown: jest.fn(),
       closed: false,
     } as unknown as TuiSession;
-    startTuiMock.mockReturnValue(session);
+    startTuiMock.mockResolvedValue(session);
 
     const thread = new Thread(
       {} as any,
@@ -128,7 +128,7 @@ describe("Thread.tui", () => {
       "resume-123",
     );
 
-    const handle = thread.launchTui({ prompt: "Hello" });
+    const handle = await thread.launchTui({ prompt: "Hello" });
 
     expect(startTuiMock).toHaveBeenCalledTimes(1);
     expect(startTuiMock).toHaveBeenCalledWith(

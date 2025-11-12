@@ -25,14 +25,14 @@ export interface RunTuiOptions {
  * Use {@link TuiSession.wait} to await completion or {@link TuiSession.shutdown} to
  * request a graceful exit from another part of your program.
  */
-export function startTui(request: NativeTuiRequest): TuiSession {
+export async function startTui(request: NativeTuiRequest): Promise<TuiSession> {
   const binding = getNativeBinding();
   if (!binding) {
     throw new Error("Native binding is not available");
   }
 
   if (typeof binding.startTui === "function") {
-    const nativeSession = binding.startTui(request);
+    const nativeSession = await binding.startTui(request);
     return wrapNativeSession(nativeSession);
   }
 
@@ -50,7 +50,7 @@ export async function runTui(
   request: NativeTuiRequest,
   options: RunTuiOptions = {},
 ): Promise<NativeTuiExitInfo> {
-  const session = startTui(request);
+  const session = await startTui(request);
   const { signal } = options;
   let abortListener: (() => void) | undefined;
 

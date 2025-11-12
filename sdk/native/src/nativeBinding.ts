@@ -124,7 +124,7 @@ export type NativeBinding = {
   ): void;
   emitPlanUpdate(request: NativeEmitPlanUpdateRequest): Promise<void>;
   modifyPlan(request: NativeModifyPlanRequest): Promise<void>;
-  startTui?(request: NativeTuiRequest): NativeTuiSession;
+  startTui?(request: NativeTuiRequest): Promise<NativeTuiSession>;
   // SSE test helpers (exposed for TypeScript tests)
   ev_completed(id: string): string;
   ev_response_created(id: string): string;

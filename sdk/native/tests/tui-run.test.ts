@@ -54,7 +54,7 @@ describe("startTui / runTui", () => {
 
     const { startTui } = await import("../src/tui");
 
-    const session = startTui({});
+    const session = await startTui({});
     await expect(session.wait()).resolves.toEqual(noopExitInfo);
     expect(runTuiMock).toHaveBeenCalledTimes(1);
     expect(session.closed).toBe(true);

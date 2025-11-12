@@ -23,7 +23,33 @@ describe("TUI Integration (native binding)", () => {
     expect(typeof thread.tui).toBe("function");
   });
 
-  // This test would actually launch the TUI if we had a TTY and API key
+  it("startTui can be called with real binding and immediately shut down", async () => {
+    // This test calls the real native startTui binding (no mocks)
+    // but immediately cancels it to avoid hanging
+    const { startTui } = await import("../src/tui");
+
+    const request: NativeTuiRequest = {
+      prompt: "Test prompt",
+      sandboxMode: "read-only",
+      approvalMode: "never",
+      workingDirectory: process.cwd(),
+      resumePicker: false,
+    };
+
+    // Call the real binding - this will fail if the Tokio runtime issue exists
+    const session = await startTui(request);
+
+    // Immediately shut down to avoid waiting for user input
+    session.shutdown();
+
+    // Verify the session exists and has the expected methods
+    expect(session).toBeDefined();
+    expect(typeof session.wait).toBe("function");
+    expect(typeof session.shutdown).toBe("function");
+    expect(typeof session.closed).toBe("boolean");
+  });
+
+  // This test would actually launch the full interactive TUI
   // We skip it in CI but it proves the binding works locally
   it.skip("actually launches runTui with real binding (manual test)", async () => {
     if (!process.stdout.isTTY || !process.stdin.isTTY) {

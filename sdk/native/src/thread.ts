@@ -489,9 +489,9 @@ export class Thread {
    * The handle allows advanced workflows where the TUI can be started and stopped programmatically,
    * while preserving the underlying conversation state.
    */
-  launchTui(overrides: Partial<NativeTuiRequest> = {}): TuiSession {
+  async launchTui(overrides: Partial<NativeTuiRequest> = {}): Promise<TuiSession> {
     const request = this.buildTuiRequest(overrides);
-    return startTui(request);
+    return await startTui(request);
   }
 
   /**

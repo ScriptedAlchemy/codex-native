@@ -128,7 +128,7 @@ export declare function runTui(req: TuiRequest): Promise<TuiExitInfo>
 
 export declare function sse(events: Array<string>): string
 
-export declare function startTui(req: TuiRequest): TuiSession
+export declare function startTui(req: TuiRequest): Promise<TuiSession>
 
 export interface TokenUsageSummary {
   inputTokens: number
