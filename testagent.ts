@@ -288,7 +288,7 @@ Options:
   --approval <mode>         Set approval mode (never | on-request | on-failure | untrusted).
   --web-search              Allow Codex to perform web searches.
   --bypass-approvals        Disable all safety prompts (use with caution).
-  --model <name>            Override the default model.
+  --model <name>            Override the default model (default: gpt-5-codex-mini).
   --cwd <path>              Launch the TUI from a different working directory.
   --profile <name>          Choose a config profile from codex.config.ts.
   --config-override <pair>  Apply a config override (key=value). Repeatable.
