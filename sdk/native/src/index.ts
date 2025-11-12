@@ -39,13 +39,15 @@ export type { NativeToolInterceptorContext } from "./codex";
 export type { NativeToolInvocation, NativeToolResult } from "./nativeBinding";
 export type { ApprovalRequest } from "./nativeBinding";
 
-export { runTui } from "./tui";
+export { startTui, runTui } from "./tui";
 export type {
   NativeTuiRequest,
   NativeTuiExitInfo,
   NativeTokenUsage,
   NativeUpdateActionInfo,
   NativeUpdateActionKind,
+  RunTuiOptions,
+  TuiSession,
 } from "./tui";
 
 export type { ThreadOptions, ApprovalMode, SandboxMode } from "./threadOptions";

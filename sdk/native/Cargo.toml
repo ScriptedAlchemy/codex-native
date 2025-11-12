@@ -38,6 +38,9 @@ features = ["v4"]
 version = "1"
 features = ["macros","rt-multi-thread"]
 
+[dependencies.tokio-util]
+version = "0.7.16"
+
 [dependencies.codex-common]
 path = "../../codex-rs/common"
 

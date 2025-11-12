@@ -95,6 +95,12 @@ export type NativeTuiExitInfo = {
   updateAction?: NativeUpdateActionInfo;
 };
 
+export type NativeTuiSession = {
+  wait(): Promise<NativeTuiExitInfo>;
+  shutdown(): void;
+  readonly closed: boolean;
+};
+
 export type NativeBinding = {
   runThread(request: NativeRunRequest): Promise<string[]>;
   runThreadStream(
@@ -118,6 +124,7 @@ export type NativeBinding = {
   ): void;
   emitPlanUpdate(request: NativeEmitPlanUpdateRequest): Promise<void>;
   modifyPlan(request: NativeModifyPlanRequest): Promise<void>;
+  startTui?(request: NativeTuiRequest): NativeTuiSession;
   // SSE test helpers (exposed for TypeScript tests)
   ev_completed(id: string): string;
   ev_response_created(id: string): string;

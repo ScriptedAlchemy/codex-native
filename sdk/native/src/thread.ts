@@ -8,9 +8,10 @@ import { ThreadItem } from "./items";
 import { ThreadOptions } from "./threadOptions";
 import { TurnOptions } from "./turnOptions";
 import { createOutputSchemaFile, normalizeOutputSchema } from "./outputSchemaFile";
-import { runTui } from "./tui";
+import { runTui, startTui } from "./tui";
 import { getNativeBinding } from "./nativeBinding";
 import type { NativeTuiRequest, NativeTuiExitInfo } from "./nativeBinding";
+import type { RunTuiOptions, TuiSession } from "./tui";
 
 /**
  * Convert Rust event format to ThreadEvent format.
@@ -441,44 +442,7 @@ export class Thread {
     return { items, finalResponse, usage };
   }
 
-  /**
-   * Launches the interactive Codex TUI (Terminal User Interface) for this thread.
-   *
-   * This method enables seamless transition from programmatic agent interaction to
-   * interactive terminal chat within the same session. The TUI takes over the terminal
-   * and allows you to continue the conversation interactively.
-   *
-   * @param overrides - Optional configuration to override thread defaults. Supports all TUI options
-   *                    including prompt, sandbox mode, approval mode, and resume options.
-   * @returns A Promise that resolves to TUI exit information including:
-   *          - tokenUsage: Token consumption statistics
-   *          - conversationId: Session ID for resuming later
-   *          - updateAction: Optional suggested update command
-   * @throws {Error} If not in a trusted git repository (unless skipGitRepoCheck is set)
-   * @throws {Error} If the terminal is not interactive (TTY required)
-   *
-   * @example
-   * ```typescript
-   * const codex = new Codex();
-   * const thread = codex.startThread({ sandboxMode: "workspace-write" });
-   *
-   * // Do programmatic work
-   * await thread.run("Analyze the codebase structure");
-   *
-   * // Switch to interactive mode with same session
-   * await thread.tui();
-   * ```
-   *
-   * @example
-   * ```typescript
-   * // Override options when launching TUI
-   * await thread.tui({
-   *   prompt: "Continue debugging",
-   *   sandboxMode: "read-only"
-   * });
-   * ```
-   */
-  async tui(overrides: Partial<NativeTuiRequest> = {}): Promise<NativeTuiExitInfo> {
+  private buildTuiRequest(overrides: Partial<NativeTuiRequest> = {}): NativeTuiRequest {
     const skipGitRepoCheck =
       this._threadOptions?.skipGitRepoCheck ??
       (typeof process !== "undefined" &&
@@ -516,7 +480,43 @@ export class Thread {
       request.resumeSessionId = this._id;
     }
 
-    return runTui(request);
+    return request;
+  }
+
+  /**
+   * Launches the interactive Codex TUI (Terminal User Interface) for this thread and returns a session handle.
+   *
+   * The handle allows advanced workflows where the TUI can be started and stopped programmatically,
+   * while preserving the underlying conversation state.
+   */
+  launchTui(overrides: Partial<NativeTuiRequest> = {}): TuiSession {
+    const request = this.buildTuiRequest(overrides);
+    return startTui(request);
+  }
+
+  /**
+   * Launches the interactive Codex TUI (Terminal User Interface) for this thread.
+   *
+   * This method enables seamless transition from programmatic agent interaction to
+   * interactive terminal chat within the same session. The TUI takes over the terminal
+   * and allows you to continue the conversation interactively.
+   *
+   * @param overrides - Optional configuration to override thread defaults. Supports all TUI options
+   *                    including prompt, sandbox mode, approval mode, and resume options.
+   * @param options - Optional run options including an AbortSignal to request shutdown.
+   * @returns A Promise that resolves to TUI exit information including:
+   *          - tokenUsage: Token consumption statistics
+   *          - conversationId: Session ID for resuming later
+   *          - updateAction: Optional suggested update command
+   * @throws {Error} If not in a trusted git repository (unless skipGitRepoCheck is set)
+   * @throws {Error} If the terminal is not interactive (TTY required)
+   */
+  async tui(
+    overrides: Partial<NativeTuiRequest> = {},
+    options: RunTuiOptions = {},
+  ): Promise<NativeTuiExitInfo> {
+    const request = this.buildTuiRequest(overrides);
+    return runTui(request, options);
   }
 }
 
