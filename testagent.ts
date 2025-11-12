@@ -7,6 +7,8 @@
  * This is a development/testing utility located in the project root.
  * For production examples, see sdk/native/examples/tui/
  *
+ * Default model: gpt-5-codex-mini (fast, cost-effective)
+ *
  * Usage:
  *   npx tsx testagent.ts [options] [prompt...]
  *   npx tsx testagent.ts --help
@@ -15,6 +17,7 @@
  *   npx tsx testagent.ts "Review the codebase"
  *   npx tsx testagent.ts --resume-last
  *   npx tsx testagent.ts --full-auto --sandbox workspace-write
+ *   npx tsx testagent.ts --model gpt-5-codex "Complex analysis task"
  */
 
 import process from "node:process";
@@ -62,6 +65,7 @@ async function main(): Promise<void> {
     sandboxMode: request.sandboxMode ?? "workspace-write",
     approvalMode: request.approvalMode ?? "on-request",
     workingDirectory: request.workingDirectory ?? process.cwd(),
+    model: request.model ?? "gpt-5-codex-mini",
   };
 
   logLaunchInfo(launchRequest);
