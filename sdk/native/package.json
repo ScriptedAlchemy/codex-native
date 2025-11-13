@@ -13,8 +13,7 @@
     }
   },
   "bin": {
-    "codex-native": "dist/cli.cjs",
-    "codex-agent": "dist/agent.cjs"
+    "codex-native": "dist/cli.cjs"
   },
   "files": [
     "dist",

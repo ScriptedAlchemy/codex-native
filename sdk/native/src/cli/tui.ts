@@ -1,6 +1,10 @@
 import process from "node:process";
 
-import { getNativeBinding, type NativeTuiRequest } from "../nativeBinding";
+import { Codex } from "../codex";
+import { attachLspDiagnostics } from "../lsp";
+import type { LspManagerOptions } from "../lsp";
+import type { ThreadOptions } from "../threadOptions";
+import type { NativeTuiRequest } from "../nativeBinding";
 import { emitWarnings, runBeforeStartHooks } from "./hooks";
 import { parseApprovalModeFlag, parseSandboxModeFlag } from "./optionParsers";
 import type { CliContext, CommandName, TuiCommandOptions } from "./types";
@@ -17,9 +21,10 @@ export async function executeTuiCommand(
   emitWarnings(combinedConfig.warnings);
   const warningCount = combinedConfig.warnings.length;
 
-  const request = buildTuiRequest({
+  const { request, threadOptions } = buildTuiConfig({
     argv,
     defaults: combinedConfig.tuiDefaults,
+    cwd: context.cwd,
   });
 
   const hookContext = {
@@ -30,12 +35,17 @@ export async function executeTuiCommand(
 
   await runBeforeStartHooks(combinedConfig.beforeStartHooks, hookContext, combinedConfig.warnings);
 
-  const binding = getNativeBinding();
-  if (!binding || typeof binding.runTui !== "function") {
-    throw new Error("Native binding does not expose runTui.");
-  }
+  const codex = new Codex({ baseUrl: request.baseUrl, apiKey: request.apiKey });
+  const thread = codex.startThread(threadOptions);
 
-  const exitInfo = await binding.runTui(request);
+  const lspOptions: LspManagerOptions = {
+    workingDirectory: threadOptions.workingDirectory ?? context.cwd,
+    waitForDiagnostics: true,
+  };
+  const detachLsp = attachLspDiagnostics(thread, lspOptions);
+
+  const exitInfo = await thread.tui(request);
+  detachLsp();
   if (exitInfo.conversationId) {
     process.stdout.write(`\nConversation ID: ${exitInfo.conversationId}\n`);
   }
@@ -48,11 +58,12 @@ export async function executeTuiCommand(
   emitWarnings(combinedConfig.warnings, warningCount);
 }
 
-function buildTuiRequest(params: {
+function buildTuiConfig(params: {
   argv: TuiCommandOptions;
   defaults: Partial<NativeTuiRequest>;
-}): NativeTuiRequest {
-  const { argv, defaults } = params;
+  cwd: string;
+}): { request: NativeTuiRequest; thread: ThreadOptions } {
+  const { argv, defaults, cwd } = params;
   const request: NativeTuiRequest = {
     ...(defaults as NativeTuiRequest),
   };
@@ -100,6 +111,14 @@ function buildTuiRequest(params: {
     request.images = [...defaultsImages, ...argv.image];
   }
 
-  return request;
-}
+  const thread: ThreadOptions = {
+    model: request.model,
+    oss: request.oss,
+    sandboxMode: request.sandboxMode,
+    approvalMode: request.approvalMode,
+    workingDirectory: request.workingDirectory ?? cwd,
+    skipGitRepoCheck: false,
+  };
 
+  return { request, thread };
+}
