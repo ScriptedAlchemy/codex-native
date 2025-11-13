@@ -62,7 +62,7 @@ type MultiAgentConfig = {
   model?: string;
   baseBranchOverride?: string;
   embedder?: FastEmbedConfig;
-  suppressedChecks?: Array<"lint" | "tests" | "build">;
+  suppressedChecks?: Array<"lint" | "tests" | "build" | "security">;
 };
 
 type FastEmbedConfig = {
@@ -119,7 +119,7 @@ type CiFix = z.infer<typeof CiFixSchema>;
 const CiFixListSchema = z.array(CiFixSchema).min(1).max(15);
 
 function buildJsonSchemaFromZod(schema: z.ZodTypeAny, name: string) {
-  const json = zodToJsonSchema(schema, name, { target: "openAi" }) as any;
+  const json = zodToJsonSchema(schema, { name, target: "openAi" }) as any;
   if (json?.definitions?.[name]) {
     return json.definitions[name];
   }
@@ -139,6 +139,19 @@ const IntentionOutputType = buildJsonOutputType(IntentionListSchema, "Intentions
 const RecommendationOutputType = buildJsonOutputType(RecommendationListSchema, "Recommendations");
 const CiIssueOutputType = buildJsonOutputType(CiIssueListSchema, "CiIssueList");
 const CiFixOutputType = buildJsonOutputType(CiFixListSchema, "CiFixList");
+
+function coerceStructuredOutput<T>(value: unknown, schema: z.ZodType<T>, fallback: T): T {
+  if (value == null) {
+    return fallback;
+  }
+  try {
+    const candidate = typeof value === "string" ? JSON.parse(value) : value;
+    return schema.parse(candidate);
+  } catch (error) {
+    console.warn("Failed to parse structured agent output", error);
+    return fallback;
+  }
+}
 
 type RepoContext = {
   cwd: string;
@@ -184,6 +197,8 @@ type CiAnalysis = {
   confidence: number;
   thread: Thread;
 };
+
+type CiCheckKind = "lint" | "tests" | "build" | "security";
 
 type ReverieResult = {
   conversationId: string;
@@ -396,9 +411,10 @@ class PRDeepReviewer {
 
     const model = await this.provider.getModel();
 
-    const intentionAnalyzer = new Agent({
+    const intentionAnalyzer = new Agent<unknown, JsonSchemaDefinition>({
       name: "IntentionAnalyzer",
       model,
+      outputType: IntentionOutputType,
       instructions: `# Intention Analysis Agent
 
 You are analyzing developer intent and architectural decisions behind code changes.
@@ -426,23 +442,15 @@ Categories: Feature, Refactor, BugFix, Performance, Security, DevEx, Architectur
 - Be specific - cite actual files, functions, or modules
 - Avoid speculation - stick to observable changes
 - Distinguish between primary goals and secondary effects
-- Each bullet should be actionable for follow-up analysis`,
-    });
-    intentionAnalyzer.instructions += `
+- Each bullet should be actionable for follow-up analysis
+
 ## JSON Output
-Respond ONLY with raw JSON (no prose, no backticks) shaped like:
-[
-  {
-    "category": "Feature|Refactor|BugFix|Performance|Security|DevEx|Architecture|Testing",
-    "title": "concise intent label",
-    "summary": "why the change exists",
-    "impactScope": "local|module|system",
-    "evidence": ["path/to/file.ts:123 - supporting detail"]
-  }
-]`;
-    const qualityReviewer = new Agent({
+Return a JSON array matching the Intention schema (category, title, summary, impactScope, evidence)`,
+    });
+    const qualityReviewer = new Agent<unknown, JsonSchemaDefinition>({
       name: "QualityReviewer",
       model,
+      outputType: RecommendationOutputType,
       instructions: `# Code Quality & DevEx Reviewer
 
 You are evaluating code quality, test coverage, and developer experience improvements.
@@ -482,22 +490,11 @@ Provide 6-10 recommendations in this format:
 - Prioritize improvements with high impact / effort ratio
 - Suggest follow-up tasks, not just observations
 - Balance thoroughness with pragmatism - match the repo's quality bar
-- Focus on improvements that will benefit future changes, not just this PR`,
-    });
-    qualityReviewer.instructions += `
+- Focus on improvements that will benefit future changes, not just this PR
+
 ## JSON Output
-Respond ONLY with raw JSON matching:
-[
-  {
-    "category": "Code|Tests|Docs|Tooling|DevEx|Observability",
-    "title": "recommendation title",
-    "priority": "P0|P1|P2|P3",
-    "effort": "Low|Medium|High",
-    "description": "actionable guidance",
-    "location": "path/to/file or module",
-    "example": "optional example snippet"
-  }
-]`;
+Return a JSON array of recommendations following the Recommendation schema (category, title, priority, effort, description, location, optional example)`,
+    });
 
     intentionAnalyzer.handoffs = [handoff(qualityReviewer)];
     qualityReviewer.handoffs = [];
@@ -506,16 +503,12 @@ Respond ONLY with raw JSON matching:
       intentionAnalyzer,
       `Repo context:\n${contextBlock}\n\nPR status:\n${prBlock}\n\nReview summary:\n${reviewResult.finalResponse}\n\nExtract the key intentions and architectural goals in <=8 bullets.`,
     );
-
-    const riskResult = await this.runner.run(
-      riskAssessor,
-      `Use the same context plus the intention analysis below to map risks.\nIntentions:\n${intentionResult.finalOutput}\n\nList specific risks (with impact+likelihood).`,
-    );
-
+    const intentions = coerceStructuredOutput(intentionResult.finalOutput, IntentionListSchema, []);
     const qualityResult = await this.runner.run(
       qualityReviewer,
-      `Context:\n${contextBlock}\n\nReview:\n${reviewResult.finalResponse}\n\nRisks:\n${riskResult.finalOutput}\n\nProvide actionable recommendations (tests to add, refactors, follow-up tasks).`,
+      `Context:\n${contextBlock}\n\nReview:\n${reviewResult.finalResponse}\n\nIntentions:\n${JSON.stringify(intentions, null, 2)}\n\nProvide actionable recommendations (tests to add, refactors, follow-up tasks).`,
     );
+    const recommendations = coerceStructuredOutput(qualityResult.finalOutput, RecommendationListSchema, []);
 
     const reviewThread = this.codex.startThread({
       model: this.config.model ?? DEFAULT_MODEL,
@@ -547,9 +540,8 @@ Respond ONLY with raw JSON matching:
 
     return {
       summary: reviewResult.finalResponse ?? "",
-      intentions: extractBullets(intentionResult.finalOutput),
-      risks: extractBullets(riskResult.finalOutput),
-      recommendations: extractBullets(qualityResult.finalOutput),
+      intentions,
+      recommendations,
       repoContext,
       prStatus,
       thread: reviewThread,
@@ -558,19 +550,15 @@ Respond ONLY with raw JSON matching:
   }
 
   async launchInteractiveReview(thread: Thread, data: ReviewAnalysis): Promise<NativeTuiExitInfo> {
-    const prompt = `PR Review Ready\n\nSummary:\n${data.summary}\n\nIntentions:\n${data.intentions.map((i) => `• ${i}`).join("\n")}\n\nRisks:\n${data.risks.map((r) => `• ${r}`).join("\n")}\n\nRecommendations:\n${data.recommendations.map((r) => `• ${r}`).join("\n")}\n\nEnter the TUI and drill into any file or test you want.`;
+    const intentionLines = data.intentions
+      .map((item) => `• [${item.category}] ${item.title ?? item.summary} (${item.impactScope})`)
+      .join("\n");
+    const recommendationLines = data.recommendations
+      .map((rec) => `• [${rec.priority}] ${rec.title ?? rec.description} — ${rec.category}`)
+      .join("\n");
+    const prompt = `PR Review Ready\n\nSummary:\n${data.summary}\n\nIntentions:\n${intentionLines}\n\nRecommendations:\n${recommendationLines}\n\nEnter the TUI and drill into any file or test you want.`;
     return thread.tui({ prompt, model: this.config.model ?? DEFAULT_MODEL });
   }
-}
-
-function extractBullets(text?: string | null): string[] {
-  if (!text) return [];
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => /^[-•*\d]/.test(line))
-    .map((line) => line.replace(/^[-•*\d\.\)\s]+/, ""))
-    .filter((line) => line.length > 0 && line.length <= 400);
 }
 
 // ---------------------------------------------------------------------------
@@ -594,265 +582,173 @@ class CICheckerSystem {
     this.runner = new Runner({ modelProvider: this.provider });
   }
 
+  private isSuppressed(kind: CiCheckKind): boolean {
+    return (this.config.suppressedChecks ?? []).includes(kind);
+  }
+
+  private parseIssueOutput(raw: unknown, fallbackSource: CiCheckKind): CiIssue[] {
+    const parsed = coerceStructuredOutput(raw, CiIssueListSchema, []);
+    return parsed.map((issue) => ({
+      ...issue,
+      source: issue.source ?? fallbackSource,
+    }));
+  }
+
+  private formatIssueSummary(issues: CiIssue[]): string {
+    if (issues.length === 0) {
+      return "(no structured CI issues detected)";
+    }
+    return issues
+      .map((issue, idx) => {
+        const files = issue.files?.length ? ` Files: ${issue.files.join(", ")}` : "";
+        const commands = issue.suggestedCommands?.length ? ` Commands: ${issue.suggestedCommands.join(" | ")}` : "";
+        return `#${idx + 1} [${issue.severity}] (${issue.source}) ${issue.title}\n${issue.summary}${files}${commands}`;
+      })
+      .join("\n\n");
+  }
+
+  private formatFixSummary(fixes: CiFix[]): string {
+    if (fixes.length === 0) {
+      return "(no remediation steps synthesized)";
+    }
+    return fixes
+      .map((fix, idx) => {
+        const steps = fix.steps?.length ? ` Steps: ${fix.steps.join(" | ")}` : "";
+        const commands = fix.commands?.length ? ` Commands: ${fix.commands.join(" | ")}` : "";
+        return `#${idx + 1} [${fix.priority}] ${fix.title}${steps}${commands}`;
+      })
+      .join("\n");
+  }
+
   async checkAndFixCI(
     repoContext: RepoContext,
     prStatus: PrStatusSummary | null,
     ciThread?: Thread,
   ): Promise<CiAnalysis> {
-    console.log("🔧 Running CI analysis agents...");
+    console.log('🔧 Running CI analysis agents...');
     const model = await this.provider.getModel();
-    const ciSignal = `${formatRepoContext(repoContext)}\n\nPR/CI Status:\n${formatPrStatus(prStatus)}\n\nGH checks:\n${prStatus?.ghChecksText ?? "<no gh pr checks output>"}`;
+    const ciSignal = `${formatRepoContext(repoContext)}
+
+PR/CI Status:
+${formatPrStatus(prStatus)}
+
+GH checks:
+${prStatus?.ghChecksText ?? '<no gh pr checks output>'}`;
 
     const lintChecker = new Agent({
-      name: "LintChecker",
+      name: 'LintChecker',
       model,
+      outputType: CiIssueOutputType,
       instructions: `# Lint & Static Analysis Checker
 
 You are predicting lint, style, and static analysis issues before CI runs.
 
-## Your Task
-Identify likely linter failures, type errors, and static analysis violations based on the diff and CI configuration.
+## Task
+Return the most likely lint/static-analysis failures as structured JSON.
 
-## What to Check
-1. **Linter Violations**: ESLint/Pylint/Clippy rules based on project config
-2. **Type Errors**: TypeScript/Flow/mypy type mismatches
-3. **Style Issues**: Formatting (Prettier/Black/rustfmt), naming conventions
-4. **Static Analysis**: Unused imports, dead code, complexity warnings
-5. **Language-Specific**: async/await patterns, null safety, memory safety
-
-## Analysis Strategy
-- Examine modified files for common anti-patterns
-- Check if new code follows existing style patterns in the codebase
-- Look for missing type annotations or imports
-- Identify deprecated API usage or banned patterns
-
-## Output Format
-Provide 3-5 likely issues in this format:
-- **[Tool] Issue Description**
-  - File: path/to/file:line
-  - Rule: specific-rule-id or error code
-  - Reason: Why this will fail the check
-  - Fix: Suggested command or code change
-
-## Constraints
-- Only flag issues you're confident will fail CI (avoid false positives)
-- Provide actionable fixes, not just problem descriptions
-- Include actual commands to run (e.g., \`eslint --fix\`, \`cargo clippy --fix\`)`,
+## JSON Output
+Respond with a JSON array of CiIssue objects. Set "source" to "lint" for every entry.`,
     });
     const testChecker = new Agent({
-      name: "TestChecker",
+      name: 'TestChecker',
       model,
+      outputType: CiIssueOutputType,
       instructions: `# Test Failure Predictor
 
 You are predicting test failures and coverage gaps before CI runs.
 
-## Your Task
-Identify likely test failures and missing test coverage based on code changes.
+## Task
+Return projected failing tests as structured JSON.
 
-## What to Check
-1. **Direct Failures**: Tests that call modified functions
-2. **Integration Failures**: Tests that depend on changed behavior
-3. **Snapshot Mismatches**: UI/output changes requiring snapshot updates
-4. **Flaky Tests**: Timing-sensitive or stateful tests affected by changes
-5. **Coverage Gaps**: New code lacking test coverage
-
-## Analysis Strategy
-- Trace modified functions to their test callers
-- Identify breaking API changes (signature, return type, behavior)
-- Look for new branches/functions without corresponding tests
-- Check for race conditions or async changes affecting test stability
-
-## Output Format
-Provide 4-6 predictions in this format:
-- **[Category] Test Suite/File**
-  - Likelihood: High/Medium/Low
-  - Failure Type: Assertion/Timeout/Error/Coverage
-  - Reason: What changed that will break this test
-  - Fix: Specific test updates needed or new tests to add
-  - Command: How to run this test locally
-
-## Constraints
-- Focus on tests that will definitely or likely fail, not theoretical gaps
-- Provide specific test file names and function names when possible
-- Suggest commands to reproduce locally (e.g., \`npm test -- --testNamePattern=...\`)`,
+## JSON Output
+Respond with a JSON array of CiIssue objects. Set "source" to "tests" for every entry.`,
     });
     const buildChecker = new Agent({
-      name: "BuildChecker",
+      name: 'BuildChecker',
       model,
+      outputType: CiIssueOutputType,
       instructions: `# Build & Dependency Checker
 
 You are detecting build, packaging, and dependency issues before CI runs.
 
-## Your Task
-Identify likely build failures, dependency conflicts, and cross-platform issues.
+## Task
+Return likely build blockers as structured JSON.
 
-## What to Check
-1. **Compilation Errors**: Syntax, imports, missing dependencies
-2. **Dependency Conflicts**: Version mismatches, peer dependency issues
-3. **Platform Issues**: OS-specific code, architecture-dependent builds
-4. **Build Script Errors**: Webpack/Rollup/Cargo config issues
-5. **Asset Problems**: Missing files, broken paths, resource loading
-6. **Incremental Build**: Cache invalidation, stale artifacts
-
-## Analysis Strategy
-- Check if new imports are declared in package.json/Cargo.toml/requirements.txt
-- Look for platform-specific code without proper conditionals
-- Identify breaking changes in dependency APIs
-- Check for missing build steps or asset generation
-
-## Output Format
-Provide 3-5 predictions in this format:
-- **[Category] Build Issue**
-  - Severity: Blocking/Warning
-  - Platform: All/Linux/macOS/Windows or Language/Runtime version
-  - Reason: What will cause the build to fail
-  - Detection: Which CI step will catch this (compile/bundle/package)
-  - Fix: Specific change to make (add dep, update config, fix import)
-  - Command: How to reproduce locally
-
-## Constraints
-- Prioritize blocking build failures over warnings
-- Be specific about which platform/config will fail
-- Provide actual commands or config changes, not just descriptions`,
+## JSON Output
+Respond with a JSON array of CiIssue objects. Set "source" to "build" for every entry.`,
     });
     const securityChecker = new Agent({
-      name: "SecurityChecker",
+      name: 'SecurityChecker',
       model,
+      outputType: CiIssueOutputType,
       instructions: `# Security & Secrets Checker
 
 You are identifying security vulnerabilities and secrets hygiene issues.
 
-## Your Task
-Flag security risks and secret exposure that CI security scans will catch or should catch.
+## Task
+Return likely security failures as structured JSON.
 
-## What to Check
-1. **Hardcoded Secrets**: API keys, tokens, passwords in code
-2. **Injection Vulnerabilities**: SQL injection, XSS, command injection
-3. **Auth/Authz Bypass**: Missing checks, broken access control
-4. **Cryptography Issues**: Weak algorithms, insecure random, bad key management
-5. **Dependency Vulnerabilities**: Known CVEs in dependencies
-6. **Data Exposure**: Logging sensitive data, debug output in production
-
-## Analysis Strategy
-- Scan for string literals that look like secrets (regex patterns)
-- Identify user input flowing into dangerous sinks (SQL, eval, exec)
-- Check for missing authentication/authorization on new endpoints
-- Look for cryptographic primitives used incorrectly
-- Check if sensitive data is logged or exposed in errors
-
-## Output Format
-Provide 2-4 security concerns in this format:
-- **[Severity: Critical/High/Medium] Issue Title**
-  - Category: Secrets/Injection/Auth/Crypto/Dependency/DataExposure
-  - Location: path/to/file:line
-  - Risk: What could be exploited and by whom
-  - Detection: Will CI catch this? (Static analysis/Secrets scan/Manual review)
-  - Fix: Specific remediation (use env var, sanitize input, add auth check)
-
-## Constraints
-- Only flag genuine security issues, not theoretical hardening
-- Differentiate between "will fail CI" vs "should be fixed but CI might miss"
-- Be explicit about severity - not everything is Critical
-- Provide concrete fixes, not just "fix the vulnerability"`,
+## JSON Output
+Respond with a JSON array of CiIssue objects. Set "source" to "security" for every entry.`,
     });
     const fixer = new Agent({
-      name: "CIFixer",
+      name: 'CIFixer',
       model,
+      outputType: CiFixOutputType,
       instructions: `# CI Issue Remediation Planner
 
-You are synthesizing CI issues from multiple checkers and creating an ordered fix plan.
+You synthesize issues from multiple checkers and output an ordered remediation plan.
 
-## Your Task
-Aggregate all predicted CI issues and generate a prioritized, actionable remediation checklist.
+## Task
+Cluster issues by priority, propose owners, commands, and ETA.
 
-## Prioritization Framework
-1. **P0 - Blockers**: Build failures, critical security issues
-2. **P1 - Urgent**: Test failures, type errors, high-severity lint
-3. **P2 - Normal**: Coverage gaps, medium-severity security, warnings
-4. **P3 - Low**: Style nits, minor refactors, documentation
-
-## Remediation Plan Structure
-For each issue group:
-1. **Triage**: Which issues are duplicates or related?
-2. **Dependencies**: What must be fixed first? (build before test, etc.)
-3. **Batch Fixes**: What can be fixed with one command? (e.g., \`eslint --fix\`)
-4. **Manual Fixes**: What requires code changes?
-
-## Output Format
-\`\`\`markdown
-# CI Remediation Plan
-
-## Summary
-- Total Issues: X (P0: A, P1: B, P2: C, P3: D)
-- Estimated Time: ~X hours
-- Auto-fixable: Y issues
-
-## Phase 1: Blockers (P0)
-- [ ] **Build** Fix missing dependency in package.json
-  - Run: \`npm install --save @types/node\`
-  - Files: package.json
-  - Owner: Build team
-
-## Phase 2: Urgent (P1)
-...
-
-## Quick Wins (Batch Fixes)
-\`\`\`bash
-# Run all auto-fixes
-npm run lint:fix
-cargo fmt
-pytest --co -q  # Check which tests will run
-\`\`\`
-
-## Manual Intervention Required
-1. **Test Failures**: Update snapshot tests after UI changes
-   - Run: \`npm test -- -u\`
-   - Review: Ensure snapshots are correct, not just updated
-
-## Validation Checklist
-- [ ] All linters pass locally
-- [ ] All tests pass locally
-- [ ] Build succeeds on all platforms
-- [ ] Security scan clean
-\`\`\`
-
-## Constraints
-- Group related issues to avoid redundant fixes
-- Provide copy-paste commands wherever possible
-- Estimate time/effort for manual fixes
-- Call out any fixes that need team discussion or design decisions`,
+## JSON Output
+Respond with a JSON array of CiFix objects (title, priority, steps, commands, owner, etaHours).`,
     });
 
-    lintChecker.handoffs = [handoff(fixer)];
-    testChecker.handoffs = [handoff(fixer)];
-    buildChecker.handoffs = [handoff(fixer)];
-    securityChecker.handoffs = [handoff(fixer)];
-
     const prompts = {
-      lint: `${ciSignal}\n\nTask: enumerate lint/static-analysis issues likely to fail CI. Include file hints or commands.`,
-      test: `${ciSignal}\n\nTask: identify tests likely to fail or be missing. Include pytest/cargo/jest commands.`,
-      build: `${ciSignal}\n\nTask: identify build or dependency issues across OS targets.`,
-      security: `${ciSignal}\n\nTask: point out security vulnerabilities or secrets hygiene risks in this diff.`,
+      lint: `${ciSignal}
+
+Task: enumerate lint/static-analysis issues likely to fail CI. Include file hints or commands.`,
+      test: `${ciSignal}
+
+Task: identify tests likely to fail or be missing. Include pytest/cargo/jest commands.`,
+      build: `${ciSignal}
+
+Task: identify build or dependency issues across OS targets.`,
+      security: `${ciSignal}
+
+Task: point out security vulnerabilities or secrets hygiene risks in this diff.`,
+    } as const;
+
+    const runIssueAgent = async (kind: CiCheckKind, agent: Agent, prompt: string) => {
+      if (this.isSuppressed(kind)) {
+        return [] as CiIssue[];
+      }
+      const result = await this.runner.run(agent, prompt);
+      return this.parseIssueOutput(result.finalOutput, kind);
     };
 
-    const [lintResult, testResult, buildResult, securityResult] = await Promise.all([
-      this.runner.run(lintChecker, prompts.lint),
-      this.runner.run(testChecker, prompts.test),
-      this.runner.run(buildChecker, prompts.build),
-      this.runner.run(securityChecker, prompts.security),
+    const [lintIssues, testIssues, buildIssues, securityIssues] = await Promise.all([
+      runIssueAgent('lint', lintChecker, prompts.lint),
+      runIssueAgent('tests', testChecker, prompts.test),
+      runIssueAgent('build', buildChecker, prompts.build),
+      runIssueAgent('security', securityChecker, prompts.security),
     ]);
 
-    const findings = [lintResult, testResult, buildResult, securityResult]
-      .map((result) => result?.finalOutput ?? "")
-      .join("\n\n");
+    const issues = [...lintIssues, ...testIssues, ...buildIssues, ...securityIssues];
 
+    const fixerContext = `${ciSignal}
+
+Structured issues JSON:
+${JSON.stringify(issues, null, 2)}`;
     const fixerResult = await this.runner.run(
       fixer,
-      `${ciSignal}\n\nAggregated findings:\n${findings}\n\nProduce a prioritized remediation checklist with owners and commands.`,
-    );
+      `${fixerContext}
 
-    const issues = extractIssues(fixingsText(findings));
-    const fixes = extractBullets(fixerResult.finalOutput);
+Produce a prioritized remediation checklist with owners and commands.`,
+    );
+    const fixes = coerceStructuredOutput(fixerResult.finalOutput, CiFixListSchema, []);
     const confidence = Math.min(0.99, Math.max(0.2, fixes.length / Math.max(1, issues.length + 2)));
 
     const thread =
@@ -861,11 +757,23 @@ pytest --co -q  # Check which tests will run
         model: this.config.model ?? DEFAULT_MODEL,
         workingDirectory: repoContext.cwd,
         skipGitRepoCheck: this.config.skipGitRepoCheck,
-        approvalMode: "on-request",
-        sandboxMode: "workspace-write",
+        approvalMode: 'on-request',
+        sandboxMode: 'workspace-write',
       });
 
-    await thread.run(`CI signal summary as of ${new Date().toISOString()}\n\n${ciSignal}\n\nIssues:\n${issues.map((i) => `• ${i}`).join("\n")}\n\nRecommended fixes:\n${fixes.map((f) => `• ${f}`).join("\n")}\n\nReturn a short confirmation and be ready to continue interactively.`);
+    const issueSummary = this.formatIssueSummary(issues);
+    const fixSummary = this.formatFixSummary(fixes);
+    await thread.run(`CI signal summary as of ${new Date().toISOString()}
+
+${ciSignal}
+
+Issues:
+${issueSummary}
+
+Recommended fixes:
+${fixSummary}
+
+Return a short confirmation and be ready to continue interactively.`);
 
     return {
       issues,
@@ -876,24 +784,19 @@ pytest --co -q  # Check which tests will run
   }
 
   async launchInteractiveFixing(thread: Thread, data: CiAnalysis): Promise<NativeTuiExitInfo> {
-    const prompt = `CI Analysis\nConfidence: ${(data.confidence * 100).toFixed(1)}%\n\nIssues:\n${data.issues.map((i) => `• ${i}`).join("\n")}\n\nFixes:\n${data.fixes.map((f) => `• ${f}`).join("\n")}\n\nLet's jump into the TUI and apply/validate these fixes.`;
+    const prompt = `CI Analysis
+Confidence: ${(data.confidence * 100).toFixed(1)}%
+
+Issues:
+${this.formatIssueSummary(data.issues)}
+
+Fixes:
+${this.formatFixSummary(data.fixes)}
+
+Let's jump into the TUI and apply/validate these fixes.`;
     return thread.tui({ prompt, model: this.config.model ?? DEFAULT_MODEL });
   }
 }
-
-function fixingsText(text: string): string {
-  return text || "";
-}
-
-function extractIssues(text: string): string[] {
-  if (!text) return [];
-  return text
-    .split(/\r?\n/)
-    .filter((line) => /risk|fail|error|issue|break|missing/i.test(line))
-    .map((line) => line.replace(/^[-•*\d\.\)\s]+/, "").trim())
-    .filter((line) => line.length > 0);
-}
-
 // ---------------------------------------------------------------------------
 // Reverie System Helpers
 // ---------------------------------------------------------------------------
@@ -1018,20 +921,10 @@ class ReverieSystem {
         return processed.slice(0, 10).map(({ headRecords, tailRecords, rawRelevance, ...result }) => result);
       }
     } catch {
-      // ignore and fallback
+      // ignore and fall through to empty result
     }
 
-    // Fallback placeholder
-    const now = Date.now();
-    return [
-      {
-        conversationId: `reverie-${now}`,
-        timestamp: new Date(now).toISOString(),
-        relevance: 0.75,
-        excerpt: `No native reverie results; placeholder for: ${query}`,
-        insights: ["Consider reusing patterns from prior CI fixes."],
-      },
-    ];
+    return [];
   }
 
   private async ensureEmbedderReady(): Promise<void> {
@@ -1181,15 +1074,41 @@ class MultiAgentOrchestrator {
 function logReviewSummary(data: ReviewAnalysis): void {
   console.log("\n📋 Review Summary");
   console.log("Summary:", data.summary.slice(0, 600), "...\n");
-  console.log("Top Intentions:", data.intentions.slice(0, 5));
-  console.log("Top Risks:", data.risks.slice(0, 5));
-  console.log("Recommendations:", data.recommendations.slice(0, 5));
+  console.log(
+    "Top Intentions:",
+    data.intentions.slice(0, 5).map((item) => ({
+      category: item.category,
+      title: item.title,
+      impact: item.impactScope,
+    })),
+  );
+  console.log(
+    "Recommendations:",
+    data.recommendations.slice(0, 5).map((rec) => ({
+      category: rec.category,
+      title: rec.title,
+      priority: rec.priority,
+    })),
+  );
 }
 
 function logCiSummary(data: CiAnalysis): void {
   console.log("\n🔧 CI Summary");
-  console.log("Issues:", data.issues.slice(0, 5));
-  console.log("Fixes:", data.fixes.slice(0, 5));
+  console.log(
+    "Issues:",
+    data.issues.slice(0, 5).map((issue) => ({
+      source: issue.source,
+      severity: issue.severity,
+      title: issue.title,
+    })),
+  );
+  console.log(
+    "Fixes:",
+    data.fixes.slice(0, 5).map((fix) => ({
+      priority: fix.priority,
+      title: fix.title,
+    })),
+  );
   console.log("Confidence:", `${(data.confidence * 100).toFixed(1)}%`);
 }
 
