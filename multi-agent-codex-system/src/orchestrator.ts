@@ -5,15 +5,24 @@ import { PRDeepReviewer } from "./pr-deep-reviewer.js";
 import { ReverieSystem } from "./reverie.js";
 import { collectPrStatus, collectRepoContext, formatPrStatus, formatRepoContext } from "./repo.js";
 import type { CiAnalysis, MultiAgentConfig, PrStatusSummary, RepoContext, ReviewAnalysis } from "./types.js";
+import { LspDiagnosticsBridge } from "./lsp/index.js";
+import { attachApplyPatchReminder } from "./reminders/applyPatchReminder.js";
 
 class MultiAgentOrchestrator {
   private reviewer: PRDeepReviewer;
   private ciChecker: CICheckerSystem;
   private reverie: ReverieSystem;
+  private diagnostics?: LspDiagnosticsBridge;
 
   constructor(private readonly config: MultiAgentConfig) {
-    this.reviewer = new PRDeepReviewer(config);
-    this.ciChecker = new CICheckerSystem(config);
+    if (config.enableLspDiagnostics) {
+      this.diagnostics = new LspDiagnosticsBridge({
+        workingDirectory: config.workingDirectory,
+        waitForDiagnostics: config.lspWaitForDiagnostics,
+      });
+    }
+    this.reviewer = new PRDeepReviewer(config, this.diagnostics);
+    this.ciChecker = new CICheckerSystem(config, this.diagnostics);
     this.reverie = new ReverieSystem(config);
   }
 
@@ -48,12 +57,16 @@ class MultiAgentOrchestrator {
         workingDirectory: this.config.workingDirectory,
         skipGitRepoCheck: this.config.skipGitRepoCheck,
       });
+      const detach = this.diagnostics?.attach(thread);
+      const reminderCleanup = attachApplyPatchReminder(thread, "danger-full-access");
       await this.reverie.injectReverie(thread, reveries, this.config.reverieQuery);
       if (this.config.interactive) {
         await thread.tui({
           prompt: `Injected ${reveries.length} reverie insight(s) for '${this.config.reverieQuery}'. Continue the discussion.`,
         });
       }
+      detach?.();
+      reminderCleanup();
     }
 
     if (!this.config.reviewBranch && !this.config.ciCheck && !this.config.reverieQuery) {
@@ -68,6 +81,8 @@ class MultiAgentOrchestrator {
       workingDirectory: this.config.workingDirectory,
       skipGitRepoCheck: this.config.skipGitRepoCheck,
     });
+    const detach = this.diagnostics?.attach(thread);
+    const reminderCleanup = attachApplyPatchReminder(thread, "danger-full-access");
 
     const prompt = `Integrated Multi-Agent Session\n\nRepo context:\n${formatRepoContext(repoContext)}\n\nPR status:\n${formatPrStatus(prStatus)}\n\nAvailable commands:\n- type 'review branch' to start automated review\n- type 'check ci' to inspect CI\n- type 'reverie <topic>' to search past insights\n\nHow can I help?`;
 
@@ -77,6 +92,8 @@ class MultiAgentOrchestrator {
       const turn = await thread.run(prompt);
       console.log("🤖", turn.finalResponse);
     }
+    detach?.();
+    reminderCleanup();
   }
 }
 

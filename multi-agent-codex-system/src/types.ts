@@ -21,6 +21,8 @@ export type MultiAgentConfig = {
   baseBranchOverride?: string;
   embedder?: FastEmbedConfig;
   suppressedChecks?: CiCheckKind[];
+  enableLspDiagnostics?: boolean;
+  lspWaitForDiagnostics?: boolean;
 };
 
 export type CommandResult = {

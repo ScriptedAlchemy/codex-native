@@ -12,14 +12,16 @@ import {
   type Recommendation,
 } from "./schemas.js";
 import type { MultiAgentConfig, PrStatusSummary, RepoContext, ReviewAnalysis } from "./types.js";
+import type { LspDiagnosticsBridge } from "./lsp/index.js";
 import { formatPrStatus, formatRepoContext } from "./repo.js";
+import { attachApplyPatchReminder } from "./reminders/applyPatchReminder.js";
 
 class PRDeepReviewer {
   private codex: Codex;
   private provider: CodexProvider;
   private runner: Runner;
 
-  constructor(private readonly config: MultiAgentConfig) {
+  constructor(private readonly config: MultiAgentConfig, private readonly diagnostics?: LspDiagnosticsBridge) {
     this.codex = new Codex({ baseUrl: config.baseUrl, apiKey: config.apiKey });
     this.provider = new CodexProvider({
       baseUrl: config.baseUrl,
@@ -166,6 +168,8 @@ Return a JSON array of recommendations following the Recommendation schema (cate
       approvalMode: "on-request",
       sandboxMode: "workspace-write",
     });
+    this.diagnostics?.attach(reviewThread);
+    attachApplyPatchReminder(reviewThread, "workspace-write");
 
     await reviewThread.run(`You already completed an automated branch review.\n\nBranch: ${repoContext.branch}\nBase: ${repoContext.baseBranch}\n\nRepo signals:\n${contextBlock}\n\nPR status summary:\n${prBlock}\n\nAutomated review findings:\n${reviewResult.finalResponse}\n\nSummarize the most critical insights and propose next investigative steps before I join via TUI.`);
 
@@ -183,6 +187,10 @@ Return a JSON array of recommendations following the Recommendation schema (cate
           sandboxMode: "workspace-write",
         },
       });
+      if (ciHandoff) {
+        this.diagnostics?.attach(ciHandoff);
+        attachApplyPatchReminder(ciHandoff, "workspace-write");
+      }
     } catch (error) {
       console.warn("⚠️ Unable to fork thread for CI handoff:", error);
     }

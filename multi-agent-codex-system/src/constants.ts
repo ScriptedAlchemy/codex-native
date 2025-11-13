@@ -24,4 +24,6 @@ export const CONFIG: MultiAgentConfig = {
     },
   },
   suppressedChecks: [],
+  enableLspDiagnostics: true,
+  lspWaitForDiagnostics: true,
 };

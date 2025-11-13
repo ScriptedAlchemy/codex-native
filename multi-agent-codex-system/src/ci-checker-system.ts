@@ -12,14 +12,16 @@ import {
   type CiIssue,
 } from "./schemas.js";
 import type { CiAnalysis, CiCheckKind, MultiAgentConfig, PrStatusSummary, RepoContext } from "./types.js";
+import type { LspDiagnosticsBridge } from "./lsp/index.js";
 import { formatPrStatus, formatRepoContext } from "./repo.js";
+import { attachApplyPatchReminder } from "./reminders/applyPatchReminder.js";
 
 class CICheckerSystem {
   private codex: Codex;
   private provider: CodexProvider;
   private runner: Runner;
 
-  constructor(private readonly config: MultiAgentConfig) {
+  constructor(private readonly config: MultiAgentConfig, private readonly diagnostics?: LspDiagnosticsBridge) {
     this.codex = new Codex({ baseUrl: config.baseUrl, apiKey: config.apiKey });
     this.provider = new CodexProvider({
       baseUrl: config.baseUrl,
@@ -213,6 +215,10 @@ Produce a prioritized remediation checklist with owners and commands.`,
         approvalMode: "on-request",
         sandboxMode: "workspace-write",
       });
+    if (!ciThread) {
+      attachApplyPatchReminder(thread, "workspace-write");
+    }
+    this.diagnostics?.attach(thread);
 
     const issueSummary = this.formatIssueSummary(issues);
     const fixSummary = this.formatFixSummary(fixes);
