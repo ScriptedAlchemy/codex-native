@@ -476,7 +476,7 @@ async fn shell_output_reserializes_truncated_content() -> Result<()> {
 
     let call_id = "shell-truncated";
     let args = json!({
-        "command": ["/bin/sh", "-c", "seq 1 400"],
+        "command": ["/bin/sh", "-c", "seq 1 700"],
         "timeout_ms": 5_000,
     });
     let responses = vec![
@@ -517,7 +517,7 @@ async fn shell_output_reserializes_truncated_content() -> Result<()> {
     );
     let truncated_pattern = r#"(?s)^Exit code: 0
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
-Total output lines: 400
+Total output lines: 700
 Output:
 1
 2
@@ -526,14 +526,14 @@ Output:
 5
 6
 .*
-\[\.{3} omitted \d+ of 400 lines \.{3}\]
+\[\.{3} omitted \d+ of 700 lines \.{3}\]
 
 .*
-396
-397
-398
-399
-400
+696
+697
+698
+699
+700
 $"#;
     assert_regex_match(truncated_pattern, output);
 

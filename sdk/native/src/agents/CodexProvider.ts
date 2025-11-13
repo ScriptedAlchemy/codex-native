@@ -869,6 +869,16 @@ class CodexModel implements Model {
         }
         break;
 
+      case "background_event":
+        events.push({
+          type: "model",
+          event: {
+            type: "background_event",
+            message: event.message,
+          },
+        } as StreamEvent);
+        break;
+
       case "item.updated":
         // Emit delta events for incremental text updates
         if (event.item.type === "agent_message") {

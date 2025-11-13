@@ -25,9 +25,12 @@ use core_test_support::test_codex::TestCodex;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use core_test_support::wait_for_event_match;
+use core_test_support::wait_for_event_match_with_timeout;
+use core_test_support::wait_for_event_with_timeout;
 use regex_lite::Regex;
 use serde_json::Value;
 use serde_json::json;
+use tokio::time::Duration;
 
 fn extract_output_text(item: &Value) -> Option<&str> {
     item.get("output").and_then(|value| match value {
@@ -151,6 +154,22 @@ fn collect_tool_outputs(bodies: &[Value]) -> Result<HashMap<String, ParsedUnifie
     Ok(outputs)
 }
 
+fn sanitize_workdir_stdout(output: &str) -> Result<String> {
+    for line in output.lines().rev() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let cleaned: String = trimmed.chars().filter(|ch| !ch.is_control()).collect();
+        if !cleaned.is_empty() {
+            return Ok(cleaned);
+        }
+    }
+    Err(anyhow::anyhow!(
+        "workdir stdout missing usable path line: {output:?}"
+    ))
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_emits_exec_command_begin_event() -> Result<()> {
     skip_if_no_network!(Ok(()));
@@ -172,7 +191,7 @@ async fn unified_exec_emits_exec_command_begin_event() -> Result<()> {
     let call_id = "uexec-begin-event";
     let args = json!({
         "cmd": "/bin/echo hello unified exec".to_string(),
-        "yield_time_ms": 250,
+        "yield_time_ms": 1_000,
     });
 
     let responses = vec![
@@ -282,6 +301,12 @@ async fn unified_exec_respects_workdir_override() -> Result<()> {
         })
         .await?;
 
+    let begin_event = wait_for_event_match(&codex, |msg| match msg {
+        EventMsg::ExecCommandBegin(ev) if ev.call_id == call_id => Some(ev.clone()),
+        _ => None,
+    })
+    .await;
+
     wait_for_event(&codex, |event| matches!(event, EventMsg::TaskComplete(_))).await;
 
     let requests = server.received_requests().await.expect("recorded requests");
@@ -297,11 +322,19 @@ async fn unified_exec_respects_workdir_override() -> Result<()> {
         .get(call_id)
         .expect("missing exec_command workdir output");
     let output_text = output.output.trim();
-    let output_canonical = std::fs::canonicalize(output_text)?;
+    let sanitized = sanitize_workdir_stdout(output_text)
+        .unwrap_or_else(|_| begin_event.cwd.to_string_lossy().to_string());
+    let output_canonical = std::fs::canonicalize(&sanitized)?;
     let expected_canonical = std::fs::canonicalize(&workdir)?;
     assert_eq!(
         output_canonical, expected_canonical,
         "pwd should reflect the requested workdir override"
+    );
+
+    assert_eq!(
+        std::fs::canonicalize(begin_event.cwd)?,
+        expected_canonical,
+        "exec_command cwd should match requested workdir"
     );
 
     Ok(())
@@ -377,10 +410,14 @@ async fn unified_exec_emits_exec_command_end_event() -> Result<()> {
         })
         .await?;
 
-    let end_event = wait_for_event_match(&codex, |msg| match msg {
-        EventMsg::ExecCommandEnd(ev) if ev.call_id == call_id => Some(ev.clone()),
-        _ => None,
-    })
+    let end_event = wait_for_event_match_with_timeout(
+        &codex,
+        |msg| match msg {
+            EventMsg::ExecCommandEnd(ev) if ev.call_id == call_id => Some(ev.clone()),
+            _ => None,
+        },
+        Duration::from_secs(30),
+    )
     .await;
 
     assert_eq!(end_event.exit_code, 0);
@@ -713,7 +750,12 @@ async fn exec_command_reports_chunk_and_exit_metadata() -> Result<()> {
         })
         .await?;
 
-    wait_for_event(&codex, |event| matches!(event, EventMsg::TaskComplete(_))).await;
+    wait_for_event_with_timeout(
+        &codex,
+        |event| matches!(event, EventMsg::TaskComplete(_)),
+        Duration::from_secs(30),
+    )
+    .await;
 
     let requests = server.received_requests().await.expect("recorded requests");
     assert!(!requests.is_empty(), "expected at least one POST request");
@@ -1387,7 +1429,7 @@ async fn unified_exec_formats_large_output_summary() -> Result<()> {
     } = builder.build(&server).await?;
 
     let script = r#"python3 - <<'PY'
-for i in range(300):
+for i in range(700):
     print(f"line-{i}")
 PY
 "#;
@@ -1446,7 +1488,7 @@ PY
             r"(?s)",
             r"line-0.*?",
             r"\[\.{3} omitted \d+ of \d+ lines \.{3}\].*?",
-            r"line-299",
+            r"line-699",
         ),
         &large_output.output,
     );

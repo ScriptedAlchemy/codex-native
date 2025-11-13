@@ -142,6 +142,18 @@ where
     matcher(&ev).unwrap()
 }
 
+pub async fn wait_for_event_match_with_timeout<T, F>(
+    codex: &CodexConversation,
+    matcher: F,
+    timeout: tokio::time::Duration,
+) -> T
+where
+    F: Fn(&codex_core::protocol::EventMsg) -> Option<T>,
+{
+    let ev = wait_for_event_with_timeout(codex, |ev| matcher(ev).is_some(), timeout).await;
+    matcher(&ev).unwrap()
+}
+
 pub async fn wait_for_event_with_timeout<F>(
     codex: &CodexConversation,
     mut predicate: F,

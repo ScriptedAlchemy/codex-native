@@ -114,7 +114,7 @@ async fn tool_call_output_exceeds_limit_truncated_for_model() -> Result<()> {
 
     let call_id = "shell-too-large";
     let args = serde_json::json!({
-        "command": ["/bin/sh", "-c", "seq 1 400"],
+        "command": ["/bin/sh", "-c", "seq 1 700"],
         "timeout_ms": 5_000,
     });
 
@@ -157,7 +157,7 @@ async fn tool_call_output_exceeds_limit_truncated_for_model() -> Result<()> {
     );
     let truncated_pattern = r#"(?s)^Exit code: 0
 Wall time: .* seconds
-Total output lines: 400
+Total output lines: 700
 Output:
 1
 2
@@ -166,14 +166,14 @@ Output:
 5
 6
 .*
-\[\.{3} omitted 144 of 400 lines \.{3}\]
+\[\.{3} omitted 72 of 700 lines \.{3}\]
 
 .*
-396
-397
-398
-399
-400
+696
+697
+698
+699
+700
 $"#;
     assert_regex_match(truncated_pattern, &output);
 

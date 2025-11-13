@@ -19,6 +19,14 @@ Basic examples using the Native SDK directly (without OpenAI Agents framework).
   - Type-safe structured responses
   - Multiple schema examples (code analysis, task breakdown)
 
+### `/embeddings` - FastEmbed Integration
+
+- **`fast-embed.ts`** — Local embedding pipelines with caching
+  - Initialize the FastEmbed runtime from Node.js
+  - Defaults to the `BAAI/bge-large-en-v1.5` ONNX model bundle
+  - Generates normalized sentence embeddings & stores them under `~/.codex/embeddings`
+  - Perfect starting point for reverie re-ranking or custom RAG flows
+
 ### `/basic` - Core Features
 Basic SDK functionality and common use cases.
 
@@ -114,6 +122,11 @@ Advanced multi-agent workflows.
   - Progress indicators
   - Custom processing of stream events
   - Error handling in streaming
+ 
+- **`agents-fork-into-new-agent.ts`** — Fork thread and continue with another Agent
+  - Fork underlying Codex thread to keep cache benefits
+  - Run a different Agent on the fork with `conversationId`
+  - Isolation from original path with shared context
 
 - **`agents-multi-agent-workflow.ts`** — Complex multi-agent workflows
   - Multiple specialized agents working together

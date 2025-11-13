@@ -6,6 +6,7 @@ use crate::event_processor::CodexStatus;
 use crate::event_processor::EventProcessor;
 use crate::event_processor::handle_last_message;
 use crate::exec_events::AgentMessageItem;
+use crate::exec_events::BackgroundEventEvent;
 use crate::exec_events::CommandExecutionItem;
 use crate::exec_events::CommandExecutionStatus;
 use crate::exec_events::ErrorItem;
@@ -143,6 +144,11 @@ impl EventProcessorWithJsonOutput {
                     }),
                 };
                 vec![ThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
+            }
+            EventMsg::BackgroundEvent(ev) => {
+                vec![ThreadEvent::BackgroundEvent(BackgroundEventEvent {
+                    message: ev.message.clone(),
+                })]
             }
             EventMsg::StreamError(ev) => vec![ThreadEvent::Error(ThreadErrorEvent {
                 message: ev.message.clone(),

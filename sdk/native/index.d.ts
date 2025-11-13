@@ -22,6 +22,8 @@ export declare function cloudTasksList(envFilter?: string | undefined | null, ba
 
 export declare function compactThread(req: RunRequest): Promise<Array<string>>
 
+export declare function emitBackgroundEvent(req: JsEmitBackgroundEventRequest): void
+
 export declare function emitPlanUpdate(req: JsEmitPlanUpdateRequest): void
 
 export declare function evAssistantMessage(id: string, text: string): string
@@ -32,9 +34,56 @@ export declare function evFunctionCall(callId: string, name: string, args: strin
 
 export declare function evResponseCreated(id: string): string
 
+export declare function fastEmbedEmbed(req: FastEmbedEmbedRequest): Promise<Array<Array<number>>>
+
+export interface FastEmbedEmbedRequest {
+  inputs: Array<string>
+  batchSize?: number
+  normalize?: boolean
+  projectRoot?: string
+  cache?: boolean
+}
+
+export declare function fastEmbedInit(opts: FastEmbedInitOptions): Promise<void>
+
+export interface FastEmbedInitOptions {
+  model?: string
+  cacheDir?: string
+  maxLength?: number
+  showDownloadProgress?: boolean
+}
+
+export interface ForkRequest {
+  threadId: string
+  nthUserMessage?: number
+  model?: string
+  oss?: boolean
+  sandboxMode?: string
+  approvalMode?: string
+  workspaceWriteOptions?: WorkspaceWriteOptions
+  workingDirectory?: string
+  skipGitRepoCheck?: boolean
+  baseUrl?: string
+  apiKey?: string
+  linuxSandboxPath?: string
+  fullAuto?: boolean
+}
+
+export interface ForkResult {
+  threadId: string
+  rolloutPath: string
+}
+
+export declare function forkThread(req: ForkRequest): Promise<ForkResult>
+
 export interface JsApprovalRequest {
   type: string
   details?: JsonValue
+}
+
+export interface JsEmitBackgroundEventRequest {
+  threadId: string
+  message: string
 }
 
 export interface JsEmitPlanUpdateRequest {
@@ -100,6 +149,28 @@ export declare function registerTool(info: NativeToolInfo, handler: (call: JsToo
 
 export declare function registerToolInterceptor(toolName: string, handler: (context: JsToolInterceptorContext) => NativeToolResponse | Promise<NativeToolResponse>): void
 
+export interface ReverieConversation {
+  id: string
+  path: string
+  createdAt?: string
+  updatedAt?: string
+  headRecords: Array<string>
+  tailRecords: Array<string>
+}
+
+export declare function reverieGetConversationInsights(conversationPath: string, query?: string | undefined | null): Promise<Array<string>>
+
+export declare function reverieListConversations(codexHomePath: string, limit?: number | undefined | null, offset?: number | undefined | null): Promise<Array<ReverieConversation>>
+
+export declare function reverieSearchConversations(codexHomePath: string, query: string, limit?: number | undefined | null): Promise<Array<ReverieSearchResult>>
+
+export interface ReverieSearchResult {
+  conversation: ReverieConversation
+  relevanceScore: number
+  matchingExcerpts: Array<string>
+  insights: Array<string>
+}
+
 export interface RunRequest {
   prompt: string
   threadId?: string
@@ -129,6 +200,23 @@ export declare function runTui(req: TuiRequest): Promise<TuiExitInfo>
 export declare function sse(events: Array<string>): string
 
 export declare function startTui(req: TuiRequest): TuiSession
+
+export interface TokenizerBaseOptions {
+  model?: string
+  encoding?: "o200k_base" | "cl100k_base"
+}
+
+export declare function tokenizerCount(text: string, options?: TokenizerBaseOptions | undefined | null): number
+
+export declare function tokenizerDecode(tokens: Array<number>, options?: TokenizerBaseOptions | undefined | null): string
+
+export declare function tokenizerEncode(text: string, options?: TokenizerEncodeOptions | undefined | null): Array<number>
+
+export interface TokenizerEncodeOptions {
+  model?: string
+  encoding?: "o200k_base" | "cl100k_base"
+  withSpecialTokens?: boolean
+}
 
 export interface TokenUsageSummary {
   inputTokens: number

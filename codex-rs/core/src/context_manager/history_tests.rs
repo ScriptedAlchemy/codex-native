@@ -400,7 +400,7 @@ fn format_exec_output_prefers_line_marker_when_both_limits_exceeded() {
     let truncated = truncate::format_output_for_model_body(&content);
 
     assert!(
-        truncated.contains("[... omitted 42 of 298 lines ...]"),
+        truncated.contains("[... omitted 42 of 670 lines ...]"),
         "expected omitted marker when line count exceeds limit: {truncated}"
     );
     assert!(

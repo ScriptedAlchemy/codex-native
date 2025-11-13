@@ -250,4 +250,42 @@ describe("Codex runStreamed with native binding", () => {
       await close();
     }
   });
+
+  it("emits background_event when a mid-turn notification is sent", async () => {
+    const { url, close } = await startResponsesTestProxy({
+      statusCode: 200,
+      responseBodies: [
+        sse(
+          responseStarted("response_1"),
+          assistantMessage("All done", "item_1"),
+          responseCompleted("response_1"),
+        ),
+      ],
+    });
+
+    try {
+      const client = createClient(url);
+      const thread = client.startThread();
+      const streamed = await thread.runStreamed("background event demo");
+
+      const events: any[] = [];
+      for await (const event of streamed.events) {
+        events.push(event);
+        if (event.type === "turn.started") {
+          await thread.sendBackgroundEvent("Heads up: working on it");
+        }
+      }
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "background_event",
+            message: "Heads up: working on it",
+          }),
+        ]),
+      );
+    } finally {
+      await close();
+    }
+  });
 });

@@ -200,9 +200,9 @@ async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<(
     let test = builder.build(&server).await?;
 
     #[cfg(windows)]
-    let command = r#"for ($i=1; $i -le 400; $i++) { Write-Output $i }"#.to_string();
+    let command = r#"for ($i=1; $i -le 700; $i++) { Write-Output $i }"#.to_string();
     #[cfg(not(windows))]
-    let command = "seq 1 400".to_string();
+    let command = "seq 1 700".to_string();
 
     test.codex
         .submit(Op::RunUserShellCommand {
@@ -237,9 +237,9 @@ async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<(
     let command_message = command_message.replace("\r\n", "\n");
 
     let head = (1..=128).map(|i| format!("{i}\n")).collect::<String>();
-    let tail = (273..=400).map(|i| format!("{i}\n")).collect::<String>();
+    let tail = (201..=700).map(|i| format!("{i}\n")).collect::<String>();
     let truncated_body =
-        format!("Total output lines: 400\n\n{head}\n[... omitted 144 of 400 lines ...]\n\n{tail}");
+        format!("Total output lines: 700\n\n{head}\n[... omitted 72 of 700 lines ...]\n\n{tail}");
     let escaped_command = escape(&command);
     let escaped_truncated_body = escape(&truncated_body);
     let expected_pattern = format!(

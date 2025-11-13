@@ -25,6 +25,22 @@ export type NativeRunRequest = {
   reviewHint?: string;
 };
 
+export type NativeForkRequest = {
+  threadId: string;
+  nthUserMessage: number;
+  model?: string;
+  oss?: boolean;
+  sandboxMode?: SandboxMode;
+  approvalMode?: ApprovalMode;
+  workspaceWriteOptions?: WorkspaceWriteOptions;
+  workingDirectory?: string;
+  skipGitRepoCheck?: boolean;
+  baseUrl?: string;
+  apiKey?: string;
+  linuxSandboxPath?: string;
+  fullAuto?: boolean;
+};
+
 export type NativeTuiRequest = {
   prompt?: string;
   images?: string[];
@@ -48,6 +64,11 @@ export type NativeTuiRequest = {
 };
 
 export type PlanStatus = "pending" | "in_progress" | "completed";
+
+export type NativeEmitBackgroundEventRequest = {
+  threadId: string;
+  message: string;
+};
 
 export type NativeEmitPlanUpdateRequest = {
   threadId: string;
@@ -101,6 +122,58 @@ export type NativeTuiSession = {
   readonly closed: boolean;
 };
 
+// ============================================================================
+// Reverie System Types
+// ============================================================================
+
+export type ReverieConversation = {
+  id: string;
+  path: string;
+  createdAt?: string;
+  updatedAt?: string;
+  headRecords: string[];
+  tailRecords: string[];
+};
+
+export type ReverieSearchResult = {
+  conversation: ReverieConversation;
+  relevanceScore: number;
+  matchingExcerpts: string[];
+  insights: string[];
+};
+
+// ============================================================================
+// FastEmbed Types
+// ============================================================================
+
+export type FastEmbedInitOptions = {
+  model?: string;
+  cacheDir?: string;
+  maxLength?: number;
+  showDownloadProgress?: boolean;
+};
+
+export type FastEmbedEmbedRequest = {
+  inputs: string[];
+  batchSize?: number;
+  normalize?: boolean;
+  projectRoot?: string;
+  cache?: boolean;
+};
+
+// ============================================================================
+// Tokenizer Types
+// ============================================================================
+
+export type TokenizerOptions = {
+  model?: string;
+  encoding?: "o200k_base" | "cl100k_base";
+};
+
+export type TokenizerEncodeOptions = TokenizerOptions & {
+  withSpecialTokens?: boolean;
+};
+
 export type NativeBinding = {
   runThread(request: NativeRunRequest): Promise<string[]>;
   runThreadStream(
@@ -108,6 +181,7 @@ export type NativeBinding = {
     onEvent: (err: unknown, eventJson?: string) => void,
   ): Promise<void>;
   compactThread(request: NativeRunRequest): Promise<string[]>;
+  forkThread(request: NativeForkRequest): Promise<NativeForkResult>;
   runTui(request: NativeTuiRequest): Promise<NativeTuiExitInfo>;
   tuiTestRun?(request: {
     width: number;
@@ -122,6 +196,7 @@ export type NativeBinding = {
   registerApprovalCallback?(
     handler: (request: ApprovalRequest) => boolean | Promise<boolean>,
   ): void;
+  emitBackgroundEvent(request: NativeEmitBackgroundEventRequest): Promise<void>;
   emitPlanUpdate(request: NativeEmitPlanUpdateRequest): Promise<void>;
   modifyPlan(request: NativeModifyPlanRequest): Promise<void>;
   startTui?(request: NativeTuiRequest): NativeTuiSession;
@@ -155,6 +230,17 @@ export type NativeBinding = {
     baseUrl?: string,
     apiKey?: string,
   ): Promise<string>;
+  // Reverie system - conversation search and insights
+  reverieListConversations(codexHomePath: string, limit?: number, offset?: number): Promise<ReverieConversation[]>;
+  reverieSearchConversations(codexHomePath: string, query: string, limit?: number): Promise<ReverieSearchResult[]>;
+  reverieGetConversationInsights(conversationPath: string, query?: string): Promise<string[]>;
+  // FastEmbed hooks
+  fastEmbedInit?(options: FastEmbedInitOptions): Promise<void>;
+  fastEmbedEmbed?(request: FastEmbedEmbedRequest): Promise<number[][]>;
+  // Tokenizer helpers
+  tokenizerCount(text: string, options?: TokenizerOptions): number;
+  tokenizerEncode(text: string, options?: TokenizerEncodeOptions): number[];
+  tokenizerDecode(tokens: number[], options?: TokenizerOptions): string;
 };
 
 export type NativeToolInfo = {
@@ -176,6 +262,11 @@ export type NativeToolResult = {
   output?: string;
   success?: boolean;
   error?: string;
+};
+
+export type NativeForkResult = {
+  threadId: string;
+  rolloutPath: string;
 };
 
 export type ApprovalRequest = {
@@ -296,4 +387,66 @@ export function sse(events: string[]): string {
   const binding = getNativeBinding();
   if (!binding) throw new Error("Native binding not available");
   return (binding as any).sse(events);
+}
+
+// Reverie system helpers
+export async function reverieListConversations(
+  codexHomePath: string,
+  limit?: number,
+  offset?: number,
+): Promise<ReverieConversation[]> {
+  const binding = getNativeBinding();
+  if (!binding?.reverieListConversations) throw new Error("Native binding not available or reverie functions not supported");
+  return (binding as any).reverieListConversations(codexHomePath, limit, offset);
+}
+
+export async function reverieSearchConversations(
+  codexHomePath: string,
+  query: string,
+  limit?: number,
+): Promise<ReverieSearchResult[]> {
+  const binding = getNativeBinding();
+  if (!binding?.reverieSearchConversations) throw new Error("Native binding not available or reverie functions not supported");
+  return (binding as any).reverieSearchConversations(codexHomePath, query, limit);
+}
+
+export async function reverieGetConversationInsights(
+  conversationPath: string,
+  query?: string,
+): Promise<string[]> {
+  const binding = getNativeBinding();
+  if (!binding?.reverieGetConversationInsights) throw new Error("Native binding not available or reverie functions not supported");
+  return (binding as any).reverieGetConversationInsights(conversationPath, query);
+}
+
+// FastEmbed helpers
+export async function fastEmbedInit(options: FastEmbedInitOptions): Promise<void> {
+  const binding = getNativeBinding();
+  if (!binding?.fastEmbedInit) throw new Error("Native binding not available or FastEmbed functions not supported");
+  await binding.fastEmbedInit(options);
+}
+
+export async function fastEmbedEmbed(request: FastEmbedEmbedRequest): Promise<number[][]> {
+  const binding = getNativeBinding();
+  if (!binding?.fastEmbedEmbed) throw new Error("Native binding not available or FastEmbed functions not supported");
+  return binding.fastEmbedEmbed(request);
+}
+
+// Tokenizer helpers
+export function tokenizerCount(text: string, options?: TokenizerOptions): number {
+  const binding = getNativeBinding();
+  if (!binding?.tokenizerCount) throw new Error("Native binding not available or tokenizer functions not supported");
+  return (binding as any).tokenizerCount(text, options);
+}
+
+export function tokenizerEncode(text: string, options?: TokenizerEncodeOptions): number[] {
+  const binding = getNativeBinding();
+  if (!binding?.tokenizerEncode) throw new Error("Native binding not available or tokenizer functions not supported");
+  return (binding as any).tokenizerEncode(text, options);
+}
+
+export function tokenizerDecode(tokens: number[], options?: TokenizerOptions): string {
+  const binding = getNativeBinding();
+  if (!binding?.tokenizerDecode) throw new Error("Native binding not available or tokenizer functions not supported");
+  return (binding as any).tokenizerDecode(tokens, options);
 }

@@ -16,6 +16,7 @@ use codex_core::protocol::WarningEvent;
 use codex_core::protocol::WebSearchEndEvent;
 use codex_exec::event_processor_with_jsonl_output::EventProcessorWithJsonOutput;
 use codex_exec::exec_events::AgentMessageItem;
+use codex_exec::exec_events::BackgroundEventEvent as ExecBackgroundEventEvent;
 use codex_exec::exec_events::CommandExecutionItem;
 use codex_exec::exec_events::CommandExecutionStatus;
 use codex_exec::exec_events::ErrorItem;
@@ -238,6 +239,25 @@ fn plan_update_emits_todo_list_started_updated_and_completed() {
                 usage: Usage::default(),
             }),
         ]
+    );
+}
+
+#[test]
+fn background_event_emits_background_thread_event() {
+    let mut ep = EventProcessorWithJsonOutput::new(None);
+    let message = "Streaming background update".to_string();
+    let out = ep.collect_thread_events(&event(
+        "bg1",
+        EventMsg::BackgroundEvent(codex_core::protocol::BackgroundEventEvent {
+            message: message.clone(),
+        }),
+    ));
+
+    assert_eq!(
+        out,
+        vec![ThreadEvent::BackgroundEvent(ExecBackgroundEventEvent {
+            message
+        })]
     );
 }
 

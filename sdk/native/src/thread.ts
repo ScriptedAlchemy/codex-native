@@ -3,7 +3,7 @@ import * as path from "node:path";
 
 import { CodexOptions } from "./codexOptions";
 import { ThreadEvent, ThreadError, Usage } from "./events";
-import { CodexExec } from "./exec";
+import { CodexExec, CodexForkArgs } from "./exec";
 import { ThreadItem } from "./items";
 import { ThreadOptions } from "./threadOptions";
 import { TurnOptions } from "./turnOptions";
@@ -63,6 +63,12 @@ function convertRustEventToThreadEvent(rustEvent: any): ThreadEvent {
       message: rustEvent.Error.message,
     };
   }
+  if (rustEvent.type === "background_event" && typeof rustEvent.message === "string") {
+    return {
+      type: "background_event",
+      message: rustEvent.message,
+    };
+  }
   // Handle plan_update_scheduled synthetic event
   if (rustEvent.type === "plan_update_scheduled" && rustEvent.plan) {
     const planData = rustEvent.plan;
@@ -117,6 +123,11 @@ export type UserInput =
     };
 
 export type Input = string | UserInput[];
+
+export type ForkOptions = {
+  nthUserMessage: number;
+  threadOptions?: Partial<ThreadOptions>;
+};
 
 const UNTRUSTED_DIRECTORY_ERROR =
   "Not inside a trusted directory and --skip-git-repo-check was not specified.";
@@ -191,6 +202,27 @@ export class Thread {
     if (index !== -1) {
       this._eventListeners.splice(index, 1);
     }
+  }
+
+  /**
+   * Emit a background notification while the agent is running the current turn.
+   * The message is surfaced to event subscribers but does not modify the user input queue.
+   *
+   * @throws Error if the thread has not been started yet.
+   */
+  async sendBackgroundEvent(message: string): Promise<void> {
+    const trimmed = message?.toString();
+    if (!trimmed || trimmed.trim().length === 0) {
+      throw new Error("Background event message must be a non-empty string");
+    }
+    if (!this._id) {
+      throw new Error("Cannot emit a background event before the thread has started");
+    }
+    const binding = getNativeBinding();
+    if (!binding || typeof binding.emitBackgroundEvent !== "function") {
+      throw new Error("emitBackgroundEvent is not available in this build");
+    }
+    await binding.emitBackgroundEvent({ threadId: this._id, message: trimmed });
   }
 
   /**
@@ -318,6 +350,67 @@ export class Thread {
     if (!Array.isArray(events)) {
       throw new Error("Compact did not return event list");
     }
+  }
+
+  /**
+   * Fork this thread at the specified user message, returning a new thread that starts
+   * from the conversation history prior to that message.
+   *
+   * @param options Fork configuration including which user message to branch before and optional thread overrides.
+   */
+  async fork(options: ForkOptions): Promise<Thread> {
+    if (!this._id) {
+      throw new Error("Cannot fork: no active thread");
+    }
+    const nthUserMessage = options?.nthUserMessage;
+    if (
+      typeof nthUserMessage !== "number" ||
+      !Number.isInteger(nthUserMessage) ||
+      nthUserMessage < 0
+    ) {
+      throw new Error("nthUserMessage must be a non-negative integer");
+    }
+
+    const overrides = options.threadOptions ?? {};
+    const nextThreadOptions: ThreadOptions = {
+      ...this._threadOptions,
+      ...overrides,
+    };
+
+    const skipGitRepoCheck =
+      nextThreadOptions.skipGitRepoCheck ??
+      (typeof process !== "undefined" &&
+        process.env &&
+        process.env.CODEX_TEST_SKIP_GIT_REPO_CHECK === "1");
+    nextThreadOptions.skipGitRepoCheck = skipGitRepoCheck;
+
+    if (!skipGitRepoCheck) {
+      assertTrustedDirectory(nextThreadOptions.workingDirectory);
+    }
+
+    const forkArgs: CodexForkArgs = {
+      threadId: this._id,
+      nthUserMessage,
+      baseUrl: this._options.baseUrl,
+      apiKey: this._options.apiKey,
+      model: nextThreadOptions.model,
+      oss: nextThreadOptions.oss,
+      sandboxMode: nextThreadOptions.sandboxMode,
+      approvalMode: nextThreadOptions.approvalMode,
+      workspaceWriteOptions: nextThreadOptions.workspaceWriteOptions,
+      workingDirectory: nextThreadOptions.workingDirectory,
+      skipGitRepoCheck,
+      fullAuto: nextThreadOptions.fullAuto,
+    };
+
+    const result = await this._exec.fork(forkArgs);
+
+    return new Thread(
+      this._exec,
+      this._options,
+      nextThreadOptions,
+      result.threadId,
+    );
   }
   /* @internal */
   constructor(

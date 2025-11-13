@@ -68,6 +68,28 @@ for await (const event of events) {
 }
 ```
 
+### Mid-turn notifications
+
+You can publish lightweight updates during an active turn without adding another user
+message. Call `thread.sendBackgroundEvent()` inside a `runStreamed()` loop after the
+turn has started:
+
+```typescript
+const { events } = await thread.runStreamed("Generate the release notes");
+
+for await (const event of events) {
+  if (event.type === "turn.started") {
+    await thread.sendBackgroundEvent("Gathering changelog entries…");
+  } else if (event.type === "background_event") {
+    console.log(event.message);
+  }
+}
+```
+
+The streaming API surfaces these as `background_event` items so downstream consumers
+can display progress indicators or status notifications while the agent continues its
+turn.
+
 ### Structured output
 
 The Codex agent can produce a JSON response that conforms to a specified schema. The schema
@@ -194,6 +216,28 @@ const savedThreadId = process.env.CODEX_THREAD_ID!;
 const thread = codex.resumeThread(savedThreadId);
 await thread.run("Implement the fix");
 ```
+
+### Forking a conversation
+
+Use `thread.fork()` to branch from an earlier user message and explore an alternate path without losing the original history. Provide the zero-based index of the user message you want to fork **before**.
+
+```typescript
+const codex = new Codex();
+const thread = codex.startThread({ skipGitRepoCheck: true });
+
+await thread.run("List flaky integration tests");
+await thread.run("Propose fixes for each flaky test");
+
+// Fork before the second user message (index 1)
+const branch = await thread.fork({
+  nthUserMessage: 1,
+  threadOptions: { model: "gpt-5-codex-mini" },
+});
+
+await branch.run("Focus on the payment suite instead");
+```
+
+The original `thread` continues unchanged while `branch` contains the forked history and a fresh thread id.
 
 ### Running code reviews
 
@@ -561,6 +605,54 @@ const securityResult = await securityAgent.run(
 ```
 
 Agents automatically have access to the conversation history, enabling seamless handoffs between specialized agents.
+
+### Reverie Archive APIs
+
+Query past Codex sessions directly from Node.js to surface relevant prior work without leaving the terminal.
+
+```typescript
+import {
+  reverieListConversations,
+  reverieSearchConversations,
+  reverieGetConversationInsights,
+} from "@codex-native/sdk";
+
+const codexHome = process.env.CODEX_HOME ?? `${process.env.HOME}/.codex`;
+
+// List the newest conversations (newest first)
+const conversations = await reverieListConversations(codexHome, 10);
+
+// Search for conversations mentioning "authentication"
+const matches = await reverieSearchConversations(codexHome, "authentication issue", 5);
+
+// Read the highlights/insights from a specific conversation rollout
+const insights = await reverieGetConversationInsights(matches[0].conversation.path, "JWT");
+```
+
+Results include `headRecords` and `tailRecords`, mirroring the summaries used by the Rust CLI/TUI, so you can plug them into custom dashboards or route them back into an agent as `<system notification>`s.
+
+### Tokenizer Helpers (tiktoken)
+
+Access the same tiktoken-powered tokenizer used by Codex from JavaScript for budgeting prompts or implementing local ranking logic.
+
+```typescript
+import {
+  tokenizerCount,
+  tokenizerEncode,
+  tokenizerDecode,
+} from "@codex-native/sdk";
+
+const text = "hello world";
+
+// Count tokens using a specific encoding or model alias
+const tokens = tokenizerEncode(text, { encoding: "cl100k_base" });
+const count = tokenizerCount(text, { encoding: "cl100k_base" });
+
+// Round-trip
+const decoded = tokenizerDecode(tokens, { encoding: "cl100k_base" });
+```
+
+`encoding` accepts `"o200k_base"` or `"cl100k_base"`, and you can also pass `model: "gpt-5"` to mirror Codex’s model-to-encoding mapping. Set `withSpecialTokens: true` when you need precise accounting for schema-guided prompts.
 
 ## API Options
 

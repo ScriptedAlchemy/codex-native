@@ -36,6 +36,9 @@ pub enum ThreadEvent {
     /// Signals that Codex exited review mode and optionally provides structured output.
     #[serde(rename = "exited_review_mode")]
     ExitedReviewMode(ExitedReviewModeEvent),
+    /// Background notification emitted alongside an active turn.
+    #[serde(rename = "background_event")]
+    BackgroundEvent(BackgroundEventEvent),
     /// Raw protocol event payload forwarded for consumers that need full fidelity.
     #[serde(rename = "raw_event")]
     Raw(RawEvent),
@@ -132,6 +135,11 @@ pub struct ExitedReviewModeEvent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub struct RawEvent {
     pub raw: JsonValue,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+pub struct BackgroundEventEvent {
+    pub message: String,
 }
 
 /// Canonical representation of a thread item and its domain-specific payload.

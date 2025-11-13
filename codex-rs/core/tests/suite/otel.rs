@@ -1,3 +1,4 @@
+use codex_core::CodexConversation;
 use codex_core::features::Feature;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
@@ -19,6 +20,17 @@ use core_test_support::wait_for_event;
 use tracing_test::traced_test;
 
 use core_test_support::responses::ev_local_shell_call;
+use std::sync::Arc;
+
+async fn wait_for_completion(codex: &Arc<CodexConversation>) {
+    wait_for_event(codex, |ev| {
+        matches!(
+            ev,
+            EventMsg::TaskComplete(_) | EventMsg::Error(_) | EventMsg::ExecCommandEnd(_)
+        )
+    })
+    .await;
+}
 
 #[tokio::test]
 #[traced_test]
@@ -38,7 +50,7 @@ async fn responses_api_emits_api_request_event() {
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(|lines: &[&str]| {
         lines
@@ -79,7 +91,7 @@ async fn process_sse_emits_tracing_for_output_item() {
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(|lines: &[&str]| {
         lines
@@ -119,7 +131,7 @@ async fn process_sse_emits_failed_event_on_parse_error() {
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(|lines: &[&str]| {
         lines
@@ -160,7 +172,7 @@ async fn process_sse_records_failed_event_when_stream_closes_without_completed()
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(|lines: &[&str]| {
         lines
@@ -213,7 +225,7 @@ async fn process_sse_failed_event_records_response_error_message() {
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(|lines: &[&str]| {
         lines
@@ -264,7 +276,7 @@ async fn process_sse_failed_event_logs_parse_error() {
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(|lines: &[&str]| {
         lines
@@ -310,7 +322,7 @@ async fn process_sse_failed_event_logs_missing_error() {
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(|lines: &[&str]| {
         lines
@@ -356,7 +368,7 @@ async fn process_sse_failed_event_logs_response_completed_parse_error() {
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(|lines: &[&str]| {
         lines
@@ -406,7 +418,7 @@ async fn process_sse_emits_completed_telemetry() {
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(|lines: &[&str]| {
         lines
@@ -430,7 +442,7 @@ async fn process_sse_emits_completed_telemetry() {
 async fn handle_response_item_records_tool_result_for_custom_tool_call() {
     let server = start_mock_server().await;
 
-    mount_sse(
+    mount_sse_once(
         &server,
         sse(vec![
             ev_custom_tool_call(
@@ -462,7 +474,7 @@ async fn handle_response_item_records_tool_result_for_custom_tool_call() {
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TokenCount(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(|lines: &[&str]| {
         let line = lines
@@ -494,7 +506,7 @@ async fn handle_response_item_records_tool_result_for_custom_tool_call() {
 async fn handle_response_item_records_tool_result_for_function_call() {
     let server = start_mock_server().await;
 
-    mount_sse(
+    mount_sse_once(
         &server,
         sse(vec![
             ev_function_call("function-call", "nonexistent", "{\"value\":1}"),
@@ -522,7 +534,7 @@ async fn handle_response_item_records_tool_result_for_function_call() {
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TokenCount(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(|lines: &[&str]| {
         let line = lines
@@ -554,7 +566,7 @@ async fn handle_response_item_records_tool_result_for_function_call() {
 async fn handle_response_item_records_tool_result_for_local_shell_missing_ids() {
     let server = start_mock_server().await;
 
-    mount_sse(
+    mount_sse_once(
         &server,
         sse(vec![
             serde_json::json!({
@@ -618,7 +630,7 @@ async fn handle_response_item_records_tool_result_for_local_shell_missing_ids() 
 async fn handle_response_item_records_tool_result_for_local_shell_call() {
     let server = start_mock_server().await;
 
-    mount_sse(
+    mount_sse_once(
         &server,
         sse(vec![
             ev_local_shell_call("shell-call", "completed", vec!["/bin/echo", "shell"]),
@@ -739,7 +751,7 @@ async fn handle_container_exec_autoapprove_from_config_records_tool_decision() {
         .await
         .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TokenCount(_))).await;
+    wait_for_completion(&codex).await;
 
     logs_assert(tool_decision_assertion(
         "auto_config_call",

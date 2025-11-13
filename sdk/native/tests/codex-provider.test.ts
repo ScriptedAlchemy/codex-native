@@ -425,6 +425,61 @@ describe('CodexProvider', () => {
       expect(events[events.length - 1]).toBe('response_done');
       expect(events.includes('output_text_delta')).toBe(true);
     }, 30000); // 30 second timeout for backend connection
+
+    it('should surface background events as model notifications', async () => {
+      const usage = {
+        input_tokens: 8,
+        output_tokens: 2,
+        cached_input_tokens: 0,
+      };
+      const backgroundThread = {
+        id: 'bg-thread',
+        run: jest.fn(async () => ({
+          items: [{ id: 'msg', type: 'agent_message', text: 'Done' }],
+          finalResponse: 'Done',
+          usage,
+        })),
+        runStreamed: jest.fn(async () => ({
+          events: (async function* () {
+            yield { type: 'thread.started', thread_id: 'bg-thread' };
+            yield { type: 'turn.started' };
+            yield { type: 'background_event', message: 'Investigating issue…' };
+            yield { type: 'item.completed', item: { id: 'msg', type: 'agent_message', text: 'Done' } };
+            yield { type: 'turn.completed', usage };
+          })(),
+        })),
+      };
+
+      const localProvider = new CodexProvider({ skipGitRepoCheck: true });
+      (localProvider as any).codex = {
+        startThread: jest.fn(() => backgroundThread),
+        resumeThread: jest.fn(() => backgroundThread),
+        registerTool: jest.fn(),
+      };
+
+      const model = localProvider.getModel();
+      const request = {
+        input: 'Trigger background notification',
+        modelSettings: {},
+        tools: [],
+        outputType: { type: 'text' } as any,
+        handoffs: [],
+        tracing: { enabled: false } as any,
+      };
+
+      const stream = model.getStreamedResponse(request as any);
+      const streamedEvents: any[] = [];
+      for await (const event of stream) {
+        streamedEvents.push(event);
+      }
+
+      const backgroundEvent = streamedEvents.find(
+        (event) => event.type === 'model' && event.event?.type === 'background_event',
+      );
+
+      expect(backgroundEvent).toBeDefined();
+      expect(backgroundEvent?.event?.message).toBe('Investigating issue…');
+    });
   });
 
   describe('Plan and todo surfacing', () => {

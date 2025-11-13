@@ -60,8 +60,6 @@ function buildTuiRequest(params: {
   if (argv.prompt !== undefined) request.prompt = argv.prompt;
   if (argv.model !== undefined) request.model = argv.model;
   if (argv.oss !== undefined) request.oss = argv.oss;
-  if (argv.sandbox !== undefined) request.sandboxMode = argv.sandbox;
-  if (argv.approval !== undefined) request.approvalMode = argv.approval;
   const sandboxMode = parseSandboxModeFlag(argv.sandbox, "--sandbox");
   if (sandboxMode !== undefined) {
     request.sandboxMode = sandboxMode;

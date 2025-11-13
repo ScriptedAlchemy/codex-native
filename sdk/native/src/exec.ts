@@ -1,5 +1,11 @@
 import { ApprovalMode, SandboxMode, WorkspaceWriteOptions } from "./threadOptions";
-import { NativeBinding, NativeRunRequest, getNativeBinding } from "./nativeBinding";
+import {
+  NativeBinding,
+  NativeForkRequest,
+  NativeForkResult,
+  NativeRunRequest,
+  getNativeBinding,
+} from "./nativeBinding";
 
 export type CodexExecArgs = {
   input: string;
@@ -24,6 +30,22 @@ export type CodexExecArgs = {
 
 export type ReviewExecOptions = {
   userFacingHint?: string;
+};
+
+export type CodexForkArgs = {
+  threadId: string;
+  nthUserMessage: number;
+  baseUrl?: string;
+  apiKey?: string;
+  model?: string;
+  oss?: boolean;
+  sandboxMode?: SandboxMode;
+  approvalMode?: ApprovalMode;
+  workspaceWriteOptions?: WorkspaceWriteOptions;
+  workingDirectory?: string;
+  skipGitRepoCheck?: boolean;
+  linuxSandboxPath?: string;
+  fullAuto?: boolean;
 };
 
 /**
@@ -138,6 +160,28 @@ export class CodexExec {
       reviewHint: args.review?.userFacingHint,
     };
     return this.native.compactThread(request);
+  }
+
+  async fork(args: CodexForkArgs): Promise<NativeForkResult> {
+    if (!args.threadId) {
+      throw new Error("threadId is required to fork a conversation");
+    }
+    const request: NativeForkRequest = {
+      threadId: args.threadId,
+      nthUserMessage: args.nthUserMessage,
+      model: args.model,
+      oss: args.oss,
+      sandboxMode: args.sandboxMode,
+      approvalMode: args.approvalMode,
+      workspaceWriteOptions: args.workspaceWriteOptions,
+      workingDirectory: args.workingDirectory,
+      skipGitRepoCheck: args.skipGitRepoCheck,
+      baseUrl: args.baseUrl,
+      apiKey: args.apiKey,
+      linuxSandboxPath: args.linuxSandboxPath,
+      fullAuto: args.fullAuto,
+    };
+    return this.native.forkThread(request);
   }
 }
 

@@ -16,6 +16,9 @@ async-trait = "0.1"
 anyhow = "1"
 ratatui = "0.29.0"
 vt100 = "0.16.2"
+regex = "1"
+sha1 = "0.10"
+fastembed = "5.2"
 
 [dependencies.napi]
 version = "3"
@@ -47,6 +50,9 @@ path = "../../codex-rs/common"
 [dependencies.codex-core]
 path = "../../codex-rs/core"
 
+[dependencies.toml]
+version = "0.9.5"
+
 [dependencies.codex-exec]
 path = "../../codex-rs/exec"
 
@@ -55,6 +61,9 @@ path = "../../codex-rs/protocol"
 
 [dependencies.codex-cloud-tasks-client]
 path = "../../codex-rs/cloud-tasks-client"
+
+[dependencies.codex-utils-tokenizer]
+path = "../../codex-rs/utils/tokenizer"
 
 [dependencies.codex-tui]
 path = "../../codex-rs/tui"
@@ -66,7 +75,7 @@ napi-build = "2"
 pretty_assertions = "1"
 
 [features]
-default = []
+default = ["napi-bindings"]
 napi-bindings = ["napi", "napi-derive"]
 
 [profile.release]

@@ -39,6 +39,12 @@ export type TurnFailedEvent = {
   error: ThreadError;
 };
 
+/** Background notification emitted during an active turn. */
+export type BackgroundEvent = {
+  type: "background_event";
+  message: string;
+};
+
 /** Emitted when a new item is added to the thread. Typically the item is initially "in progress". */
 export type ItemStartedEvent = {
   type: "item.started";
@@ -103,6 +109,7 @@ export type ThreadEvent =
   | TurnStartedEvent
   | TurnCompletedEvent
   | TurnFailedEvent
+  | BackgroundEvent
   | ItemStartedEvent
   | ItemUpdatedEvent
   | ItemCompletedEvent

@@ -30,14 +30,15 @@ export type {
 } from "./items";
 
 export { Thread } from "./thread";
-export type { RunResult, RunStreamedResult, Input, UserInput } from "./thread";
+export type { RunResult, RunStreamedResult, Input, UserInput, ForkOptions } from "./thread";
 
 export { Codex } from "./codex";
 
 export type { CodexOptions, NativeToolDefinition } from "./codexOptions";
 export type { NativeToolInterceptorContext } from "./codex";
-export type { NativeToolInvocation, NativeToolResult } from "./nativeBinding";
+export type { NativeToolInvocation, NativeToolResult, NativeForkResult } from "./nativeBinding";
 export type { ApprovalRequest } from "./nativeBinding";
+export type { TokenizerOptions, TokenizerEncodeOptions } from "./nativeBinding";
 
 export { startTui, runTui } from "./tui";
 export type {
@@ -60,6 +61,10 @@ export type {
   CommitReview,
   CustomReview,
 } from "./reviewOptions";
+export type {
+  FastEmbedInitOptions,
+  FastEmbedEmbedRequest,
+} from "./nativeBinding";
 
 // OpenAI Agents framework integration
 export { CodexProvider, codexTool } from "./agents";
@@ -81,6 +86,16 @@ export type {
 // SSE test helpers (exposed for TypeScript tests)
 // Re-export the native binding functions directly
 import { getNativeBinding } from "./nativeBinding";
+export {
+  reverieListConversations,
+  reverieSearchConversations,
+  reverieGetConversationInsights,
+  fastEmbedInit,
+  fastEmbedEmbed,
+  tokenizerCount,
+  tokenizerEncode,
+  tokenizerDecode,
+} from "./nativeBinding";
 
 export function evCompleted(id: string): string {
   const binding = getNativeBinding();
