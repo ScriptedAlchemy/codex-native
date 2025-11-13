@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type { JsonSchemaDefinition } from "@openai/agents-core";
-import { zodToJsonSchema } from "zod-to-json-schema";
 
 const IntentionSchema = z.object({
   category: z
@@ -50,32 +49,130 @@ const CiFixSchema = z.object({
 export type CiFix = z.output<typeof CiFixSchema>;
 const CiFixListSchema = z.array(CiFixSchema).min(1).max(15);
 
-function buildJsonSchemaFromZod(schema: z.ZodTypeAny, name: string) {
-  const json = zodToJsonSchema(schema, { name, target: "openAi" }) as any;
-  if (json?.definitions?.[name]) {
-    return json.definitions[name];
-  }
-  return json;
-}
-
-function buildJsonOutputType(schema: z.ZodTypeAny, name: string): JsonSchemaDefinition {
-  return {
-    type: "json_schema",
-    name,
-    strict: true,
-    schema: buildJsonSchemaFromZod(schema, name),
-  };
-}
-
 const IntentionResponseSchema = z.object({ items: IntentionListSchema });
 const RecommendationResponseSchema = z.object({ items: RecommendationListSchema });
 const CiIssueResponseSchema = z.object({ items: CiIssueListSchema });
 const CiFixResponseSchema = z.object({ items: CiFixListSchema });
 
-const IntentionOutputType = buildJsonOutputType(IntentionResponseSchema, "Intentions");
-const RecommendationOutputType = buildJsonOutputType(RecommendationResponseSchema, "Recommendations");
-const CiIssueOutputType = buildJsonOutputType(CiIssueResponseSchema, "CiIssueList");
-const CiFixOutputType = buildJsonOutputType(CiFixResponseSchema, "CiFixList");
+type JsonSchemaProperties = Record<string, any>;
+
+function stringField(min?: number, max?: number) {
+  const schema: Record<string, any> = { type: "string" as const };
+  if (typeof min === "number") {
+    schema.minLength = min;
+  }
+  if (typeof max === "number") {
+    schema.maxLength = max;
+  }
+  return schema;
+}
+
+function optionalStringField(max?: number) {
+  return stringField(undefined, max);
+}
+
+function stringArrayField() {
+  return { type: "array" as const, items: { type: "string" as const } };
+}
+
+function buildResponseSchema(
+  properties: JsonSchemaProperties,
+  required: string[],
+  options?: { maxItems?: number },
+): JsonSchemaDefinition["schema"] {
+  return {
+    type: "object" as const,
+    additionalProperties: false,
+    properties: {
+      items: {
+        type: "array" as const,
+        minItems: 1,
+        ...(options?.maxItems ? { maxItems: options.maxItems } : {}),
+        items: {
+          type: "object" as const,
+          additionalProperties: false,
+          properties,
+          required,
+        },
+      },
+    },
+    required: ["items"],
+  };
+}
+
+const IntentionOutputType: JsonSchemaDefinition = {
+  type: "json_schema",
+  name: "Intentions",
+  strict: true,
+  schema: buildResponseSchema(
+    {
+      category: { type: "string", enum: ["Feature", "Refactor", "BugFix", "Performance", "Security", "DevEx", "Architecture", "Testing"] },
+      title: stringField(5, 160),
+      summary: stringField(10, 800),
+      impactScope: { type: "string", enum: ["local", "module", "system"] },
+      evidence: stringArrayField(),
+    },
+    ["category", "title", "summary", "impactScope"],
+    { maxItems: 12 },
+  ),
+};
+
+const RecommendationOutputType: JsonSchemaDefinition = {
+  type: "json_schema",
+  name: "Recommendations",
+  strict: true,
+  schema: buildResponseSchema(
+    {
+      category: { type: "string", enum: ["Code", "Tests", "Docs", "Tooling", "DevEx", "Observability"] },
+      title: stringField(5, 160),
+      priority: { type: "string", enum: ["P0", "P1", "P2", "P3"] },
+      effort: { type: "string", enum: ["Low", "Medium", "High"] },
+      description: stringField(10, 400),
+      location: optionalStringField(200),
+      example: optionalStringField(400),
+    },
+    ["category", "title", "priority", "effort", "description"],
+    { maxItems: 10 },
+  ),
+};
+
+const CiIssueOutputType: JsonSchemaDefinition = {
+  type: "json_schema",
+  name: "CiIssueList",
+  strict: true,
+  schema: buildResponseSchema(
+    {
+      source: { type: "string" },
+      severity: { type: "string", enum: ["P0", "P1", "P2", "P3"] },
+      title: stringField(5, 160),
+      summary: stringField(10, 400),
+      suggestedCommands: stringArrayField(),
+      files: stringArrayField(),
+      owner: optionalStringField(),
+      autoFixable: { type: "boolean" },
+    },
+    ["severity", "title", "summary"],
+    { maxItems: 12 },
+  ),
+};
+
+const CiFixOutputType: JsonSchemaDefinition = {
+  type: "json_schema",
+  name: "CiFixList",
+  strict: true,
+  schema: buildResponseSchema(
+    {
+      title: stringField(5, 160),
+      priority: { type: "string", enum: ["P0", "P1", "P2", "P3"] },
+      steps: stringArrayField(),
+      owner: optionalStringField(),
+      etaHours: { type: "number", minimum: 0, maximum: 40 },
+      commands: stringArrayField(),
+    },
+    ["title", "priority"],
+    { maxItems: 15 },
+  ),
+};
 
 function coerceStructuredOutput<T>(value: unknown, schema: z.ZodType<T>, fallback: T): T {
   if (value == null) {

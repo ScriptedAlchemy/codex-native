@@ -8,7 +8,8 @@
   "scripts": {
     "start": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "test": "tsx tests/schema.test.ts"
   },
   "dependencies": {
     "@codex-native/sdk": "workspace:*",
@@ -18,6 +19,7 @@
     "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
+    "ajv": "^8.17.1",
     "tsx": "^4.20.6",
     "typescript": "^5.7.2"
   }

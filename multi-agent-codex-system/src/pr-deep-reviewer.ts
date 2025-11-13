@@ -15,6 +15,7 @@ import type { MultiAgentConfig, PrStatusSummary, RepoContext, ReviewAnalysis } f
 import type { LspDiagnosticsBridge } from "@codex-native/sdk";
 import { formatPrStatus, formatRepoContext } from "./repo.js";
 import { attachApplyPatchReminder } from "./reminders/applyPatchReminder.js";
+import { logWithLabel, warnWithLabel } from "./logger.js";
 
 type ReviewOutputFinding = {
   title: string;
@@ -33,6 +34,8 @@ type ReviewOutputEvent = {
   overall_explanation: string;
   overall_confidence_score: number;
 };
+
+const REVIEW_LABEL = "REVIEW";
 
 class PRDeepReviewer {
   private codex: Codex;
@@ -291,21 +294,22 @@ Return a JSON array of recommendations following the Recommendation schema (cate
   private logReviewEvent(event: ThreadEvent): void {
     switch (event.type) {
       case "thread.started":
-        console.log(`🧵 Review thread started (${event.thread_id})`);
+        logWithLabel(REVIEW_LABEL, `🧵 Review thread started (${event.thread_id})`);
         break;
       case "turn.started":
-        console.log("🔄 Review turn started");
+        logWithLabel(REVIEW_LABEL, "🔄 Review turn started");
         break;
       case "turn.completed":
-        console.log(
+        logWithLabel(
+          REVIEW_LABEL,
           `✅ Review turn completed (usage: ${event.usage.input_tokens + event.usage.output_tokens} tokens)`,
         );
         break;
       case "turn.failed":
-        console.warn("⚠️ Review turn failed:", event.error.message);
+        warnWithLabel(REVIEW_LABEL, `⚠️ Review turn failed: ${event.error.message}`);
         break;
       case "background_event":
-        console.log(`📡 ${event.message}`);
+        logWithLabel(REVIEW_LABEL, `📡 ${event.message}`);
         break;
       case "item.started":
         this.logItemEvent("started", event.item);
@@ -324,31 +328,31 @@ Return a JSON array of recommendations following the Recommendation schema (cate
   private logItemEvent(phase: "started" | "completed" | "updated", item: ThreadItem): void {
     switch (item.type) {
       case "command_execution":
-        console.log(`🛠️  Command ${phase}: ${item.command}`);
+        logWithLabel(REVIEW_LABEL, `🛠️  Command ${phase}: ${item.command}`);
         if (item.status === "completed" && item.exit_code !== undefined) {
-          console.log(`   ↳ exit code ${item.exit_code}`);
+          logWithLabel(REVIEW_LABEL, `   ↳ exit code ${item.exit_code}`);
         }
         break;
       case "file_change":
-        console.log(`📄 Patch ${phase}: ${item.changes.length} file(s) (${item.status})`);
+        logWithLabel(REVIEW_LABEL, `📄 Patch ${phase}: ${item.changes.length} file(s) (${item.status})`);
         break;
       case "mcp_tool_call":
-        console.log(`🔌 MCP ${phase}: ${item.server}.${item.tool}`);
+        logWithLabel(REVIEW_LABEL, `🔌 MCP ${phase}: ${item.server}.${item.tool}`);
         break;
       case "web_search":
-        console.log(`🌐 Web search ${phase}: ${item.query}`);
+        logWithLabel(REVIEW_LABEL, `🌐 Web search ${phase}: ${item.query}`);
         break;
       case "agent_message":
         if (phase === "completed") {
           const preview = item.text.length > 200 ? `${item.text.slice(0, 200)}…` : item.text;
-          console.log(`🤖 Agent message: ${preview}`);
+          logWithLabel(REVIEW_LABEL, `🤖 Agent message: ${preview}`);
         }
         break;
       case "todo_list":
-        console.log(`📝 Plan ${phase}: ${item.items.length} step(s)`);
+        logWithLabel(REVIEW_LABEL, `📝 Plan ${phase}: ${item.items.length} step(s)`);
         break;
       case "error":
-        console.warn(`⚠️ Error ${phase}: ${item.message}`);
+        warnWithLabel(REVIEW_LABEL, `⚠️ Error ${phase}: ${item.message}`);
         break;
       default:
         break;
