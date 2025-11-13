@@ -1,6 +1,6 @@
 import { Agent, Runner, handoff } from "@openai/agents";
 import type { JsonSchemaDefinition } from "@openai/agents-core";
-import { Codex, CodexProvider, type ThreadEvent, type ThreadItem, type ReviewOutputEvent } from "@codex-native/sdk";
+import { Codex, CodexProvider, type ThreadEvent, type ThreadItem } from "@codex-native/sdk";
 import { DEFAULT_MODEL } from "./constants.js";
 import {
   IntentionResponseSchema,
@@ -15,6 +15,24 @@ import type { MultiAgentConfig, PrStatusSummary, RepoContext, ReviewAnalysis } f
 import type { LspDiagnosticsBridge } from "@codex-native/sdk";
 import { formatPrStatus, formatRepoContext } from "./repo.js";
 import { attachApplyPatchReminder } from "./reminders/applyPatchReminder.js";
+
+type ReviewOutputFinding = {
+  title: string;
+  body: string;
+  confidence_score: number;
+  priority: number;
+  code_location: {
+    absolute_file_path: string;
+    line_range: { start: number; end: number };
+  };
+};
+
+type ReviewOutputEvent = {
+  findings: ReviewOutputFinding[] | null;
+  overall_correctness: string;
+  overall_explanation: string;
+  overall_confidence_score: number;
+};
 
 class PRDeepReviewer {
   private codex: Codex;
