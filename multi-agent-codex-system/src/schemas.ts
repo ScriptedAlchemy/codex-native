@@ -67,10 +67,15 @@ function buildJsonOutputType(schema: z.ZodTypeAny, name: string): JsonSchemaDefi
   };
 }
 
-const IntentionOutputType = buildJsonOutputType(IntentionListSchema, "Intentions");
-const RecommendationOutputType = buildJsonOutputType(RecommendationListSchema, "Recommendations");
-const CiIssueOutputType = buildJsonOutputType(CiIssueListSchema, "CiIssueList");
-const CiFixOutputType = buildJsonOutputType(CiFixListSchema, "CiFixList");
+const IntentionResponseSchema = z.object({ items: IntentionListSchema });
+const RecommendationResponseSchema = z.object({ items: RecommendationListSchema });
+const CiIssueResponseSchema = z.object({ items: CiIssueListSchema });
+const CiFixResponseSchema = z.object({ items: CiFixListSchema });
+
+const IntentionOutputType = buildJsonOutputType(IntentionResponseSchema, "Intentions");
+const RecommendationOutputType = buildJsonOutputType(RecommendationResponseSchema, "Recommendations");
+const CiIssueOutputType = buildJsonOutputType(CiIssueResponseSchema, "CiIssueList");
+const CiFixOutputType = buildJsonOutputType(CiFixResponseSchema, "CiFixList");
 
 function coerceStructuredOutput<T>(value: unknown, schema: z.ZodType<T>, fallback: T): T {
   if (value == null) {
@@ -88,12 +93,16 @@ function coerceStructuredOutput<T>(value: unknown, schema: z.ZodType<T>, fallbac
 export {
   IntentionSchema,
   IntentionListSchema,
+  IntentionResponseSchema,
   RecommendationSchema,
   RecommendationListSchema,
+  RecommendationResponseSchema,
   CiIssueSchema,
   CiIssueListSchema,
+  CiIssueResponseSchema,
   CiFixSchema,
   CiFixListSchema,
+  CiFixResponseSchema,
   IntentionOutputType,
   RecommendationOutputType,
   CiIssueOutputType,

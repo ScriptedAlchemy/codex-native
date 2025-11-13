@@ -3,8 +3,8 @@ import type { JsonSchemaDefinition } from "@openai/agents-core";
 import { Codex, CodexProvider, type NativeTuiExitInfo, type Thread } from "@codex-native/sdk";
 import { DEFAULT_MODEL } from "./constants.js";
 import {
-  IntentionListSchema,
-  RecommendationListSchema,
+  IntentionResponseSchema,
+  RecommendationResponseSchema,
   IntentionOutputType,
   RecommendationOutputType,
   coerceStructuredOutput,
@@ -146,18 +146,18 @@ Return a JSON array of recommendations following the Recommendation schema (cate
     );
     const intentions = coerceStructuredOutput(
       intentionResult.finalOutput,
-      IntentionListSchema as any,
-      [],
-    ) as Intention[];
+      IntentionResponseSchema as any,
+      { items: [] },
+    ).items as Intention[];
     const qualityResult = await (this.runner.run as typeof this.runner.run)(
       qualityReviewer,
       `Context:\n${contextBlock}\n\nReview:\n${reviewResult.finalResponse}\n\nIntentions:\n${JSON.stringify(intentions, null, 2)}\n\nProvide actionable recommendations (tests to add, refactors, follow-up tasks).`,
     );
     const recommendations = coerceStructuredOutput(
       qualityResult.finalOutput,
-      RecommendationListSchema as any,
-      [],
-    ) as Recommendation[];
+      RecommendationResponseSchema as any,
+      { items: [] },
+    ).items as Recommendation[];
 
     const reviewThread = this.codex.startThread({
       model: this.config.model ?? DEFAULT_MODEL,

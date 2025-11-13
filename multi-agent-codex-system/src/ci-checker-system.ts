@@ -3,8 +3,8 @@ import type { JsonSchemaDefinition } from "@openai/agents-core";
 import { Codex, CodexProvider, type NativeTuiExitInfo, type Thread } from "@codex-native/sdk";
 import { DEFAULT_MODEL, DEFAULT_MINI_MODEL } from "./constants.js";
 import {
-  CiFixListSchema,
-  CiIssueListSchema,
+  CiFixResponseSchema,
+  CiIssueResponseSchema,
   CiFixOutputType,
   CiIssueOutputType,
   coerceStructuredOutput,
@@ -36,7 +36,7 @@ class CICheckerSystem {
   }
 
   private parseIssueOutput(raw: unknown, fallbackSource: CiCheckKind): CiIssue[] {
-    const parsed = coerceStructuredOutput(raw, CiIssueListSchema as any, []) as CiIssue[];
+    const parsed = coerceStructuredOutput(raw, CiIssueResponseSchema as any, { items: [] }).items as CiIssue[];
     return parsed.map((issue) => ({
       ...issue,
       source: issue.source ?? fallbackSource,
@@ -199,9 +199,9 @@ Produce a prioritized remediation checklist with owners and commands.`,
     );
     const fixes = coerceStructuredOutput(
       fixerResult.finalOutput,
-      CiFixListSchema as any,
-      [],
-    ) as CiFix[];
+      CiFixResponseSchema as any,
+      { items: [] },
+    ).items as CiFix[];
     const confidence = Math.min(0.99, Math.max(0.2, fixes.length / Math.max(1, issues.length + 2)));
 
     const thread =

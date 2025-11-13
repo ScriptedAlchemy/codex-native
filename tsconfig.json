@@ -14,11 +14,6 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": [
-    "multi-agent-codex-system/src/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ]
+  "include": ["multi-agent-codex-system/src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }
