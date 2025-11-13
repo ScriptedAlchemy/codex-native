@@ -1,6 +1,6 @@
 import { Agent, Runner, handoff } from "@openai/agents";
 import type { JsonSchemaDefinition } from "@openai/agents-core";
-import { Codex, CodexProvider, type NativeTuiExitInfo, type Thread } from "@codex-native/sdk";
+import { Codex, CodexProvider } from "@codex-native/sdk";
 import { DEFAULT_MODEL } from "./constants.js";
 import {
   IntentionResponseSchema,
@@ -171,9 +171,19 @@ Return a JSON array of recommendations following the Recommendation schema (cate
     this.diagnostics?.attach(reviewThread);
     attachApplyPatchReminder(reviewThread, "workspace-write");
 
-    await reviewThread.run(`You already completed an automated branch review.\n\nBranch: ${repoContext.branch}\nBase: ${repoContext.baseBranch}\n\nRepo signals:\n${contextBlock}\n\nPR status summary:\n${prBlock}\n\nAutomated review findings:\n${reviewResult.finalResponse}\n\nSummarize the most critical insights and propose next investigative steps before I join via TUI.`);
+    await reviewThread.run(`You already completed an automated branch review.\n\nBranch: ${repoContext.branch}\nBase: ${repoContext.baseBranch}\n\nRepo signals:\n${contextBlock}\n\nPR status summary:\n${prBlock}\n\nAutomated review findings:\n${reviewResult.finalResponse}\n\nSummarize the most critical insights and propose next investigative steps.`);
 
     await reviewThread.run(`Log any CI or QA follow-ups you believe are necessary. You may soon fork to a CI triage agent; acknowledge by replying with a short checklist and the token 'CI-HANDOFF-READY'.`);
+
+    const intentionLines = intentions
+      .map((item) => `• [${item.category}] ${item.title ?? item.summary} (${item.impactScope})`)
+      .join("\n");
+    const recommendationLines = recommendations
+      .map((rec) => `• [${rec.priority}] ${rec.title ?? rec.description} — ${rec.category}`)
+      .join("\n");
+    await reviewThread.run(
+      `PR Review Ready\n\nSummary:\n${reviewResult.finalResponse ?? "(no summary)"}\n\nIntentions:\n${intentionLines}\n\nRecommendations:\n${recommendationLines}`,
+    );
 
     let ciHandoff;
     try {
@@ -204,17 +214,6 @@ Return a JSON array of recommendations following the Recommendation schema (cate
       thread: reviewThread,
       ciHandoff,
     };
-  }
-
-  async launchInteractiveReview(thread: Thread, data: ReviewAnalysis): Promise<NativeTuiExitInfo> {
-    const intentionLines = data.intentions
-      .map((item) => `• [${item.category}] ${item.title ?? item.summary} (${item.impactScope})`)
-      .join("\n");
-    const recommendationLines = data.recommendations
-      .map((rec) => `• [${rec.priority}] ${rec.title ?? rec.description} — ${rec.category}`)
-      .join("\n");
-    const prompt = `PR Review Ready\n\nSummary:\n${data.summary}\n\nIntentions:\n${intentionLines}\n\nRecommendations:\n${recommendationLines}\n\nEnter the TUI and drill into any file or test you want.`;
-    return thread.tui({ prompt, model: this.config.model ?? DEFAULT_MODEL });
   }
 }
 

@@ -12,7 +12,6 @@ export const CONFIG: MultiAgentConfig = {
   skipGitRepoCheck: true,
   reviewBranch: true,
   ciCheck: true,
-  interactive: false,
   model: DEFAULT_MODEL,
   embedder: {
     initOptions: {

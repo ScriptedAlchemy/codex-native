@@ -13,7 +13,6 @@ export type MultiAgentConfig = {
   apiKey?: string;
   workingDirectory: string;
   skipGitRepoCheck: boolean;
-  interactive?: boolean;
   reviewBranch?: boolean;
   ciCheck?: boolean;
   reverieQuery?: string;

@@ -1,6 +1,6 @@
 import { Agent, Runner } from "@openai/agents";
 import type { JsonSchemaDefinition } from "@openai/agents-core";
-import { Codex, CodexProvider, type NativeTuiExitInfo, type Thread } from "@codex-native/sdk";
+import { Codex, CodexProvider, type Thread } from "@codex-native/sdk";
 import { DEFAULT_MODEL, DEFAULT_MINI_MODEL } from "./constants.js";
 import {
   CiFixResponseSchema,
@@ -230,9 +230,7 @@ Issues:
 ${issueSummary}
 
 Recommended fixes:
-${fixSummary}
-
-Return a short confirmation and be ready to continue interactively.`);
+${fixSummary}`);
 
     return {
       issues,
@@ -240,20 +238,6 @@ Return a short confirmation and be ready to continue interactively.`);
       confidence,
       thread,
     };
-  }
-
-  async launchInteractiveFixing(thread: Thread, data: CiAnalysis): Promise<NativeTuiExitInfo> {
-    const prompt = `CI Analysis
-Confidence: ${(data.confidence * 100).toFixed(1)}%
-
-Issues:
-${this.formatIssueSummary(data.issues)}
-
-Fixes:
-${this.formatFixSummary(data.fixes)}
-
-Let's jump into the TUI and apply/validate these fixes.`;
-    return thread.tui({ prompt, model: this.config.model ?? DEFAULT_MODEL });
   }
 }
 

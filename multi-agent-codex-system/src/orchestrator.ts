@@ -5,6 +5,7 @@ import { PRDeepReviewer } from "./pr-deep-reviewer.js";
 import { ReverieSystem } from "./reverie.js";
 import { collectPrStatus, collectRepoContext, formatPrStatus, formatRepoContext } from "./repo.js";
 import type { CiAnalysis, MultiAgentConfig, PrStatusSummary, RepoContext, ReviewAnalysis } from "./types.js";
+import { runThreadTui } from "./tui-util.js";
 import { LspDiagnosticsBridge } from "@codex-native/sdk";
 import { attachApplyPatchReminder } from "./reminders/applyPatchReminder.js";
 
@@ -36,17 +37,27 @@ class MultiAgentOrchestrator {
     if (this.config.reviewBranch) {
       reviewData = await this.reviewer.reviewBranch(repoContext, prStatus);
       logReviewSummary(reviewData);
-      if (this.config.interactive) {
-        await this.reviewer.launchInteractiveReview(reviewData.thread, reviewData);
-      }
+      await runThreadTui(
+        reviewData.thread,
+        {
+          prompt: buildReviewPrompt(reviewData),
+          model: this.config.model ?? DEFAULT_MODEL,
+        },
+        "PR review",
+      );
     }
 
     if (this.config.ciCheck) {
       const ciResult = await this.ciChecker.checkAndFixCI(repoContext, prStatus, reviewData?.ciHandoff);
       logCiSummary(ciResult);
-      if (this.config.interactive) {
-        await this.ciChecker.launchInteractiveFixing(ciResult.thread, ciResult);
-      }
+      await runThreadTui(
+        ciResult.thread,
+        {
+          prompt: buildCiPrompt(ciResult),
+          model: this.config.model ?? DEFAULT_MODEL,
+        },
+        "CI triage",
+      );
     }
 
     if (this.config.reverieQuery) {
@@ -60,11 +71,14 @@ class MultiAgentOrchestrator {
       const detach = this.diagnostics?.attach(thread);
       const reminderCleanup = attachApplyPatchReminder(thread, "danger-full-access");
       await this.reverie.injectReverie(thread, reveries, this.config.reverieQuery);
-      if (this.config.interactive) {
-        await thread.tui({
-          prompt: `Injected ${reveries.length} reverie insight(s) for '${this.config.reverieQuery}'. Continue the discussion.`,
-        });
-      }
+      await runThreadTui(
+        thread,
+        {
+          prompt: `Injected ${reveries.length} reverie insight(s) for '${this.config.reverieQuery}'. Explore history here, then close this TUI to continue.`,
+          model: this.config.model ?? DEFAULT_MODEL,
+        },
+        "Reverie insights",
+      );
       detach?.();
       reminderCleanup();
     }
@@ -86,12 +100,14 @@ class MultiAgentOrchestrator {
 
     const prompt = `Integrated Multi-Agent Session\n\nRepo context:\n${formatRepoContext(repoContext)}\n\nPR status:\n${formatPrStatus(prStatus)}\n\nAvailable commands:\n- type 'review branch' to start automated review\n- type 'check ci' to inspect CI\n- type 'reverie <topic>' to search past insights\n\nHow can I help?`;
 
-    if (this.config.interactive) {
-      await thread.tui({ prompt });
-    } else {
-      const turn = await thread.run(prompt);
-      console.log("🤖", turn.finalResponse);
-    }
+    await runThreadTui(
+      thread,
+      {
+        prompt,
+        model: this.config.model ?? DEFAULT_MODEL,
+      },
+      "Integrated session",
+    );
     detach?.();
     reminderCleanup();
   }
@@ -136,6 +152,26 @@ function logCiSummary(data: CiAnalysis): void {
     })),
   );
   console.log("Confidence:", `${(data.confidence * 100).toFixed(1)}%`);
+}
+
+function buildReviewPrompt(data: ReviewAnalysis): string {
+  const intentions = data.intentions
+    .map((item) => `• [${item.category}] ${item.title ?? item.summary} (${item.impactScope})`)
+    .join("\n");
+  const recommendations = data.recommendations
+    .map((rec) => `• [${rec.priority}] ${rec.title ?? rec.description} — ${rec.category}`)
+    .join("\n");
+  return `PR Review Ready\n\nSummary:\n${data.summary}\n\nIntentions:\n${intentions}\n\nRecommendations:\n${recommendations}`;
+}
+
+function buildCiPrompt(data: CiAnalysis): string {
+  return `CI Analysis\nConfidence: ${(data.confidence * 100).toFixed(1)}%\n\nIssues:\n${data
+    .issues.slice(0, 10)
+    .map((issue, idx) => `#${idx + 1} [${issue.severity}] (${issue.source}) ${issue.title}`)
+    .join("\n")}\n\nFixes:\n${data
+    .fixes.slice(0, 10)
+    .map((fix, idx) => `#${idx + 1} [${fix.priority}] ${fix.title}`)
+    .join("\n")}`;
 }
 
 export { MultiAgentOrchestrator };
