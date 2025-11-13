@@ -16,7 +16,7 @@
     "declaration": true,
     "declarationMap": true,
     "noImplicitAny": true,
-    "outDir": "dist",
+    "noEmit": true,
     "stripInternal": true
   },
   "include": ["src", "tests", "tsup.config.ts", "samples"],
