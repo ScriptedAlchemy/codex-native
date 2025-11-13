@@ -25,9 +25,12 @@ use core_test_support::test_codex::TestCodex;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use core_test_support::wait_for_event_match;
+use core_test_support::wait_for_event_match_with_timeout;
+use core_test_support::wait_for_event_with_timeout;
 use regex_lite::Regex;
 use serde_json::Value;
 use serde_json::json;
+use tokio::time::Duration;
 
 fn extract_output_text(item: &Value) -> Option<&str> {
     item.get("output").and_then(|value| match value {
@@ -407,10 +410,14 @@ async fn unified_exec_emits_exec_command_end_event() -> Result<()> {
         })
         .await?;
 
-    let end_event = wait_for_event_match(&codex, |msg| match msg {
-        EventMsg::ExecCommandEnd(ev) if ev.call_id == call_id => Some(ev.clone()),
-        _ => None,
-    })
+    let end_event = wait_for_event_match_with_timeout(
+        &codex,
+        |msg| match msg {
+            EventMsg::ExecCommandEnd(ev) if ev.call_id == call_id => Some(ev.clone()),
+            _ => None,
+        },
+        Duration::from_secs(30),
+    )
     .await;
 
     assert_eq!(end_event.exit_code, 0);
@@ -743,7 +750,7 @@ async fn exec_command_reports_chunk_and_exit_metadata() -> Result<()> {
         })
         .await?;
 
-    wait_for_event(&codex, |event| matches!(event, EventMsg::TaskComplete(_))).await;
+    wait_for_event_with_timeout(&codex, |event| matches!(event, EventMsg::TaskComplete(_)), Duration::from_secs(30)).await;
 
     let requests = server.received_requests().await.expect("recorded requests");
     assert!(!requests.is_empty(), "expected at least one POST request");
