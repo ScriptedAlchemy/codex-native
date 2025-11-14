@@ -1,6 +1,9 @@
 // Section 6: Reverie System - Conversation Search and Insights
 // ============================================================================
 //
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+
 #[napi(object)]
 pub struct ReverieConversation {
   pub id: String,
@@ -177,7 +180,7 @@ pub async fn reverie_search_semantic(
     }
 
     let insights = derive_insights_for_semantic(&conversation.head_records, &conversation.tail_records);
-    let doc_text = build_compact_document(&conversation.head_records, &conversation.tail_records, &insights);
+    let doc_text = build_compact_document(&conversation, &insights);
 
     if doc_text.trim().is_empty() {
       continue;
@@ -268,7 +271,7 @@ pub async fn reverie_index_semantic(
       continue;
     }
     let insights = derive_insights_for_semantic(&conversation.head_records, &conversation.tail_records);
-    let doc_text = build_compact_document(&conversation.head_records, &conversation.tail_records, &insights);
+    let doc_text = build_compact_document(&conversation, &insights);
     if doc_text.trim().is_empty() {
       continue;
     }
@@ -433,23 +436,55 @@ fn derive_insights_for_semantic(head_records: &[String], tail_records: &[String]
   insights
 }
 
+fn collect_texts_from_records(records: &[String]) -> Vec<String> {
+  records
+    .iter()
+    .filter_map(|record| serde_json::from_str::<serde_json::Value>(record).ok())
+    .filter_map(|json_value| extract_insight_from_json(&json_value))
+    .collect()
+}
+
+fn load_full_conversation_segments(path: &str) -> Vec<String> {
+  let file = match File::open(path) {
+    Ok(file) => file,
+    Err(_) => return Vec::new(),
+  };
+  let reader = BufReader::new(file);
+  reader
+    .lines()
+    .filter_map(|line| {
+      let line = line.ok()?;
+      let trimmed = line.trim();
+      if trimmed.is_empty() {
+        return None;
+      }
+      serde_json::from_str::<serde_json::Value>(trimmed).ok()
+    })
+    .filter_map(|json_value| extract_insight_from_json(&json_value))
+    .collect()
+}
+
 fn build_compact_document(
-  head_records: &[String],
-  tail_records: &[String],
+  conversation: &ReverieConversation,
   insights: &[String],
 ) -> String {
   const MAX_CHARS: usize = 4000;
-  let mut texts: Vec<String> = Vec::new();
-  for record in head_records.iter().chain(tail_records.iter()) {
-    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(record)
-      && let Some(content) = extract_insight_from_json(&json_value)
-    {
-      texts.push(content);
-    }
+  let mut texts = load_full_conversation_segments(&conversation.path);
+  if texts.is_empty() {
+    texts = collect_texts_from_records(&conversation.head_records);
+    texts.extend(collect_texts_from_records(&conversation.tail_records));
+  }
+  if texts.is_empty() {
+    texts.extend(
+      conversation
+        .head_records
+        .iter()
+        .chain(conversation.tail_records.iter())
+        .cloned(),
+    );
   }
   texts.extend(insights.iter().cloned());
-  let joined = texts.join(" ");
-  truncate_to_chars(&joined, MAX_CHARS)
+  truncate_to_chars(&texts.join(" "), MAX_CHARS)
 }
 
 fn truncate_to_chars(input: &str, max_chars: usize) -> String {
@@ -535,7 +570,6 @@ pub async fn reverie_get_conversation_insights(
   conversation_path: String,
   query: Option<String>,
 ) -> napi::Result<Vec<String>> {
-  use std::path::Path;
   use tokio::fs;
 
   let path = Path::new(&conversation_path);
