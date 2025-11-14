@@ -1,3 +1,4 @@
+import test from "node:test";
 import assert from "node:assert/strict";
 import Ajv from "ajv";
 import {
@@ -27,90 +28,88 @@ function expectInvalid(name: string, schema: any, sample: unknown): void {
   }
 }
 
-validateSchema(
-  "Intentions",
-  IntentionOutputType.schema,
-  {
-    items: [
-      {
-        category: "Feature",
-        title: "Add streaming logs",
-        summary: "Surface agent events as they happen",
-        impactScope: "module",
-        evidence: ["src/pr-deep-reviewer.ts"],
-      },
-    ],
-  },
-);
-expectInvalid(
-  "Intentions",
-  IntentionOutputType.schema,
-  { items: [{ title: "Missing category", summary: "", impactScope: "module" }] },
-);
+test("Structured output schemas enforce valid payloads", () => {
+  validateSchema(
+    "Intentions",
+    IntentionOutputType.schema,
+    {
+      items: [
+        {
+          category: "Feature",
+          title: "Add streaming logs",
+          summary: "Surface agent events as they happen",
+          impactScope: "module",
+          evidence: ["src/pr-deep-reviewer.ts"],
+        },
+      ],
+    },
+  );
+  expectInvalid(
+    "Intentions",
+    IntentionOutputType.schema,
+    { items: [{ title: "Missing category", summary: "", impactScope: "module" }] },
+  );
 
-validateSchema(
-  "Recommendations",
-  RecommendationOutputType.schema,
-  {
-    items: [
-      {
-        category: "Docs",
-        title: "Document streaming",
-        priority: "P2",
-        effort: "Low",
-        description: "Explain how to enable streaming logs",
-        location: null,
-        example: null,
-      },
-    ],
-  },
-);
+  validateSchema(
+    "Recommendations",
+    RecommendationOutputType.schema,
+    {
+      items: [
+        {
+          category: "Docs",
+          title: "Document streaming",
+          priority: "P2",
+          effort: "Low",
+          description: "Explain how to enable streaming logs",
+          location: null,
+          example: null,
+        },
+      ],
+    },
+  );
 
-validateSchema(
-  "CiIssueList",
-  CiIssueOutputType.schema,
-  {
-    items: [
-      {
-        source: "tests",
-        severity: "P1",
-        title: "Missing unit tests",
-        summary: "Schema definitions lack coverage",
-        suggestedCommands: ["pnpm --filter multi-agent-codex-system run test"],
-        files: ["src/schemas.ts"],
-        owner: null,
-        autoFixable: false,
-      },
-    ],
-  },
-);
+  validateSchema(
+    "CiIssueList",
+    CiIssueOutputType.schema,
+    {
+      items: [
+        {
+          source: "tests",
+          severity: "P1",
+          title: "Missing unit tests",
+          summary: "Schema definitions lack coverage",
+          suggestedCommands: ["pnpm --filter multi-agent-codex-system run test"],
+          files: ["src/schemas.ts"],
+          owner: null,
+          autoFixable: false,
+        },
+      ],
+    },
+  );
 
-validateSchema(
-  "CiFixList",
-  CiFixOutputType.schema,
-  {
-    items: [
-      {
-        title: "Add schema tests",
-        priority: "P1",
-        steps: ["Add AJV", "Write schema.test.ts"],
-        owner: "infra",
-      },
-    ],
-  },
-);
+  validateSchema(
+    "CiFixList",
+    CiFixOutputType.schema,
+    {
+      items: [
+        {
+          title: "Add schema tests",
+          priority: "P1",
+          steps: ["Add AJV", "Write schema.test.ts"],
+          owner: "infra",
+        },
+      ],
+    },
+  );
 
-expectInvalid(
-  "CiFixList",
-  CiFixOutputType.schema,
-  { items: [{ title: "Missing remediation steps", priority: "P2", owner: null }] },
-);
+  expectInvalid(
+    "CiFixList",
+    CiFixOutputType.schema,
+    { items: [{ title: "Missing remediation steps", priority: "P2", owner: null }] },
+  );
+});
 
-await runReverieInjectionTests();
-
-console.log("Schema + reverie tests passed ✔");
-
-async function runReverieInjectionTests(): Promise<void> {
+test("ReverieSystem injects reveries into thread", async () => {
   const baseConfig: MultiAgentConfig = {
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
@@ -150,4 +149,4 @@ async function runReverieInjectionTests(): Promise<void> {
 
   await reverieSystem.injectReverie(threadWithoutLog, [], "noop query");
   assert.equal(runCount, 0, "no reveries should skip thread.run calls");
-}
+});

@@ -52,7 +52,6 @@ function setupAutoDetach(thread: Thread, session: TuiSession, delayMs: number, l
   let activeTurns = 0;
   let detachTimer: NodeJS.Timeout | undefined;
   let detachRequested = false;
-  let sawTurn = false;
 
   const clearTimer = () => {
     if (detachTimer) {
@@ -62,28 +61,25 @@ function setupAutoDetach(thread: Thread, session: TuiSession, delayMs: number, l
   };
 
   const scheduleDetach = () => {
-    if (detachRequested || !sawTurn || activeTurns > 0) {
+    if (detachRequested || activeTurns > 0 || detachTimer) {
       return;
     }
-    if (!detachTimer) {
-      detachTimer = setTimeout(() => {
-        detachTimer = undefined;
-        detachRequested = true;
-        try {
-          if (!session.closed) {
-            session.shutdown();
-          }
-        } catch (error) {
-          const suffix = label ? ` (${label})` : "";
-          console.warn(`Failed to auto-detach Codex TUI${suffix}:`, error);
+    detachTimer = setTimeout(() => {
+      detachTimer = undefined;
+      detachRequested = true;
+      try {
+        if (!session.closed) {
+          session.shutdown();
         }
-      }, delayMs);
-    }
+      } catch (error) {
+        const suffix = label ? ` (${label})` : "";
+        console.warn(`Failed to auto-detach Codex TUI${suffix}:`, error);
+      }
+    }, delayMs);
   };
 
   const unsubscribe = thread.onEvent((event) => {
     if (event.type === "turn.started") {
-      sawTurn = true;
       activeTurns += 1;
       clearTimer();
       return;
@@ -93,6 +89,8 @@ function setupAutoDetach(thread: Thread, session: TuiSession, delayMs: number, l
       scheduleDetach();
     }
   });
+
+  scheduleDetach();
 
   return () => {
     clearTimer();

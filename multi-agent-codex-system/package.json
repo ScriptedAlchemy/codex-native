@@ -9,7 +9,7 @@
     "start": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "test": "tsx tests/schema.test.ts && tsx tests/reverie-system.test.ts"
+    "test": "node --import tsx --test"
   },
   "dependencies": {
     "@codex-native/sdk": "workspace:*",
