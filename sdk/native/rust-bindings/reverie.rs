@@ -1,9 +1,11 @@
 // Section 6: Reverie System - Conversation Search and Insights
 // ============================================================================
 //
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
+#[derive(Clone)]
 #[napi(object)]
 pub struct ReverieConversation {
   pub id: String,
@@ -18,6 +20,7 @@ pub struct ReverieConversation {
   pub tail_records: Vec<String>,
 }
 
+#[derive(Clone)]
 #[napi(object)]
 pub struct ReverieSearchResult {
   pub conversation: ReverieConversation,
@@ -26,6 +29,8 @@ pub struct ReverieSearchResult {
   #[napi(js_name = "matchingExcerpts")]
   pub matching_excerpts: Vec<String>,
   pub insights: Vec<String>,
+  #[napi(js_name = "rerankerScore")]
+  pub reranker_score: Option<f64>,
 }
 
 const MAX_INSIGHTS_PER_CONVERSATION: usize = 4;
@@ -42,6 +47,18 @@ pub struct ReverieSemanticSearchOptions {
   pub batch_size: Option<u32>,
   pub normalize: Option<bool>,
   pub cache: Option<bool>,
+  #[napi(js_name = "rerankerModel")]
+  pub reranker_model: Option<String>,
+  #[napi(js_name = "rerankerCacheDir")]
+  pub reranker_cache_dir: Option<String>,
+  #[napi(js_name = "rerankerMaxLength")]
+  pub reranker_max_length: Option<u32>,
+  #[napi(js_name = "rerankerShowProgress")]
+  pub reranker_show_progress: Option<bool>,
+  #[napi(js_name = "rerankerBatchSize")]
+  pub reranker_batch_size: Option<u32>,
+  #[napi(js_name = "rerankerTopK")]
+  pub reranker_top_k: Option<u32>,
 }
 
 #[napi(object)]
@@ -126,6 +143,7 @@ pub async fn reverie_search_conversations(
         relevance_score,
         matching_excerpts,
         insights,
+        reranker_score: None,
       });
     }
 
@@ -221,27 +239,27 @@ pub async fn reverie_search_semantic(
   }
 
   let (query_embedding, doc_embeddings) = embeddings.split_first().unwrap();
-  let mut scored: Vec<ReverieSearchResult> = candidates
+  let mut matches: Vec<RankedMatch> = candidates
     .into_iter()
     .zip(doc_embeddings.iter())
     .map(|(candidate, embedding)| {
       let score = cosine_similarity(query_embedding, embedding);
-      ReverieSearchResult {
-        conversation: candidate.conversation,
-        relevance_score: score,
-        matching_excerpts: vec![build_excerpt(&candidate.doc_text)],
-        insights: candidate.insights,
-      }
+      RankedMatch::new(candidate, score)
     })
     .collect();
 
-  scored.sort_by(|a, b| b
-    .relevance_score
-    .partial_cmp(&a.relevance_score)
-    .unwrap_or(std::cmp::Ordering::Equal));
-  scored.truncate(limit);
+  if let Err(err) = maybe_rerank_matches(&mut matches, trimmed, &opts).await {
+    eprintln!("codex-native: reverie reranker failed; falling back to embedding scores: {err}");
+  }
 
-  Ok(scored)
+  matches.sort_by(|a, b| b
+    .result
+    .relevance_score
+    .partial_cmp(&a.result.relevance_score)
+    .unwrap_or(std::cmp::Ordering::Equal));
+  matches.truncate(limit);
+
+  Ok(matches.into_iter().map(|entry| entry.result).collect())
 }
 
 #[napi]
@@ -312,6 +330,71 @@ pub async fn reverie_index_semantic(
   })
 }
 
+async fn maybe_rerank_matches(
+  matches: &mut Vec<RankedMatch>,
+  query: &str,
+  opts: &ReverieSemanticSearchOptions,
+) -> napi::Result<()> {
+  let Some(config) = build_reranker_config(opts) else {
+    return Ok(());
+  };
+  if matches.is_empty() {
+    return Ok(());
+  }
+
+  let documents: Vec<String> = matches.iter().map(|entry| entry.doc_text.clone()).collect();
+  let reranked = fast_embed_rerank_documents(
+    &config,
+    query,
+    documents,
+    opts.reranker_batch_size.map(|value| value as usize),
+    opts.reranker_top_k.map(|value| value as usize),
+  )
+  .await?;
+  if reranked.is_empty() {
+    return Ok(());
+  }
+
+  let mut seen = HashSet::new();
+  let mut reordered = Vec::with_capacity(matches.len());
+  for item in reranked {
+    if item.index >= matches.len() {
+      continue;
+    }
+    let mut candidate = matches[item.index].clone();
+    let rerank_score = item.score as f64;
+    candidate.result.relevance_score = rerank_score;
+    candidate.result.reranker_score = Some(rerank_score);
+    reordered.push(candidate);
+    seen.insert(item.index);
+  }
+
+  for (idx, candidate) in matches.iter().enumerate() {
+    if !seen.contains(&idx) {
+      reordered.push(candidate.clone());
+    }
+  }
+
+  *matches = reordered;
+  Ok(())
+}
+
+fn build_reranker_config(
+  opts: &ReverieSemanticSearchOptions,
+) -> Option<FastEmbedRerankConfig> {
+  let model = opts
+    .reranker_model
+    .as_ref()?
+    .trim();
+  let trimmed = if model.is_empty() { return None; } else { model };
+  Some(FastEmbedRerankConfig {
+    model: trimmed.to_string(),
+    cache_dir: opts.reranker_cache_dir.clone(),
+    max_length: opts.reranker_max_length,
+    show_download_progress: opts.reranker_show_progress,
+  })
+}
+
 async fn load_reverie_conversations(
   codex_home: &Path,
   limit: usize,
@@ -368,10 +451,34 @@ fn serialize_json_records(values: &[serde_json::Value]) -> Vec<String> {
     .collect()
 }
 
+#[derive(Clone)]
 struct SemanticCandidate {
   conversation: ReverieConversation,
   insights: Vec<String>,
   doc_text: String,
+}
+
+#[derive(Clone)]
+struct RankedMatch {
+  doc_text: String,
+  result: ReverieSearchResult,
+}
+
+impl RankedMatch {
+  fn new(candidate: SemanticCandidate, score: f64) -> Self {
+    let doc_text = candidate.doc_text;
+    let excerpt = build_excerpt(&doc_text);
+    Self {
+      doc_text,
+      result: ReverieSearchResult {
+        conversation: candidate.conversation,
+        relevance_score: score,
+        matching_excerpts: vec![excerpt],
+        insights: candidate.insights,
+        reranker_score: None,
+      },
+    }
+  }
 }
 
 fn extract_insight_from_json(value: &serde_json::Value) -> Option<String> {

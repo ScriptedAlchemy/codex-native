@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 
 import { fastEmbedInit, reverieIndexSemantic, type ReverieSemanticSearchOptions } from "../nativeBinding";
 
-const DEFAULT_MODEL = "BAAI/bge-large-en-v1.5";
+const DEFAULT_MODEL = "mixedbread-ai/mxbai-embed-large-v1";
 
 const INDEX_OPTION_DEFS = {
   "codex-home": { type: "string" } as const,

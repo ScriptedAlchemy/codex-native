@@ -140,6 +140,7 @@ export type ReverieSearchResult = {
   relevanceScore: number;
   matchingExcerpts: string[];
   insights: string[];
+  rerankerScore?: number;
 };
 
 export type ReverieSemanticSearchOptions = {
@@ -149,6 +150,12 @@ export type ReverieSemanticSearchOptions = {
   batchSize?: number;
   normalize?: boolean;
   cache?: boolean;
+  rerankerModel?: string;
+  rerankerCacheDir?: string;
+  rerankerMaxLength?: number;
+  rerankerShowProgress?: boolean;
+  rerankerBatchSize?: number;
+  rerankerTopK?: number;
 };
 
 export type ReverieSemanticIndexStats = {

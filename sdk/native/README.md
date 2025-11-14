@@ -654,6 +654,9 @@ const semantic = await reverieSearchSemantic(codexHome, liveContext, {
   maxCandidates: 80,
   limit: 5,
   normalize: true,
+  rerankerModel: "BAAI/bge-reranker-v2-m3",
+  rerankerBatchSize: 8,
+  rerankerTopK: 20,
 });
 
 // Pre-build the semantic cache without issuing a query (helpful for CI or cron jobs)
@@ -667,10 +670,12 @@ await reverieIndexSemantic(codexHome, {
 To warm the cache without writing code, use the CLI:
 
 ```bash
-npx codex-native reverie index --project-root /path/to/repo --embed-model BAAI/bge-large-en-v1.5
+npx codex-native reverie index --project-root /path/to/repo --embed-model mixedbread-ai/mxbai-embed-large-v1
 ```
 
 Results include `headRecords` and `tailRecords`, mirroring the summaries used by the Rust CLI/TUI, so you can plug them into custom dashboards or route them back into an agent as `<system notification>`s. The semantic helper expects `fastEmbedInit` to have been called earlier in your process so the FastEmbed model is ready.
+
+For the highest recall + precision pairing we default to the `mixedbread-ai/mxbai-embed-large-v1` embedder (1024‑dimensional, multilingual) and re-rank the top candidates with `BAAI/bge-reranker-v2-m3`, a cross-encoder that excels at code/document relevance. Both models stream their ONNX weights into `~/.codex/fastembed`, so they can be reused across workspaces once downloaded.
 
 ### Tokenizer Helpers (tiktoken)
 

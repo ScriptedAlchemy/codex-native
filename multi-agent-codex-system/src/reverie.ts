@@ -112,7 +112,7 @@ class ReverieSystem {
     projectRoot: string,
   ): ReverieSemanticSearchOptions {
     const embedderRequest = this.config.embedder?.embedRequest ?? {};
-    return {
+    const options: ReverieSemanticSearchOptions = {
       limit,
       maxCandidates,
       projectRoot,
@@ -120,6 +120,16 @@ class ReverieSystem {
       normalize: embedderRequest.normalize,
       cache: embedderRequest.cache,
     };
+    if (this.config.reverieRerankerModel) {
+      options.rerankerModel = this.config.reverieRerankerModel;
+      if (typeof this.config.reverieRerankerBatchSize === "number") {
+        options.rerankerBatchSize = this.config.reverieRerankerBatchSize;
+      }
+      if (typeof this.config.reverieRerankerTopK === "number") {
+        options.rerankerTopK = this.config.reverieRerankerTopK;
+      }
+    }
+    return options;
   }
 
   private async ensureEmbedderReady(): Promise<void> {

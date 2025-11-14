@@ -21,7 +21,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
+use fastembed::{
+  EmbeddingModel, RerankInitOptions, RerankResult, RerankerModel, TextEmbedding, TextInitOptions,
+  TextRerank,
+};
 use sha1::{Digest, Sha1};
 
 use async_trait::async_trait;

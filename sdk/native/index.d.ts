@@ -171,6 +171,7 @@ export interface ReverieSearchResult {
   relevanceScore: number
   matchingExcerpts: Array<string>
   insights: Array<string>
+  rerankerScore?: number
 }
 
 export declare function reverieSearchSemantic(codexHomePath: string, contextText: string, options?: ReverieSemanticSearchOptions | undefined | null): Promise<Array<ReverieSearchResult>>
@@ -188,6 +189,12 @@ export interface ReverieSemanticSearchOptions {
   batchSize?: number
   normalize?: boolean
   cache?: boolean
+  rerankerModel?: string
+  rerankerCacheDir?: string
+  rerankerMaxLength?: number
+  rerankerShowProgress?: boolean
+  rerankerBatchSize?: number
+  rerankerTopK?: number
 }
 
 export interface RunRequest {

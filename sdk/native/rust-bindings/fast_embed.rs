@@ -23,11 +23,35 @@ struct FastEmbedState {
   embedder: Mutex<TextEmbedding>,
 }
 
+struct FastEmbedRerankerState {
+  model_code: String,
+  reranker: Mutex<TextRerank>,
+}
+
 static FAST_EMBED_STATE: OnceLock<Arc<FastEmbedState>> = OnceLock::new();
+static FAST_EMBED_RERANKER_STATE: OnceLock<Arc<FastEmbedRerankerState>> = OnceLock::new();
+static FAST_EMBED_INIT_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+type RerankHook = dyn Fn(
+  &FastEmbedRerankConfig,
+  &str,
+  Vec<String>,
+  Option<usize>,
+  Option<usize>,
+) -> napi::Result<Vec<RerankResult>>
+  + Send
+  + Sync;
+static FAST_EMBED_RERANK_HOOK: Mutex<Option<Arc<RerankHook>>> = Mutex::new(None);
+
+fn embed_init_mutex() -> &'static tokio::sync::Mutex<()> {
+  FAST_EMBED_INIT_MUTEX
+    .get_or_init(|| tokio::sync::Mutex::new(()))
+}
 
 #[napi(js_name = "fastEmbedInit")]
 pub async fn fast_embed_init(opts: FastEmbedInitOptions) -> napi::Result<()> {
+  let init_guard = embed_init_mutex().lock().await;
   if FAST_EMBED_STATE.get().is_some() {
+    drop(init_guard);
     return Ok(());
   }
 
@@ -36,8 +60,14 @@ pub async fn fast_embed_init(opts: FastEmbedInitOptions) -> napi::Result<()> {
   if let Some(max_length) = opts.max_length {
     init_options = init_options.with_max_length(max_length as usize);
   }
-  if let Some(cache_dir) = opts.cache_dir.as_deref() {
-    init_options = init_options.with_cache_dir(PathBuf::from(cache_dir));
+  let cache_dir = opts
+    .cache_dir
+    .as_ref()
+    .map(PathBuf::from)
+    .or_else(|| default_model_cache_dir("text-models"));
+  if let Some(cache_dir) = cache_dir {
+    let _ = std::fs::create_dir_all(&cache_dir);
+    init_options = init_options.with_cache_dir(cache_dir);
   }
   if let Some(show_download_progress) = opts.show_download_progress {
     init_options = init_options.with_show_download_progress(show_download_progress);
@@ -59,6 +89,7 @@ pub async fn fast_embed_init(opts: FastEmbedInitOptions) -> napi::Result<()> {
     .set(Arc::new(state))
     .map_err(|_| napi::Error::from_reason("FastEmbed already initialised"))?;
 
+  drop(init_guard);
   Ok(())
 }
 
@@ -293,6 +324,10 @@ fn hash_string(value: &str) -> String {
   format!("{:x}", hasher.finalize())
 }
 
+fn default_model_cache_dir(kind: &str) -> Option<PathBuf> {
+  resolve_codex_home_for_cache().map(|home| home.join("fastembed").join(kind))
+}
+
 fn derive_fastembed_namespace(opts: &TextInitOptions) -> String {
   let descriptor = format!(
     "fastembed|{}|{}|{}|{}",
@@ -314,6 +349,138 @@ fn normalize_vector(vec: &mut [f32]) {
       *value = (*value as f64 / norm) as f32;
     }
   }
+}
+
+#[derive(Clone, Debug)]
+pub struct FastEmbedRerankConfig {
+  pub model: String,
+  pub cache_dir: Option<String>,
+  pub max_length: Option<u32>,
+  pub show_download_progress: Option<bool>,
+}
+
+pub async fn fast_embed_rerank_documents(
+  config: &FastEmbedRerankConfig,
+  query: &str,
+  documents: Vec<String>,
+  batch_size: Option<usize>,
+  top_k: Option<usize>,
+) -> napi::Result<Vec<RerankResult>> {
+  if documents.is_empty() {
+    return Ok(Vec::new());
+  }
+
+  if let Some(hook) = current_rerank_hook() {
+    return hook(config, query, documents, batch_size, top_k);
+  }
+
+  let state = get_or_init_reranker(config).await?;
+  let mut reranker = state
+    .reranker
+    .lock()
+    .expect("FastEmbed reranker mutex poisoned");
+  let mut results = reranker
+    .rerank(query.to_string(), documents, false, batch_size)
+    .map_err(|err| napi::Error::from_reason(format!("FastEmbed rerank failed: {err}")))?;
+  if let Some(top_k) = top_k {
+    let cap = top_k.min(results.len());
+    results.truncate(cap);
+  }
+  Ok(results)
+}
+
+#[doc(hidden)]
+pub fn set_fast_embed_rerank_hook<F>(hook: F) -> napi::Result<()>
+where
+  F: Fn(&FastEmbedRerankConfig, &str, Vec<String>, Option<usize>, Option<usize>) -> napi::Result<Vec<RerankResult>>
+    + Send
+    + Sync
+    + 'static,
+{
+  let mut slot = FAST_EMBED_RERANK_HOOK
+    .lock()
+    .map_err(|_| napi::Error::from_reason("Failed to acquire rerank hook mutex"))?;
+  *slot = Some(Arc::new(hook));
+  Ok(())
+}
+
+#[doc(hidden)]
+pub fn clear_fast_embed_rerank_hook() {
+  if let Ok(mut slot) = FAST_EMBED_RERANK_HOOK.lock() {
+    slot.take();
+  }
+}
+
+async fn get_or_init_reranker(
+  config: &FastEmbedRerankConfig,
+) -> napi::Result<Arc<FastEmbedRerankerState>> {
+  if let Some(state) = FAST_EMBED_RERANKER_STATE.get() {
+    if state.model_code.eq_ignore_ascii_case(&config.model) {
+      return Ok(state.clone());
+    }
+    return Err(napi::Error::from_reason(format!(
+      "FastEmbed reranker already initialised with model {}",
+      state.model_code
+    )));
+  }
+
+  let model = resolve_reranker_model(&config.model)?;
+  let mut init_options = RerankInitOptions::new(model.clone());
+  if let Some(max_length) = config.max_length {
+    init_options = init_options.with_max_length(max_length as usize);
+  }
+  let cache_dir = config
+    .cache_dir
+    .as_ref()
+    .map(PathBuf::from)
+    .or_else(|| default_model_cache_dir("rerankers"));
+  if let Some(cache_dir) = cache_dir {
+    let _ = std::fs::create_dir_all(&cache_dir);
+    init_options = init_options.with_cache_dir(cache_dir);
+  }
+  if let Some(show) = config.show_download_progress {
+    init_options = init_options.with_show_download_progress(show);
+  }
+
+  let options_clone = init_options.clone();
+  let reranker = tokio::task::spawn_blocking(move || TextRerank::try_new(options_clone))
+    .await
+    .map_err(|err| napi::Error::from_reason(format!(
+      "Failed to join FastEmbed reranker init task: {err}"
+    )))?
+    .map_err(|err| napi::Error::from_reason(format!("Failed to initialise FastEmbed reranker: {err}")))?;
+
+  let state = Arc::new(FastEmbedRerankerState {
+    model_code: model.to_string(),
+    reranker: Mutex::new(reranker),
+  });
+
+  match FAST_EMBED_RERANKER_STATE.set(state.clone()) {
+    Ok(()) => Ok(state),
+    Err(_) => FAST_EMBED_RERANKER_STATE
+      .get()
+      .cloned()
+      .ok_or_else(|| napi::Error::from_reason("FastEmbed reranker initialisation race")),
+  }
+}
+
+fn resolve_reranker_model(model: &str) -> napi::Result<RerankerModel> {
+  let trimmed = model.trim();
+  let sanitized = sanitize_reranker_identifier(trimmed);
+  sanitized
+    .parse::<RerankerModel>()
+    .map_err(|_| napi::Error::from_reason(format!("Unknown reranker model '{trimmed}'")))
+}
+
+fn sanitize_reranker_identifier(input: &str) -> String {
+  input.trim().to_ascii_lowercase()
+}
+
+fn current_rerank_hook() -> Option<Arc<RerankHook>> {
+  FAST_EMBED_RERANK_HOOK
+    .lock()
+    .ok()
+    .and_then(|slot| slot.clone())
 }
 
 // ============================================================================

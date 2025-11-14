@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
+import type { ReverieSemanticSearchOptions } from "@codex-native/sdk";
 import { ReverieSystem } from "../src/reverie.js";
 import type { MultiAgentConfig, ReverieResult } from "../src/types.js";
 
 let initCalls = 0;
 let lastIndexOptions: any = null;
+let lastSearchOptions: ReverieSemanticSearchOptions | null = null;
 
-const mockSearch = async () => {
+const mockSearch = async (
+  _home: string,
+  _context: string,
+  options?: ReverieSemanticSearchOptions,
+) => {
+  lastSearchOptions = options ?? null;
   const now = new Date().toISOString();
   return [
     {
@@ -57,6 +64,8 @@ const results = await reverie.searchReveriesFromText("  diagnose build  ", { lim
 assert.equal(results.length, 1);
 assert.equal(results[0].conversationId, "match-1");
 assert.ok(results[0].insights[0].includes("Retry"));
+assert.equal(lastSearchOptions?.rerankerModel, config.reverieRerankerModel);
+assert.equal(lastSearchOptions?.rerankerBatchSize, config.reverieRerankerBatchSize);
 
 const originalLog = console.log;
 const logLines: string[] = [];
