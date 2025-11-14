@@ -105,6 +105,7 @@ describe("LspDiagnosticsBridge", () => {
     ]);
     expect(sendBackgroundEvent).toHaveBeenCalledTimes(1);
     const message = getFirstBackgroundMessage(sendBackgroundEvent);
+    expect(message.startsWith("LSP diagnostics detected:")).toBe(true);
     expect(message).toContain("README.md");
     expect(message).toContain("Trailing whitespace");
   });

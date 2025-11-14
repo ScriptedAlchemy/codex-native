@@ -5,8 +5,7 @@ import type { ThreadItem } from "../items";
 
 import { LspManager } from "./manager";
 import type { FileDiagnostics, LspManagerOptions } from "./types";
-
-const MAX_DIAGNOSTICS_PER_FILE = 5;
+import { formatDiagnosticsForBackgroundEvent } from "./format";
 
 export class LspDiagnosticsBridge {
   private readonly manager: LspManager;
@@ -61,7 +60,10 @@ export class LspDiagnosticsBridge {
       if (diagnostics.length === 0) {
         return;
       }
-      const summary = formatDiagnostics(diagnostics, this.options.workingDirectory);
+      const summary = formatDiagnosticsForBackgroundEvent(
+        diagnostics,
+        this.options.workingDirectory,
+      );
       console.log(`\n📟 LSP diagnostics detected:\n${summary}\n`);
       try {
         await thread.sendBackgroundEvent(`LSP diagnostics detected:\n${summary}`);
@@ -72,22 +74,6 @@ export class LspDiagnosticsBridge {
       console.warn("[lsp] failed to collect diagnostics", error);
     }
   }
-}
-
-function formatDiagnostics(diagnostics: FileDiagnostics[], cwd: string): string {
-  return diagnostics
-    .map(({ path: filePath, diagnostics: entries }) => {
-      const rel = path.relative(cwd, filePath) || filePath;
-      const lines = entries.slice(0, MAX_DIAGNOSTICS_PER_FILE).map((diag) => {
-        const { line, character } = diag.range.start;
-        const location = `${line + 1}:${character + 1}`;
-        const source = diag.source ? ` · ${diag.source}` : "";
-        return `  - [${diag.severity.toUpperCase()}] ${diag.message} (${location}${source})`;
-      });
-      const trimmed = entries.length > MAX_DIAGNOSTICS_PER_FILE ? "  - …" : "";
-      return [`• ${rel}`, ...lines, trimmed].filter(Boolean).join("\n");
-    })
-    .join("\n");
 }
 
 function extractReadFileTargets(item: ThreadItem, cwd: string): string[] {
@@ -121,4 +107,3 @@ function extractReadFileTargets(item: ThreadItem, cwd: string): string[] {
   const resolved = path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath);
   return [resolved];
 }
-

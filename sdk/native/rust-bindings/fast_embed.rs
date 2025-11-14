@@ -30,7 +30,6 @@ struct FastEmbedRerankerState {
 
 static FAST_EMBED_STATE: OnceLock<Arc<FastEmbedState>> = OnceLock::new();
 static FAST_EMBED_RERANKER_STATE: OnceLock<Arc<FastEmbedRerankerState>> = OnceLock::new();
-static FAST_EMBED_INIT_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 type RerankHook = dyn Fn(
   &FastEmbedRerankConfig,
   &str,
@@ -41,18 +40,6 @@ type RerankHook = dyn Fn(
   + Send
   + Sync;
 static FAST_EMBED_RERANK_HOOK: Mutex<Option<Arc<RerankHook>>> = Mutex::new(None);
-
-fn embed_init_mutex() -> &'static tokio::sync::Mutex<()> {
-  FAST_EMBED_INIT_MUTEX
-    .get_or_init(|| tokio::sync::Mutex::new(()))
-}
-
-#[napi(js_name = "fastEmbedInit")]
-pub async fn fast_embed_init(opts: FastEmbedInitOptions) -> napi::Result<()> {
-  let init_guard = embed_init_mutex().lock().await;
-  if FAST_EMBED_STATE.get().is_some() {
-    drop(init_guard);
-static FAST_EMBED_STATE: OnceLock<Arc<FastEmbedState>> = OnceLock::new();
 
 #[napi(js_name = "fastEmbedInit")]
 pub async fn fast_embed_init(opts: FastEmbedInitOptions) -> napi::Result<()> {
@@ -65,14 +52,6 @@ pub async fn fast_embed_init(opts: FastEmbedInitOptions) -> napi::Result<()> {
   if let Some(max_length) = opts.max_length {
     init_options = init_options.with_max_length(max_length as usize);
   }
-  let cache_dir = opts
-    .cache_dir
-    .as_ref()
-    .map(PathBuf::from)
-    .or_else(|| default_model_cache_dir("text-models"));
-  if let Some(cache_dir) = cache_dir {
-    let _ = std::fs::create_dir_all(&cache_dir);
-    init_options = init_options.with_cache_dir(cache_dir);
   if let Some(cache_dir) = opts.cache_dir.as_deref() {
     init_options = init_options.with_cache_dir(PathBuf::from(cache_dir));
   }
@@ -96,7 +75,6 @@ pub async fn fast_embed_init(opts: FastEmbedInitOptions) -> napi::Result<()> {
     .set(Arc::new(state))
     .map_err(|_| napi::Error::from_reason("FastEmbed already initialised"))?;
 
-  drop(init_guard);
   Ok(())
 }
 
@@ -331,10 +309,6 @@ fn hash_string(value: &str) -> String {
   format!("{:x}", hasher.finalize())
 }
 
-fn default_model_cache_dir(kind: &str) -> Option<PathBuf> {
-  resolve_codex_home_for_cache().map(|home| home.join("fastembed").join(kind))
-}
-
 fn derive_fastembed_namespace(opts: &TextInitOptions) -> String {
   let descriptor = format!(
     "fastembed|{}|{}|{}|{}",
@@ -358,6 +332,10 @@ fn normalize_vector(vec: &mut [f32]) {
   }
 }
 
+fn default_model_cache_dir(kind: &str) -> Option<PathBuf> {
+  resolve_codex_home_for_cache().map(|home| home.join("fastembed").join(kind))
+}
+
 #[derive(Clone, Debug)]
 pub struct FastEmbedRerankConfig {
   pub model: String,
@@ -376,11 +354,9 @@ pub async fn fast_embed_rerank_documents(
   if documents.is_empty() {
     return Ok(Vec::new());
   }
-
   if let Some(hook) = current_rerank_hook() {
     return hook(config, query, documents, batch_size, top_k);
   }
-
   let state = get_or_init_reranker(config).await?;
   let mut reranker = state
     .reranker

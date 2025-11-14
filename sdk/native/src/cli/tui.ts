@@ -1,13 +1,12 @@
 import process from "node:process";
 
 import { Codex } from "../codex";
-import { attachLspDiagnostics } from "../lsp";
-import type { LspManagerOptions } from "../lsp";
 import type { ThreadOptions } from "../threadOptions";
 import type { NativeTuiRequest } from "../nativeBinding";
 import { emitWarnings, runBeforeStartHooks } from "./hooks";
 import { parseApprovalModeFlag, parseSandboxModeFlag } from "./optionParsers";
 import type { CliContext, CommandName, TuiCommandOptions } from "./types";
+import { applyElevatedTuiDefaults } from "./elevatedDefaults";
 
 export async function executeTuiCommand(
   argv: TuiCommandOptions,
@@ -27,6 +26,8 @@ export async function executeTuiCommand(
     cwd: context.cwd,
   });
 
+  applyElevatedTuiDefaults({ request, thread: threadOptions, cwd: context.cwd });
+
   const hookContext = {
     command: "tui" as CommandName,
     cwd: context.cwd,
@@ -38,14 +39,7 @@ export async function executeTuiCommand(
   const codex = new Codex({ baseUrl: request.baseUrl, apiKey: request.apiKey });
   const thread = codex.startThread(threadOptions);
 
-  const lspOptions: LspManagerOptions = {
-    workingDirectory: threadOptions.workingDirectory ?? context.cwd,
-    waitForDiagnostics: true,
-  };
-  const detachLsp = attachLspDiagnostics(thread, lspOptions);
-
   const exitInfo = await thread.tui(request);
-  detachLsp();
   if (exitInfo.conversationId) {
     process.stdout.write(`\nConversation ID: ${exitInfo.conversationId}\n`);
   }

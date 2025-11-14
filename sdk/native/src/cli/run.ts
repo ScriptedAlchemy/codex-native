@@ -6,6 +6,7 @@ import process from "node:process";
 import { type NativeRunRequest, getNativeBinding } from "../nativeBinding";
 import { parseApprovalModeFlag, parseSandboxModeFlag } from "./optionParsers";
 import { emitWarnings, runBeforeStartHooks, runEventHooks } from "./hooks";
+import { applyElevatedRunDefaults } from "./elevatedDefaults";
 import type {
   CliContext,
   CommandName,
@@ -25,6 +26,7 @@ export async function executeRunCommand(
     prompt,
     argv,
     combinedDefaults: combinedConfig.runDefaults,
+    cwd: context.cwd,
   });
 
   if (!request.skipGitRepoCheck) {
@@ -149,8 +151,9 @@ async function buildRunRequest(params: {
   prompt: string;
   argv: RunCommandOptions;
   combinedDefaults: Partial<NativeRunRequest>;
+  cwd: string;
 }): Promise<NativeRunRequest> {
-  const { prompt, argv, combinedDefaults } = params;
+  const { prompt, argv, combinedDefaults, cwd } = params;
   const request: NativeRunRequest = {
     ...(combinedDefaults as NativeRunRequest),
     prompt,
@@ -194,6 +197,7 @@ async function buildRunRequest(params: {
     request.outputSchema = await readJsonFile(argv.schema);
   }
 
+  applyElevatedRunDefaults(request, cwd);
   return request;
 }
 
@@ -367,4 +371,3 @@ class AsyncQueue<T> implements AsyncIterable<T> {
     return this;
   }
 }
-

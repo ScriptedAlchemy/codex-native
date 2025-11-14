@@ -12,6 +12,7 @@ import { runTui, startTui } from "./tui";
 import { getNativeBinding } from "./nativeBinding";
 import type { NativeTuiRequest, NativeTuiExitInfo } from "./nativeBinding";
 import type { RunTuiOptions, TuiSession } from "./tui";
+import { attachLspDiagnostics } from "./lsp";
 
 /**
  * Convert Rust event format to ThreadEvent format.
@@ -584,7 +585,9 @@ export class Thread {
    */
   launchTui(overrides: Partial<NativeTuiRequest> = {}): TuiSession {
     const request = this.buildTuiRequest(overrides);
-    return startTui(request);
+    const detachLsp = this.attachDefaultLspBridge(request);
+    const session = startTui(request);
+    return this.wrapTuiSession(session, detachLsp);
   }
 
   /**
@@ -609,7 +612,52 @@ export class Thread {
     options: RunTuiOptions = {},
   ): Promise<NativeTuiExitInfo> {
     const request = this.buildTuiRequest(overrides);
-    return runTui(request, options);
+    const detachLsp = this.attachDefaultLspBridge(request);
+    try {
+      return await runTui(request, options);
+    } finally {
+      detachLsp();
+    }
+  }
+
+  private wrapTuiSession(session: TuiSession, cleanup: () => void): TuiSession {
+    let released = false;
+    const release = () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      cleanup();
+    };
+    return {
+      wait: async () => {
+        try {
+          return await session.wait();
+        } finally {
+          release();
+        }
+      },
+      shutdown: () => {
+        release();
+        session.shutdown();
+      },
+      get closed() {
+        return session.closed;
+      },
+    };
+  }
+
+  private attachDefaultLspBridge(request: NativeTuiRequest): () => void {
+    const workingDirectory =
+      request.workingDirectory ??
+      this._threadOptions?.workingDirectory ??
+      (typeof process !== "undefined" && typeof process.cwd === "function"
+        ? process.cwd()
+        : ".");
+    return attachLspDiagnostics(this, {
+      workingDirectory,
+      waitForDiagnostics: true,
+    });
   }
 }
 

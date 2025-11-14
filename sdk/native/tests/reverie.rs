@@ -7,7 +7,6 @@ use codex_native::{
   fast_embed_init, reverie_get_conversation_insights, reverie_index_semantic,
   reverie_list_conversations, reverie_search_conversations, reverie_search_semantic,
   set_fast_embed_rerank_hook,
-  reverie_get_conversation_insights, reverie_list_conversations, reverie_search_conversations,
 };
 use codex_protocol::ConversationId;
 use codex_protocol::models::{ContentItem, ResponseItem};
@@ -44,7 +43,6 @@ fn make_fake_codex_home() -> (tempfile::TempDir, PathBuf) {
           timestamp: timestamp.clone(),
           instructions: None,
           cwd: tmp.path().to_path_buf(),
-          cwd: PathBuf::from("."),
           originator: "test".to_string(),
           cli_version: "0.0.0".to_string(),
           model_provider: Some("test-provider".to_string()),

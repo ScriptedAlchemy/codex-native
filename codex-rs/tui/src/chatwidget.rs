@@ -723,6 +723,14 @@ impl ChatWidget {
 
     fn on_background_event(&mut self, message: String) {
         debug!("BackgroundEvent: {message}");
+        let trimmed = message.trim_start();
+        if trimmed.starts_with("LSP diagnostics") || trimmed.starts_with("📟 LSP diagnostics") {
+            self.add_to_history(history_cell::new_diagnostic_event(trimmed.to_string()));
+            self.request_redraw();
+        } else if !trimmed.is_empty() {
+            self.add_to_history(history_cell::new_background_event(trimmed.to_string()));
+            self.request_redraw();
+        }
     }
 
     fn on_undo_started(&mut self, event: UndoStartedEvent) {

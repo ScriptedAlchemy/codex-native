@@ -126,6 +126,36 @@ fn tool_output_to_native_response(output: ToolOutput) -> Result<NativeToolRespon
   }
 }
 
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::sync::{Arc, Mutex};
+
+  #[test]
+  fn emit_background_event_notifies_registered_handler() {
+    let thread_id = "test-thread";
+    let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let collector = Arc::clone(&received);
+    let handler: ThreadEventHandler = Arc::new(Mutex::new(Box::new(move |event| {
+      if let ExecThreadEvent::BackgroundEvent(payload) = event {
+        collector.lock().unwrap().push(payload.message);
+      }
+    })));
+    register_thread_handler(thread_id, &handler);
+
+    emit_background_event(JsEmitBackgroundEventRequest {
+      thread_id: thread_id.to_string(),
+      message: "LSP diagnostics ready".to_string(),
+    })
+    .expect("background event should dispatch");
+
+    unregister_thread_handler(thread_id);
+
+    let messages = received.lock().unwrap();
+    assert_eq!(messages.as_slice(), &["LSP diagnostics ready"]);
+  }
+}
+
 #[napi(object)]
 pub struct NativeToolInfo {
   pub name: String,
@@ -743,4 +773,3 @@ pub struct WorkspaceWriteOptions {
   #[napi(js_name = "excludeSlashTmp")]
   pub exclude_slash_tmp: Option<bool>,
 }
-

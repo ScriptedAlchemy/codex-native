@@ -205,6 +205,22 @@ fn entered_review_mode_defaults_to_current_changes_banner() {
     assert!(chat.is_review_mode);
 }
 
+#[test]
+fn background_events_render_in_history() {
+    let (mut chat, mut rx, _ops) = make_chatwidget_manual();
+
+    chat.handle_codex_event(Event {
+        id: "bg-event".into(),
+        msg: EventMsg::BackgroundEvent(BackgroundEventEvent {
+            message: "Subsystem warmed up".to_string(),
+        }),
+    });
+
+    let cells = drain_insert_history(&mut rx);
+    let last = lines_to_single_string(cells.last().expect("background cell"));
+    assert!(last.contains("Subsystem warmed up"));
+}
+
 /// Completing review with findings shows the selection popup and finishes with
 /// the closing banner while clearing review mode state.
 #[test]

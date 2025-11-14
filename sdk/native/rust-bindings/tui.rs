@@ -58,9 +58,6 @@ pub struct TuiRequest {
 
 #[derive(Debug)]
 #[allow(dead_code)]
-}
-
-#[derive(Debug)]
 struct InternalTuiRequest {
   cli: TuiCli,
   base_url: Option<String>,
@@ -409,4 +406,3 @@ pub async fn run_tui(req: TuiRequest) -> napi::Result<TuiExitInfo> {
   let session = start_tui(req)?;
   session.wait().await
 }
-
