@@ -12,6 +12,18 @@ import type { MultiAgentConfig, ReverieResult } from "./types.js";
 const DEFAULT_REVERIE_LIMIT = 10;
 const DEFAULT_REVERIE_CANDIDATES = 80;
 
+type ReverieDeps = {
+  searchSemantic: typeof reverieSearchSemantic;
+  indexSemantic: typeof reverieIndexSemantic;
+  fastEmbedInit: typeof fastEmbedInit;
+};
+
+const DEFAULT_DEPS: ReverieDeps = {
+  searchSemantic: reverieSearchSemantic,
+  indexSemantic: reverieIndexSemantic,
+  fastEmbedInit,
+};
+
 function resolveCodexHome(): string {
   return process.env.CODEX_HOME || path.join(process.env.HOME || process.cwd(), ".codex");
 }
@@ -19,7 +31,7 @@ function resolveCodexHome(): string {
 class ReverieSystem {
   private embedderReady = false;
 
-  constructor(private readonly config: MultiAgentConfig) {}
+  constructor(private readonly config: MultiAgentConfig, private readonly deps: ReverieDeps = DEFAULT_DEPS) {}
 
   async searchReveries(query: string): Promise<ReverieResult[]> {
     return this.searchReveriesFromText(query);
@@ -39,7 +51,7 @@ class ReverieSystem {
       `📚 Pre-indexing reveries (limit=${limit}, candidates=${maxCandidates}) for ${projectRoot}…`,
     );
     try {
-      const stats = await reverieIndexSemantic(codexHome, {
+      const stats = await this.deps.indexSemantic(codexHome, {
         projectRoot,
         limit,
         maxCandidates,
@@ -80,7 +92,7 @@ class ReverieSystem {
     console.log(`📁 Codex home: ${codexHome}`);
 
     try {
-      const matches = await reverieSearchSemantic(codexHome, normalized, semanticOptions);
+      const matches = await this.deps.searchSemantic(codexHome, normalized, semanticOptions);
       return matches.slice(0, limit).map((match) => ({
         conversationId: match.conversation?.id || "unknown",
         timestamp: match.conversation?.createdAt || new Date().toISOString(),
@@ -114,7 +126,7 @@ class ReverieSystem {
     if (this.embedderReady || !this.config.embedder) {
       return;
     }
-    await fastEmbedInit(this.config.embedder.initOptions);
+    await this.deps.fastEmbedInit(this.config.embedder.initOptions);
     this.embedderReady = true;
   }
 
