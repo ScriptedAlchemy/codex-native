@@ -50,20 +50,30 @@ pub struct TuiRequest {
   pub base_url: Option<String>,
   #[napi(js_name = "apiKey")]
   pub api_key: Option<String>,
+  #[napi(js_name = "reasoningEffort")]
+  pub reasoning_effort: Option<String>,
+  #[napi(js_name = "reasoningSummary")]
+  pub reasoning_summary: Option<String>,
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct InternalTuiRequest {
   cli: TuiCli,
   base_url: Option<String>,
   api_key: Option<String>,
   linux_sandbox_path: Option<PathBuf>,
+  reasoning_effort: Option<ReasoningEffort>,
+  reasoning_summary: Option<ReasoningSummary>,
 }
 
 impl TuiRequest {
   fn into_internal(self) -> napi::Result<InternalTuiRequest> {
     let sandbox_mode = parse_sandbox_mode(self.sandbox_mode.as_deref())?;
     let approval_mode = parse_approval_mode(self.approval_mode.as_deref())?;
+    let reasoning_effort = parse_reasoning_effort(self.reasoning_effort.as_deref())?;
+    let reasoning_summary = parse_reasoning_summary(self.reasoning_summary.as_deref())?;
+
     let images = self
       .images
       .unwrap_or_default()
@@ -104,6 +114,8 @@ impl TuiRequest {
       base_url: self.base_url,
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
+      reasoning_effort,
+      reasoning_summary,
     })
   }
 }
@@ -304,11 +316,14 @@ fn run_tui_sync(
   options: InternalTuiRequest,
   shutdown_token: Option<CancellationToken>,
 ) -> napi::Result<TuiExitInfo> {
+  ensure_apply_patch_aliases()?;
   let InternalTuiRequest {
     cli,
     base_url,
     api_key,
     linux_sandbox_path,
+    reasoning_effort: _,
+    reasoning_summary: _,
   } = options;
 
   let pending_tools = {
@@ -391,4 +406,3 @@ pub async fn run_tui(req: TuiRequest) -> napi::Result<TuiExitInfo> {
   let session = start_tui(req)?;
   session.wait().await
 }
-

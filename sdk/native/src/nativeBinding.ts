@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { ApprovalMode, SandboxMode, WorkspaceWriteOptions } from "./threadOptions";
+import type { ApprovalMode, SandboxMode, WorkspaceWriteOptions, ReasoningEffort, ReasoningSummary } from "./threadOptions";
 
 export type NativeRunRequest = {
   prompt: string;
@@ -19,6 +19,8 @@ export type NativeRunRequest = {
   baseUrl?: string;
   apiKey?: string;
   linuxSandboxPath?: string;
+  reasoningEffort?: ReasoningEffort;
+  reasoningSummary?: ReasoningSummary;
   /** @deprecated Use sandboxMode and approvalMode instead */
   fullAuto?: boolean;
   reviewMode?: boolean;
@@ -61,6 +63,8 @@ export type NativeTuiRequest = {
   linuxSandboxPath?: string;
   baseUrl?: string;
   apiKey?: string;
+  reasoningEffort?: ReasoningEffort;
+  reasoningSummary?: ReasoningSummary;
 };
 
 export type PlanStatus = "pending" | "in_progress" | "completed";

@@ -66,6 +66,8 @@ export interface ForkRequest {
   baseUrl?: string
   apiKey?: string
   linuxSandboxPath?: string
+  reasoningEffort?: string
+  reasoningSummary?: string
   fullAuto?: boolean
 }
 
@@ -214,6 +216,8 @@ export interface RunRequest {
   baseUrl?: string
   apiKey?: string
   linuxSandboxPath?: string
+  reasoningEffort?: string
+  reasoningSummary?: string
   fullAuto?: boolean
 }
 
@@ -278,6 +282,8 @@ export interface TuiRequest {
   linuxSandboxPath?: string
   baseUrl?: string
   apiKey?: string
+  reasoningEffort?: string
+  reasoningSummary?: string
 }
 
 export interface TuiTestRequest {

@@ -44,6 +44,10 @@ pub struct RunRequest {
   pub api_key: Option<String>,
   #[napi(js_name = "linuxSandboxPath")]
   pub linux_sandbox_path: Option<String>,
+  #[napi(js_name = "reasoningEffort")]
+  pub reasoning_effort: Option<String>,
+  #[napi(js_name = "reasoningSummary")]
+  pub reasoning_summary: Option<String>,
   #[napi(js_name = "fullAuto")]
   pub full_auto: Option<bool>,
 }
@@ -74,6 +78,10 @@ pub struct ForkRequest {
   pub api_key: Option<String>,
   #[napi(js_name = "linuxSandboxPath")]
   pub linux_sandbox_path: Option<String>,
+  #[napi(js_name = "reasoningEffort")]
+  pub reasoning_effort: Option<String>,
+  #[napi(js_name = "reasoningSummary")]
+  pub reasoning_summary: Option<String>,
   #[napi(js_name = "fullAuto")]
   pub full_auto: Option<bool>,
 }
@@ -116,6 +124,8 @@ pub struct InternalRunRequest {
   pub base_url: Option<String>,
   pub api_key: Option<String>,
   pub linux_sandbox_path: Option<PathBuf>,
+  pub reasoning_effort: Option<ReasoningEffort>,
+  pub reasoning_summary: Option<ReasoningSummary>,
   pub full_auto: bool,
 }
 
@@ -123,6 +133,8 @@ impl RunRequest {
   pub fn into_internal(self) -> napi::Result<InternalRunRequest> {
     let sandbox_mode = parse_sandbox_mode(self.sandbox_mode.as_deref())?;
     let approval_mode = parse_approval_mode(self.approval_mode.as_deref())?;
+    let reasoning_effort = parse_reasoning_effort(self.reasoning_effort.as_deref())?;
+    let reasoning_summary = parse_reasoning_summary(self.reasoning_summary.as_deref())?;
 
     let review_request = if self.review_mode.unwrap_or(false) {
       let prompt_trimmed = self.prompt.trim().to_string();
@@ -181,6 +193,8 @@ impl RunRequest {
       base_url: self.base_url,
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
+      reasoning_effort,
+      reasoning_summary,
       full_auto: self.full_auto.unwrap_or(true),
     })
   }
@@ -215,6 +229,8 @@ impl ForkRequest {
       base_url: self.base_url,
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path,
+      reasoning_effort: self.reasoning_effort,
+      reasoning_summary: self.reasoning_summary,
       full_auto: self.full_auto,
       review_mode: None,
       review_hint: None,
@@ -550,6 +566,24 @@ fn parse_approval_mode(input: Option<&str>) -> napi::Result<Option<ApprovalModeC
   )
 }
 
+fn parse_reasoning_effort(input: Option<&str>) -> napi::Result<Option<ReasoningEffort>> {
+  parse_enum_arg!(input, "reasoning effort",
+    "minimal" => ReasoningEffort::Minimal,
+    "low" => ReasoningEffort::Low,
+    "medium" => ReasoningEffort::Medium,
+    "high" => ReasoningEffort::High,
+  )
+}
+
+fn parse_reasoning_summary(input: Option<&str>) -> napi::Result<Option<ReasoningSummary>> {
+  parse_enum_arg!(input, "reasoning summary",
+    "auto" => ReasoningSummary::Auto,
+    "concise" => ReasoningSummary::Concise,
+    "detailed" => ReasoningSummary::Detailed,
+    "none" => ReasoningSummary::None,
+  )
+}
+
 fn approval_mode_cli_to_policy(mode: Option<ApprovalModeCliArg>) -> Option<AskForApproval> {
   mode.map(|m| match m {
     ApprovalModeCliArg::Never => AskForApproval::Never,
@@ -714,6 +748,7 @@ fn run_internal_sync<F>(options: InternalRunRequest, handler: F) -> napi::Result
 where
   F: FnMut(ExecThreadEvent) + Send + 'static,
 {
+  ensure_apply_patch_aliases()?;
   // Check for pending plan updates and inject them as early events
   let pending_plan = if let Some(thread_id) = &options.thread_id {
     let mut updates = pending_plan_updates()
@@ -898,6 +933,7 @@ pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
 
 #[napi]
 pub async fn compact_thread(req: RunRequest) -> napi::Result<Vec<String>> {
+  ensure_apply_patch_aliases()?;
   let options = req.into_internal()?;
   let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
   let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
@@ -1135,4 +1171,3 @@ fn build_cloud_client(
   }
   Ok(client)
 }
-

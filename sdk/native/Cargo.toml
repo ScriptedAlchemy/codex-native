@@ -47,6 +47,9 @@ version = "0.7.16"
 [dependencies.codex-common]
 path = "../../codex-rs/common"
 
+[dependencies.codex-arg0]
+path = "../../codex-rs/arg0"
+
 [dependencies.codex-core]
 path = "../../codex-rs/core"
 
