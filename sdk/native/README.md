@@ -4,17 +4,6 @@ Embed the Codex agent in your Node.js workflows and apps with native performance
 
 The Native SDK provides Rust-powered bindings via [napi-rs](https://napi.rs/), giving you direct access to Codex functionality without spawning child processes. This enables custom tool registration, agent orchestration, and native performance optimizations.
 
-## Table of contents
-
-- [Installation](#installation)
-- [API Compatibility](#api-compatibility)
-- [Quickstart](#quickstart)
-- [Command-line interface](#command-line-interface)
-- [Reverie Archive APIs](#reverie-archive-apis)
-- [Tokenizer Helpers](#tokenizer-helpers-tiktoken)
-- [API Options](#api-options)
-- [Examples](#examples)
-
 ## Installation
 
 ```bash
@@ -148,16 +137,7 @@ codex-native run "Diagnose the failing integration test"
 
 # Launch the full-screen TUI backed by the native bindings
 codex-native tui
-
-# Pre-warm reverie embeddings for the current repository
-codex-native reverie index --project-root $PWD
 ```
-
-### Available commands
-
-- `run <prompt>` – execute a single Codex turn in non-interactive mode (supports all CLI flags).
-- `tui` – launch the fullscreen terminal UI; supports the same config sources and flags as the Rust CLI.
-- `reverie index` – crawl the repository’s past sessions and build the semantic embedding cache (uses the same options as the JS reverie APIs).
 
 ### Configuration discovery
 
@@ -647,35 +627,9 @@ const matches = await reverieSearchConversations(codexHome, "authentication issu
 
 // Read the highlights/insights from a specific conversation rollout
 const insights = await reverieGetConversationInsights(matches[0].conversation.path, "JWT");
-
-// Run semantic search using FastEmbed (requires fastEmbedInit to run once in your process)
-const semantic = await reverieSearchSemantic(codexHome, liveContext, {
-  projectRoot: process.cwd(),
-  maxCandidates: 80,
-  limit: 5,
-  normalize: true,
-  rerankerModel: "BAAI/bge-reranker-v2-m3",
-  rerankerBatchSize: 8,
-  rerankerTopK: 20,
-});
-
-// Pre-build the semantic cache without issuing a query (helpful for CI or cron jobs)
-await reverieIndexSemantic(codexHome, {
-  projectRoot: process.cwd(),
-  maxCandidates: 200,
-  limit: 200,
-});
 ```
 
-To warm the cache without writing code, use the CLI:
-
-```bash
-npx codex-native reverie index --project-root /path/to/repo --embed-model mixedbread-ai/mxbai-embed-large-v1
-```
-
-Results include `headRecords` and `tailRecords`, mirroring the summaries used by the Rust CLI/TUI, so you can plug them into custom dashboards or route them back into an agent as `<system notification>`s. The semantic helper expects `fastEmbedInit` to have been called earlier in your process so the FastEmbed model is ready.
-
-For the highest recall + precision pairing we default to the `mixedbread-ai/mxbai-embed-large-v1` embedder (1024‑dimensional, multilingual) and re-rank the top candidates with `BAAI/bge-reranker-v2-m3`, a cross-encoder that excels at code/document relevance. Both models stream their ONNX weights into `~/.codex/fastembed`, so they can be reused across workspaces once downloaded.
+Results include `headRecords` and `tailRecords`, mirroring the summaries used by the Rust CLI/TUI, so you can plug them into custom dashboards or route them back into an agent as `<system notification>`s.
 
 ### Tokenizer Helpers (tiktoken)
 
@@ -699,19 +653,6 @@ const decoded = tokenizerDecode(tokens, { encoding: "cl100k_base" });
 ```
 
 `encoding` accepts `"o200k_base"` or `"cl100k_base"`, and you can also pass `model: "gpt-5"` to mirror Codex’s model-to-encoding mapping. Set `withSpecialTokens: true` when you need precise accounting for schema-guided prompts.
-
-## Examples
-
-The `sdk/native/examples/` directory includes runnable samples that mirror the README topics:
-
-- `basic/` and `basic_streaming.ts` – minimal agent loops for synchronous and streaming turns.
-- `structured_output.ts` – end-to-end JSON schema enforcement (Zod + zod-to-json-schema).
-- `tools/` and `provider/` – registering native tools, interceptors, and custom providers.
-- `embeddings/` – FastEmbed usage plus reverie-driven RAG flows.
-- `tui/` and `diagnostics/` – driving the native TUI programmatically and piping LSP diagnostics.
-- `attach-tui-to-running-thread.ts`, `fork-thread.ts` – advanced orchestration patterns (forks, attaching a TUI mid-run).
-
-Each example is self-contained; run them with `pnpm tsx examples/<file>.ts` after installing dependencies.
 
 ## API Options
 

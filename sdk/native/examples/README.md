@@ -19,16 +19,6 @@ Basic examples using the Native SDK directly (without OpenAI Agents framework).
   - Type-safe structured responses
   - Multiple schema examples (code analysis, task breakdown)
 
-- **`fork-thread.ts`** — Branch an in-flight conversation
-  - Fork an existing thread at a specific user message
-  - Explore alternate plans without losing cached context
-  - Compare outputs from the original and forked threads
-
-- **`attach-tui-to-running-thread.ts`** — Seamless TUI hand-offs
-  - Start programmatic automation and attach the TUI mid-thread
-  - Demonstrate automated vs interactive attach/detach cycles
-  - Resume scripted control after exiting the TUI
-
 ### `/embeddings` - FastEmbed Integration
 
 - **`fast-embed.ts`** — Local embedding pipelines with caching
@@ -210,11 +200,6 @@ Examples that interact with the Codex TUI, either programmatically through the S
   - Inherits stdio so the TUI renders in the current terminal
   - Shows how to adjust environment variables for automation
 
-- **`attach-tui-to-running-thread.ts`** — Attach/detach the TUI mid-run
-  - Launch the TUI from an existing scripted session
-  - Automate shutdowns for CI environments
-  - Resume programmatic control between interactive sessions
-
 - **`thread-transition.ts`** — Transition from programmatic to TUI mode
   - Start thread programmatically with automated work
   - Transition to interactive TUI mode
@@ -242,8 +227,6 @@ npx tsx examples/basic/streaming-deltas.ts
 npx tsx examples/tools/tool-override-example.ts
 npx tsx examples/agents/agents-integration.ts
 npx tsx examples/tui/programmatic-launch.ts
-npx tsx examples/fork-thread.ts
-npx tsx examples/attach-tui-to-running-thread.ts
 ```
 
 ## Example Categories by Feature
@@ -258,7 +241,6 @@ npx tsx examples/attach-tui-to-running-thread.ts
 - **Multi-Agent**: `agents/agents-integration.ts`, `agents/agents-multi-agent-workflow.ts`, `agents/real-world-code-refactor.ts`
 - **Agent Handoffs**: `agents/agents-handoffs.ts`, `agents/multi-agent-handoffs.ts`
 - **Guardrails**: `agents/agents-guardrails.ts`, `agents/guardrails-validation.ts`
-- **Thread Forking**: `fork-thread.ts`
 - **Structured Output**: `agents/agents-structured-output.ts`, `agents/structured-output.ts`, `structured_output.ts`
 - **Streaming**: `agents/agents-streaming.ts`, `agents/streaming-responses.ts`, `basic_streaming.ts`
 - **Context Management**: `agents/context-sessions.ts`
@@ -266,7 +248,7 @@ npx tsx examples/attach-tui-to-running-thread.ts
 - **Tool Override**: `tools/tool-override-example.ts`
 - **Code Review**: `basic/review-example.ts`
 - **Plan Management**: `basic/plan-management.ts`
-- **TUI Integration**: `attach-tui-to-running-thread.ts`, `tui/thread-transition.ts`, `tui/programmatic-launch.ts`
+- **TUI Integration**: `tui/thread-transition.ts`, `tui/programmatic-launch.ts`
 
 ### Integration Patterns
 - **OpenAI Agents**: All files in `/agents` and `/provider`
@@ -278,9 +260,6 @@ npx tsx examples/attach-tui-to-running-thread.ts
 - **Main README**: `../README.md` — Full SDK documentation
 - **Agents Guide**: `../AGENTS.md` — OpenAI Agents integration details
 - **API Docs**: TypeScript definitions in `../dist/index.d.ts`
-
-### Helper Utilities
-- `utils.ts` — Shared helpers for error reporting, step orchestration, and resilient example flows
 
 ## Contributing
 

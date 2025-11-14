@@ -13,6 +13,7 @@ export type MultiAgentConfig = {
   apiKey?: string;
   workingDirectory: string;
   skipGitRepoCheck: boolean;
+  interactive?: boolean;
   reviewBranch?: boolean;
   ciCheck?: boolean;
   reverieQuery?: string;
@@ -102,4 +103,10 @@ export type ReverieResult = {
   relevance: number;
   excerpt: string;
   insights: string[];
+};
+
+export type ProcessedReverie = ReverieResult & {
+  rawRelevance: number;
+  headRecords: string[];
+  tailRecords: string[];
 };

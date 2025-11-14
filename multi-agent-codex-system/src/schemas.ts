@@ -32,7 +32,7 @@ const CiIssueSchema = z.object({
   summary: z.string().min(10).max(400),
   suggestedCommands: z.array(z.string()).default([]),
   files: z.array(z.string()).default([]),
-  owner: z.string().optional().or(z.literal(null)),
+  owner: z.string().min(2).max(160).optional().or(z.literal(null)),
   autoFixable: z.boolean().default(false),
 });
 export type CiIssue = z.output<typeof CiIssueSchema>;
@@ -43,6 +43,8 @@ const CiFixSchema = z.object({
   priority: z.enum(["P0", "P1", "P2", "P3"]),
   steps: z.array(z.string()).default([]),
   owner: z.string().min(2).max(160).optional().or(z.literal(null)),
+  commands: z.array(z.string()).default([]),
+  etaHours: z.number().min(0).max(40).optional(),
 });
 export type CiFix = z.output<typeof CiFixSchema>;
 const CiFixListSchema = z.array(CiFixSchema).min(1).max(15);
@@ -52,7 +54,8 @@ const RecommendationResponseSchema = z.object({ items: RecommendationListSchema 
 const CiIssueResponseSchema = z.object({ items: CiIssueListSchema });
 const CiFixResponseSchema = z.object({ items: CiFixListSchema });
 
-type JsonSchemaProperties = Record<string, any>;
+type JsonSchemaProperty = { schema: Record<string, any>; optional?: boolean };
+type JsonSchemaProperties = Record<string, JsonSchemaProperty | Record<string, any>>;
 
 function stringField(min?: number, max?: number) {
   const schema: Record<string, any> = { type: "string" as const };
@@ -95,7 +98,14 @@ function buildResponseSchema(
   properties: JsonSchemaProperties,
   options?: { maxItems?: number },
 ): JsonSchemaDefinition["schema"] {
-  const required = Object.keys(properties);
+  const entries = Object.entries(properties).map(([key, value]) => {
+    if ("schema" in value && value.schema) {
+      return [key, value as JsonSchemaProperty];
+    }
+    return [key, { schema: value as Record<string, any> }];
+  }) as [string, JsonSchemaProperty][];
+  const required = entries.filter(([, value]) => !value.optional).map(([key]) => key);
+  const props = Object.fromEntries(entries.map(([key, value]) => [key, value.schema]));
   return {
     type: "object" as const,
     additionalProperties: false,
@@ -107,7 +117,7 @@ function buildResponseSchema(
         items: {
           type: "object" as const,
           additionalProperties: false,
-          properties,
+          properties: props,
           required,
         },
       },
@@ -143,8 +153,8 @@ const RecommendationOutputType: JsonSchemaDefinition = {
       priority: { type: "string", enum: ["P0", "P1", "P2", "P3"] },
       effort: { type: "string", enum: ["Low", "Medium", "High"] },
       description: stringField(10, 400),
-      location: optionalStringField(200),
-      example: optionalStringField(400),
+      location: { schema: optionalStringField(200), optional: true },
+      example: { schema: optionalStringField(400), optional: true },
     },
     { maxItems: 10 },
   ),
@@ -162,7 +172,7 @@ const CiIssueOutputType: JsonSchemaDefinition = {
       summary: stringField(10, 400),
       suggestedCommands: stringArrayField(),
       files: stringArrayField(),
-      owner: optionalStringField(),
+      owner: { schema: optionalStringField({ min: 2, max: 160 }), optional: true },
       autoFixable: { type: "boolean" },
     },
     { maxItems: 12 },
@@ -178,7 +188,9 @@ const CiFixOutputType: JsonSchemaDefinition = {
       title: stringField(5, 160),
       priority: { type: "string", enum: ["P0", "P1", "P2", "P3"] },
       steps: stringArrayField(),
-      owner: optionalStringField({ min: 2, max: 160 }),
+      owner: { schema: optionalStringField({ min: 2, max: 160 }), optional: true },
+      commands: { schema: stringArrayField(), optional: true },
+      etaHours: { schema: { type: "number", minimum: 0, maximum: 40 }, optional: true },
     },
     { maxItems: 15 },
   ),

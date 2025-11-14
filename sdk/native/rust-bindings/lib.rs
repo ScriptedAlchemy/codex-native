@@ -26,6 +26,7 @@ use fastembed::{
   EmbeddingModel, RerankInitOptions, RerankResult, RerankerModel, TextEmbedding, TextInitOptions,
   TextRerank,
 };
+use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 use sha1::{Digest, Sha1};
 
 use async_trait::async_trait;
@@ -48,6 +49,7 @@ use codex_exec::exec_events::{BackgroundEventEvent, ThreadEvent as ExecThreadEve
 use codex_exec::run_with_thread_event_callback;
 use codex_exec::{Cli, Color, Command, ResumeArgs};
 use codex_protocol::config_types::{ReasoningEffort, ReasoningSummary, SandboxMode};
+use codex_protocol::config_types::SandboxMode;
 use codex_tui::AppExitInfo;
 use codex_tui::Cli as TuiCli;
 use codex_tui::update_action::UpdateAction;
@@ -146,6 +148,10 @@ fn ensure_apply_patch_aliases() -> napi::Result<()> {
 
   Ok(())
 }
+
+// ============================================================================
+// Additional Sections (included from sibling files)
+// ============================================================================
 
 // ============================================================================
 // Additional Sections (included from sibling files)

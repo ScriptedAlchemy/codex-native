@@ -12,12 +12,13 @@ export const CONFIG: MultiAgentConfig = {
   skipGitRepoCheck: true,
   reviewBranch: true,
   ciCheck: true,
+  interactive: true,
   model: DEFAULT_MODEL,
   sandboxMode: "danger-full-access",
   approvalMode: "never",
   embedder: {
     initOptions: {
-      model: "mixedbread-ai/mxbai-embed-large-v1",
+      model: "BAAI/bge-large-en-v1.5",
     },
     embedRequest: {
       normalize: true,

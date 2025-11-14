@@ -33,6 +33,10 @@ class MultiAgentOrchestrator {
     }
   }
 
+  private get interactive(): boolean {
+    return this.config.interactive ?? true;
+  }
+
   async runWorkflow(): Promise<void> {
     console.log("🚀 Multi-Agent Codex Workflow started");
     if (this.config.reverieWarmIndexOnStart) {
@@ -46,20 +50,22 @@ class MultiAgentOrchestrator {
     if (this.config.reviewBranch) {
       reviewData = await this.reviewer.reviewBranch(repoContext, prStatus);
       logReviewSummary(reviewData);
-      const session = runThreadTui(
-        reviewData.thread,
-        {
-          prompt: buildReviewPrompt(reviewData),
-          model: this.config.model ?? DEFAULT_MODEL,
-        },
-        "PR review",
-        { autoDetach: true },
-      );
-      const hintCleanup = attachReverieHints(reviewData.thread, this.reverie, this.config);
-      try {
-        await waitForTuiSession(session, "PR review");
-      } finally {
-        hintCleanup();
+      if (this.interactive) {
+        const session = runThreadTui(
+          reviewData.thread,
+          {
+            prompt: buildReviewPrompt(reviewData),
+            model: this.config.model ?? DEFAULT_MODEL,
+          },
+          "PR review",
+          { autoDetach: true },
+        );
+        const hintCleanup = attachReverieHints(reviewData.thread, this.reverie, this.config);
+        try {
+          await waitForTuiSession(session, "PR review");
+        } finally {
+          hintCleanup();
+        }
       }
     }
 
@@ -67,20 +73,22 @@ class MultiAgentOrchestrator {
     if (this.config.ciCheck) {
       ciResult = await this.ciChecker.checkAndFixCI(repoContext, prStatus, reviewData?.ciHandoff);
       logCiSummary(ciResult);
-      const session = runThreadTui(
-        ciResult.thread,
-        {
-          prompt: buildCiPrompt(ciResult),
-          model: this.config.model ?? DEFAULT_MODEL,
-        },
-        "CI triage",
-        { autoDetach: true },
-      );
-      const hintCleanup = attachReverieHints(ciResult.thread, this.reverie, this.config);
-      try {
-        await waitForTuiSession(session, "CI triage");
-      } finally {
-        hintCleanup();
+      if (this.interactive) {
+        const session = runThreadTui(
+          ciResult.thread,
+          {
+            prompt: buildCiPrompt(ciResult),
+            model: this.config.model ?? DEFAULT_MODEL,
+          },
+          "CI triage",
+          { autoDetach: true },
+        );
+        const hintCleanup = attachReverieHints(ciResult.thread, this.reverie, this.config);
+        try {
+          await waitForTuiSession(session, "CI triage");
+        } finally {
+          hintCleanup();
+        }
       }
 
       if (this.config.implementFixes && this.implementer) {
@@ -101,18 +109,26 @@ class MultiAgentOrchestrator {
       const detach = this.diagnostics?.attach(thread);
       const reminderCleanup = attachApplyPatchReminder(thread, this.config.sandboxMode ?? "danger-full-access");
       await this.reverie.injectReverie(thread, reveries, this.config.reverieQuery);
-      const session = runThreadTui(
-        thread,
-        {
-          prompt: `Injected ${reveries.length} reverie insight(s) for '${this.config.reverieQuery}'. Explore history here, then close this TUI to continue.`,
-          model: this.config.model ?? DEFAULT_MODEL,
-        },
-        "Reverie insights",
-        { autoDetach: true },
-      );
-      try {
-        await waitForTuiSession(session, "Reverie insights");
-      } finally {
+      if (this.interactive) {
+        const session = runThreadTui(
+          thread,
+          {
+            prompt: `Injected ${reveries.length} reverie insight(s) for '${this.config.reverieQuery}'. Explore history here, then close this TUI to continue.`,
+            model: this.config.model ?? DEFAULT_MODEL,
+          },
+          "Reverie insights",
+          { autoDetach: true },
+        );
+        try {
+          await waitForTuiSession(session, "Reverie insights");
+        } finally {
+          detach?.();
+          reminderCleanup();
+        }
+      } else {
+        await thread.run(
+          `Injected ${reveries.length} reverie insight(s) for '${this.config.reverieQuery}'. Run 'reverie <topic>' interactively to explore further.`,
+        );
         detach?.();
         reminderCleanup();
       }
@@ -134,10 +150,18 @@ class MultiAgentOrchestrator {
     });
     const detach = this.diagnostics?.attach(thread);
     const reminderCleanup = attachApplyPatchReminder(thread, this.config.sandboxMode ?? "danger-full-access");
-    const hintCleanup = attachReverieHints(thread, this.reverie, this.config);
 
     const prompt = `Integrated Multi-Agent Session\n\nRepo context:\n${formatRepoContext(repoContext)}\n\nPR status:\n${formatPrStatus(prStatus)}\n\nAvailable commands:\n- type 'review branch' to start automated review\n- type 'check ci' to inspect CI\n- type 'reverie <topic>' to search past insights\n\nHow can I help?`;
 
+    if (!this.interactive) {
+      const turn = await thread.run(prompt);
+      console.log("🤖", turn.finalResponse);
+      detach?.();
+      reminderCleanup();
+      return;
+    }
+
+    const hintCleanup = attachReverieHints(thread, this.reverie, this.config);
     const session = runThreadTui(
       thread,
       {
@@ -161,6 +185,10 @@ class MultiAgentOrchestrator {
       return;
     }
     const { thread: fixerThread, cleanup } = await this.implementer.applyFixes(repoContext, ciResult);
+    if (!this.interactive) {
+      cleanup();
+      return;
+    }
     const session = runThreadTui(
       fixerThread,
       {

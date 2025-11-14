@@ -52,6 +52,11 @@ pub async fn fast_embed_init(opts: FastEmbedInitOptions) -> napi::Result<()> {
   let init_guard = embed_init_mutex().lock().await;
   if FAST_EMBED_STATE.get().is_some() {
     drop(init_guard);
+static FAST_EMBED_STATE: OnceLock<Arc<FastEmbedState>> = OnceLock::new();
+
+#[napi(js_name = "fastEmbedInit")]
+pub async fn fast_embed_init(opts: FastEmbedInitOptions) -> napi::Result<()> {
+  if FAST_EMBED_STATE.get().is_some() {
     return Ok(());
   }
 
@@ -68,6 +73,8 @@ pub async fn fast_embed_init(opts: FastEmbedInitOptions) -> napi::Result<()> {
   if let Some(cache_dir) = cache_dir {
     let _ = std::fs::create_dir_all(&cache_dir);
     init_options = init_options.with_cache_dir(cache_dir);
+  if let Some(cache_dir) = opts.cache_dir.as_deref() {
+    init_options = init_options.with_cache_dir(PathBuf::from(cache_dir));
   }
   if let Some(show_download_progress) = opts.show_download_progress {
     init_options = init_options.with_show_download_progress(show_download_progress);

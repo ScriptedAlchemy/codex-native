@@ -677,6 +677,7 @@ pub async fn reverie_get_conversation_insights(
   conversation_path: String,
   query: Option<String>,
 ) -> napi::Result<Vec<String>> {
+  use std::path::Path;
   use tokio::fs;
 
   let path = Path::new(&conversation_path);

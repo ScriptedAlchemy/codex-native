@@ -201,6 +201,8 @@ export interface ReverieSemanticSearchOptions {
 
 export declare function runApplyPatch(patch: string): void
 
+}
+
 export interface RunRequest {
   prompt: string
   threadId?: string

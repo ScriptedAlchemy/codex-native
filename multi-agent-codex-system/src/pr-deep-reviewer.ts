@@ -1,6 +1,13 @@
 import { Agent, Runner, handoff } from "@openai/agents";
 import type { JsonSchemaDefinition } from "@openai/agents-core";
-import { Codex, CodexProvider, type ThreadEvent, type ThreadItem } from "@codex-native/sdk";
+import {
+  Codex,
+  CodexProvider,
+  type NativeTuiExitInfo,
+  type Thread,
+  type ThreadEvent,
+  type ThreadItem,
+} from "@codex-native/sdk";
 import { DEFAULT_MODEL } from "./constants.js";
 import {
   IntentionResponseSchema,
@@ -357,6 +364,17 @@ Return a JSON array of recommendations following the Recommendation schema (cate
       default:
         break;
     }
+  }
+
+  async launchInteractiveReview(thread: Thread, data: ReviewAnalysis): Promise<NativeTuiExitInfo> {
+    const intentionLines = data.intentions
+      .map((item) => `• [${item.category}] ${item.title ?? item.summary} (${item.impactScope})`)
+      .join("\n");
+    const recommendationLines = data.recommendations
+      .map((rec) => `• [${rec.priority}] ${rec.title ?? rec.description} — ${rec.category}`)
+      .join("\n");
+    const prompt = `PR Review Ready\n\nSummary:\n${data.summary}\n\nIntentions:\n${intentionLines}\n\nRecommendations:\n${recommendationLines}\n\nEnter the TUI and drill into any file or test you want.`;
+    return thread.tui({ prompt, model: this.config.model ?? DEFAULT_MODEL });
   }
 }
 

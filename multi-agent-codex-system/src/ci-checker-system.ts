@@ -1,6 +1,7 @@
 import { Agent, Runner } from "@openai/agents";
 import type { JsonSchemaDefinition } from "@openai/agents-core";
-import { Codex, CodexProvider, type Thread } from "@codex-native/sdk";
+import { Codex, CodexProvider, type NativeTuiExitInfo, type Thread } from "@codex-native/sdk";
+import type { LspDiagnosticsBridge } from "@codex-native/sdk";
 import { DEFAULT_MODEL, DEFAULT_MINI_MODEL } from "./constants.js";
 import {
   CiFixResponseSchema,
@@ -12,7 +13,6 @@ import {
   type CiIssue,
 } from "./schemas.js";
 import type { CiAnalysis, CiCheckKind, MultiAgentConfig, PrStatusSummary, RepoContext } from "./types.js";
-import type { LspDiagnosticsBridge } from "@codex-native/sdk";
 import { formatPrStatus, formatRepoContext } from "./repo.js";
 import { attachApplyPatchReminder } from "./reminders/applyPatchReminder.js";
 
@@ -66,7 +66,9 @@ class CICheckerSystem {
       .map((fix, idx) => {
         const detailParts = [
           fix.owner && `Owner: ${fix.owner}`,
-          fix.steps.length ? `Steps: ${fix.steps.join(" | ")}` : null,
+          fix.steps?.length ? `Steps: ${fix.steps.join(" | ")}` : null,
+          fix.commands?.length ? `Commands: ${fix.commands.join(" | ")}` : null,
+          typeof fix.etaHours === "number" ? `ETA: ${fix.etaHours}h` : null,
         ].filter(Boolean) as string[];
         const suffix = detailParts.length ? ` — ${detailParts.join("; ")}` : "";
         return `#${idx + 1} [${fix.priority}] ${fix.title}${suffix}`;
@@ -87,7 +89,7 @@ PR/CI Status:
 ${formatPrStatus(prStatus)}
 
 GH checks:
-${prStatus?.ghChecksText ?? '<no gh pr checks output>'}`;
+${prStatus?.ghChecksText ?? "<no gh pr checks output>"}`;
 
     const lintChecker = new Agent<unknown, JsonSchemaDefinition>({
       name: "LintChecker",
@@ -154,10 +156,10 @@ Respond with a JSON array of CiIssue objects. Set "source" to "security" for eve
 You synthesize issues from multiple checkers and output an ordered remediation plan.
 
 ## Task
-Cluster issues by priority, propose owners, and outline the concrete remediation steps.
+Cluster issues by priority, propose owners, commands, and ETA.
 
 ## JSON Output
-Respond with a JSON array of CiFix objects (title, priority, steps, owner).`,
+Respond with a JSON array of CiFix objects (title, priority, steps, commands, owner, etaHours).`,
     });
 
     const prompts = {
@@ -200,7 +202,7 @@ ${JSON.stringify(issues, null, 2)}`;
       fixer,
       `${fixerContext}
 
-Produce a prioritized remediation checklist with owners and the concrete steps.`,
+Produce a prioritized remediation checklist with owners and commands.`,
     );
     const fixes = coerceStructuredOutput(
       fixerResult.finalOutput,
@@ -215,11 +217,11 @@ Produce a prioritized remediation checklist with owners and the concrete steps.`
         model: this.config.model ?? DEFAULT_MODEL,
         workingDirectory: repoContext.cwd,
         skipGitRepoCheck: this.config.skipGitRepoCheck,
-        approvalMode: this.config.approvalMode ?? "never",
-        sandboxMode: this.config.sandboxMode ?? "danger-full-access",
+        approvalMode: this.config.approvalMode ?? "on-request",
+        sandboxMode: this.config.sandboxMode ?? "workspace-write",
       });
     if (!ciThread) {
-      attachApplyPatchReminder(thread, this.config.sandboxMode ?? "danger-full-access");
+      attachApplyPatchReminder(thread, this.config.sandboxMode ?? "workspace-write");
     }
     this.diagnostics?.attach(thread);
 
@@ -233,7 +235,9 @@ Issues:
 ${issueSummary}
 
 Recommended fixes:
-${fixSummary}`);
+${fixSummary}
+
+Return a short confirmation and be ready to continue interactively.`);
 
     return {
       issues,
@@ -241,6 +245,20 @@ ${fixSummary}`);
       confidence,
       thread,
     };
+  }
+
+  async launchInteractiveFixing(thread: Thread, data: CiAnalysis): Promise<NativeTuiExitInfo> {
+    const prompt = `CI Analysis
+Confidence: ${(data.confidence * 100).toFixed(1)}%
+
+Issues:
+${this.formatIssueSummary(data.issues)}
+
+Fixes:
+${this.formatFixSummary(data.fixes)}
+
+Let's jump into the TUI and apply/validate these fixes.`;
+    return thread.tui({ prompt, model: this.config.model ?? DEFAULT_MODEL });
   }
 }
 
