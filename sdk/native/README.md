@@ -4,6 +4,17 @@ Embed the Codex agent in your Node.js workflows and apps with native performance
 
 The Native SDK provides Rust-powered bindings via [napi-rs](https://napi.rs/), giving you direct access to Codex functionality without spawning child processes. This enables custom tool registration, agent orchestration, and native performance optimizations.
 
+## Table of contents
+
+- [Installation](#installation)
+- [API Compatibility](#api-compatibility)
+- [Quickstart](#quickstart)
+- [Command-line interface](#command-line-interface)
+- [Reverie Archive APIs](#reverie-archive-apis)
+- [Tokenizer Helpers](#tokenizer-helpers-tiktoken)
+- [API Options](#api-options)
+- [Examples](#examples)
+
 ## Installation
 
 ```bash
@@ -137,7 +148,16 @@ codex-native run "Diagnose the failing integration test"
 
 # Launch the full-screen TUI backed by the native bindings
 codex-native tui
+
+# Pre-warm reverie embeddings for the current repository
+codex-native reverie index --project-root $PWD
 ```
+
+### Available commands
+
+- `run <prompt>` – execute a single Codex turn in non-interactive mode (supports all CLI flags).
+- `tui` – launch the fullscreen terminal UI; supports the same config sources and flags as the Rust CLI.
+- `reverie index` – crawl the repository’s past sessions and build the semantic embedding cache (uses the same options as the JS reverie APIs).
 
 ### Configuration discovery
 
@@ -674,6 +694,19 @@ const decoded = tokenizerDecode(tokens, { encoding: "cl100k_base" });
 ```
 
 `encoding` accepts `"o200k_base"` or `"cl100k_base"`, and you can also pass `model: "gpt-5"` to mirror Codex’s model-to-encoding mapping. Set `withSpecialTokens: true` when you need precise accounting for schema-guided prompts.
+
+## Examples
+
+The `sdk/native/examples/` directory includes runnable samples that mirror the README topics:
+
+- `basic/` and `basic_streaming.ts` – minimal agent loops for synchronous and streaming turns.
+- `structured_output.ts` – end-to-end JSON schema enforcement (Zod + zod-to-json-schema).
+- `tools/` and `provider/` – registering native tools, interceptors, and custom providers.
+- `embeddings/` – FastEmbed usage plus reverie-driven RAG flows.
+- `tui/` and `diagnostics/` – driving the native TUI programmatically and piping LSP diagnostics.
+- `attach-tui-to-running-thread.ts`, `fork-thread.ts` – advanced orchestration patterns (forks, attaching a TUI mid-run).
+
+Each example is self-contained; run them with `pnpm tsx examples/<file>.ts` after installing dependencies.
 
 ## API Options
 
