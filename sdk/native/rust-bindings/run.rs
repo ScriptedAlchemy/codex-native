@@ -1,3 +1,5 @@
+use codex_apply_patch;
+
 // Section 3: Run Request Handling (Thread Execution)
 // ============================================================================
 //
@@ -1109,6 +1111,14 @@ fn fork_thread_sync(req: InternalForkRequest) -> napi::Result<ForkResult> {
       rollout_path,
     })
   })
+}
+
+#[napi]
+pub fn run_apply_patch(patch: String) -> napi::Result<()> {
+  let mut stdout = std::io::stdout();
+  let mut stderr = std::io::stderr();
+  codex_apply_patch::apply_patch(&patch, &mut stdout, &mut stderr)
+    .map_err(|err| napi::Error::from_reason(err.to_string()))
 }
 
 #[napi]

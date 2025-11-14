@@ -71,6 +71,9 @@ path = "../../codex-rs/utils/tokenizer"
 [dependencies.codex-tui]
 path = "../../codex-rs/tui"
 
+[dependencies.codex-apply-patch]
+path = "../../codex-rs/apply-patch"
+
 [build-dependencies]
 napi-build = "2"
 

@@ -203,9 +203,7 @@ impl ShellHandler {
                 // Fall through to regular shell execution.
             }
             codex_apply_patch::MaybeApplyPatchVerified::NotApplyPatch => {
-                if sandbox_allows_writes
-                    && command_likely_edits_files(&exec_params.command)
-                {
+                if sandbox_allows_writes && command_likely_edits_files(&exec_params.command) {
                     remind_apply_patch = true;
                 }
                 // Fall through to regular shell execution.
@@ -259,7 +257,10 @@ impl ShellHandler {
 const APPLY_PATCH_REMINDER: &str = "Heads up: this shell command looks like it edits files directly. Prefer using `apply_patch` for reproducible edits and better diagnostics.";
 
 fn sandbox_policy_allows_writes(policy: &SandboxPolicy) -> bool {
-    matches!(policy, SandboxPolicy::DangerFullAccess | SandboxPolicy::WorkspaceWrite { .. })
+    matches!(
+        policy,
+        SandboxPolicy::DangerFullAccess | SandboxPolicy::WorkspaceWrite { .. }
+    )
 }
 
 fn command_likely_edits_files(command: &[String]) -> bool {

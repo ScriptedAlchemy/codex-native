@@ -199,6 +199,8 @@ export interface ReverieSemanticSearchOptions {
   rerankerTopK?: number
 }
 
+export declare function runApplyPatch(patch: string): void
+
 export interface RunRequest {
   prompt: string
   threadId?: string

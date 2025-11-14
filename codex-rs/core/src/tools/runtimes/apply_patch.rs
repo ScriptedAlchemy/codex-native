@@ -25,6 +25,8 @@ use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+const NODE_CLI_ENTRYPOINT_ENV: &str = "CODEX_NODE_CLI_ENTRYPOINT";
+
 #[derive(Clone, Debug)]
 pub struct ApplyPatchRequest {
     pub patch: String,
@@ -63,9 +65,17 @@ impl ApplyPatchRuntime {
                 .map_err(|e| ToolError::Rejected(format!("failed to determine codex exe: {e}")))?
         };
         let program = exe.to_string_lossy().to_string();
+        let mut args = Vec::new();
+        if let Ok(entrypoint) = env::var(NODE_CLI_ENTRYPOINT_ENV)
+            && !entrypoint.is_empty()
+        {
+            args.push(entrypoint);
+        }
+        args.push(CODEX_APPLY_PATCH_ARG1.to_string());
+        args.push(req.patch.clone());
         Ok(CommandSpec {
             program,
-            args: vec![CODEX_APPLY_PATCH_ARG1.to_string(), req.patch.clone()],
+            args,
             cwd: req.cwd.clone(),
             timeout_ms: req.timeout_ms,
             // Run apply_patch with a minimal environment for determinism and to avoid leaks.

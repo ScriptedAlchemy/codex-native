@@ -599,6 +599,7 @@ module.exports.reverieIndexSemantic = nativeBinding.reverieIndexSemantic
 module.exports.reverieListConversations = nativeBinding.reverieListConversations
 module.exports.reverieSearchConversations = nativeBinding.reverieSearchConversations
 module.exports.reverieSearchSemantic = nativeBinding.reverieSearchSemantic
+module.exports.runApplyPatch = nativeBinding.runApplyPatch
 module.exports.runThread = nativeBinding.runThread
 module.exports.runThreadStream = nativeBinding.runThreadStream
 module.exports.runTui = nativeBinding.runTui

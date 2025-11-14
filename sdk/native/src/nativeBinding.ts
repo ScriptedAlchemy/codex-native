@@ -1,8 +1,11 @@
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ApprovalMode, SandboxMode, WorkspaceWriteOptions, ReasoningEffort, ReasoningSummary } from "./threadOptions";
+
+const CLI_ENTRYPOINT_ENV = "CODEX_NODE_CLI_ENTRYPOINT";
 
 export type NativeRunRequest = {
   prompt: string;
@@ -199,6 +202,29 @@ export type TokenizerOptions = {
 export type TokenizerEncodeOptions = TokenizerOptions & {
   withSpecialTokens?: boolean;
 };
+
+function ensureCliEntrypointEnv(): void {
+  if (process.env[CLI_ENTRYPOINT_ENV]) {
+    return;
+  }
+
+  const filename = fileURLToPath(import.meta.url);
+  const dirname = path.dirname(filename);
+  const candidates = [
+    path.resolve(dirname, "cli.cjs"),
+    path.resolve(dirname, "../cli.cjs"),
+    path.resolve(dirname, "../dist/cli.cjs"),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      process.env[CLI_ENTRYPOINT_ENV] = candidate;
+      break;
+    }
+  }
+}
+
+ensureCliEntrypointEnv();
 
 export type NativeBinding = {
   runThread(request: NativeRunRequest): Promise<string[]>;
@@ -422,6 +448,15 @@ export function sse(events: string[]): string {
   const binding = getNativeBinding();
   if (!binding) throw new Error("Native binding not available");
   return (binding as any).sse(events);
+}
+
+export function runApplyPatch(patch: string): void {
+  if (!patch) {
+    throw new Error("apply_patch requires patch contents");
+  }
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  (binding as any).runApplyPatch(patch);
 }
 
 // Reverie system helpers

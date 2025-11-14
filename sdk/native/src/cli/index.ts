@@ -2,12 +2,14 @@
 
 import process from "node:process";
 import { parseArgs } from "node:util";
+import { fileURLToPath } from "node:url";
 
 import packageJson from "../../package.json";
 import { loadCliConfig } from "./config";
 import { executeRunCommand } from "./run";
 import { executeTuiCommand } from "./tui";
 import { executeReverieCommand } from "./reverie";
+import { runApplyPatch } from "../nativeBinding";
 import type {
   CliContext,
   ConfigLoaderOptions,
@@ -21,6 +23,17 @@ import { applyNativeRegistrations, buildCombinedConfig } from "./runtime";
 const VERSION = packageJson.version;
 const SANDBOX_CHOICES = ["read-only", "workspace-write", "danger-full-access"] as const;
 const APPROVAL_CHOICES = ["never", "on-request", "on-failure", "untrusted"] as const;
+const APPLY_PATCH_FLAG = "--codex-run-as-apply-patch";
+const CLI_ENTRYPOINT_ENV = "CODEX_NODE_CLI_ENTRYPOINT";
+
+try {
+  const entrypoint = fileURLToPath(import.meta.url);
+  process.env[CLI_ENTRYPOINT_ENV] = entrypoint;
+} catch {
+  if (process.argv[1]) {
+    process.env[CLI_ENTRYPOINT_ENV] = process.argv[1];
+  }
+}
 
 const GLOBAL_OPTION_DEFS = {
   config: { type: "string" } as const,
@@ -70,6 +83,10 @@ const TUI_OPTION_DEFS = {
 async function main(): Promise<void> {
   const rawArgs = process.argv.slice(2);
 
+  if (maybeHandleApplyPatch(rawArgs)) {
+    return;
+  }
+
   if (hasFlag(rawArgs, "--version") || hasFlag(rawArgs, "-v")) {
     printVersion();
     return;
@@ -105,6 +122,28 @@ async function main(): Promise<void> {
   } else {
     await executeRunCommand(options as RunCommandOptions, context);
   }
+}
+
+function maybeHandleApplyPatch(args: string[]): boolean {
+  if (args.length === 0 || args[0] !== APPLY_PATCH_FLAG) {
+    return false;
+  }
+
+  const patch = args[1];
+  if (!patch) {
+    console.error(`${APPLY_PATCH_FLAG} requires a patch argument.`);
+    process.exitCode = 1;
+    return true;
+  }
+
+  try {
+    runApplyPatch(patch);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`apply_patch failed: ${message}`);
+    process.exitCode = 1;
+  }
+  return true;
 }
 
 function selectCommand(argv: string[]): { command: CommandName; args: string[] } {

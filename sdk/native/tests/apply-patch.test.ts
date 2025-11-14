@@ -1,12 +1,17 @@
-import { describe, expect, it, beforeAll } from "@jest/globals";
+import { describe, expect, it, beforeAll, jest } from "@jest/globals";
 import { setupNativeBinding } from "./testHelpers";
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+const APPLY_PATCH_FLAG = "--codex-run-as-apply-patch";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Setup native binding for tests
 setupNativeBinding();
@@ -37,22 +42,21 @@ describe("apply_patch mechanism", () => {
   });
 
   it("codex CLI supports --codex-run-as-apply-patch flag", async () => {
+    const cliPath = path.resolve(__dirname, "../dist/cli.cjs");
+    expect(fs.existsSync(cliPath)).toBe(true);
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "apply-patch-cli-"));
+    const patch = "*** Begin Patch\n*** Add File: cli-test.txt\n+hello from cli\n*** End Patch";
+
     try {
-      // Try running codex with the apply_patch flag to verify it's supported
-      // This should not error with "bad option"
-      const { stdout } = await execAsync("command -v codex");
-      const codexPath = stdout.trim();
-
-      // Verify the binary exists and is executable
-      expect(fs.existsSync(codexPath)).toBe(true);
-
-      // On Unix systems, verify it's executable
-      if (process.platform !== "win32") {
-        const stats = fs.statSync(codexPath);
-        expect(stats.mode & fs.constants.X_OK).toBeTruthy();
-      }
-    } catch (error) {
-      throw new Error(`Failed to verify codex CLI: ${error}`);
+      await execFileAsync(process.execPath, [cliPath, APPLY_PATCH_FLAG, patch], {
+        cwd: tempDir,
+        env: { ...process.env },
+      });
+      const targetFile = path.join(tempDir, "cli-test.txt");
+      expect(fs.readFileSync(targetFile, "utf8")).toContain("hello from cli");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -183,5 +187,16 @@ describe("apply_patch error scenarios", () => {
       // Restore PATH
       process.env.PATH = originalPath;
     }
+  });
+});
+
+describe("apply_patch env configuration", () => {
+  it("sets CODEX_NODE_CLI_ENTRYPOINT when native binding loads", async () => {
+    jest.resetModules();
+    delete process.env.CODEX_NODE_CLI_ENTRYPOINT;
+    setupNativeBinding();
+    const { getNativeBinding } = await import("../src/nativeBinding");
+    expect(() => getNativeBinding()).not.toThrow();
+    expect(process.env.CODEX_NODE_CLI_ENTRYPOINT).toBeTruthy();
   });
 });

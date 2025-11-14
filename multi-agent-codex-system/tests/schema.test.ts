@@ -4,6 +4,7 @@ import Ajv from "ajv";
 import {
   IntentionOutputType,
   RecommendationOutputType,
+  RecommendationResponseSchema,
   CiIssueOutputType,
   CiFixOutputType,
 } from "../src/schemas.js";
@@ -67,6 +68,22 @@ test("Structured output schemas enforce valid payloads", () => {
       ],
     },
   );
+
+  const parsedRecommendations = RecommendationResponseSchema.parse({
+    items: [
+      {
+        category: "Docs",
+        title: "Document streaming",
+        priority: "P2",
+        effort: "Low",
+        description: "Explain how to enable streaming logs",
+        location: null,
+        example: null,
+      },
+    ],
+  });
+  assert.equal(parsedRecommendations.items[0].location, "");
+  assert.equal(parsedRecommendations.items[0].example, "");
 
   validateSchema(
     "CiIssueList",
