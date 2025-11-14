@@ -25,6 +25,31 @@ pub struct ReverieSearchResult {
   pub insights: Vec<String>,
 }
 
+const MAX_INSIGHTS_PER_CONVERSATION: usize = 4;
+
+#[derive(Default)]
+#[napi(object)]
+pub struct ReverieSemanticSearchOptions {
+  pub limit: Option<i32>,
+  #[napi(js_name = "maxCandidates")]
+  pub max_candidates: Option<i32>,
+  #[napi(js_name = "projectRoot")]
+  pub project_root: Option<String>,
+  #[napi(js_name = "batchSize")]
+  pub batch_size: Option<u32>,
+  pub normalize: Option<bool>,
+  pub cache: Option<bool>,
+}
+
+#[napi(object)]
+pub struct ReverieSemanticIndexStats {
+  #[napi(js_name = "conversationsIndexed")]
+  pub conversations_indexed: i32,
+  #[napi(js_name = "documentsEmbedded")]
+  pub documents_embedded: i32,
+  pub batches: i32,
+}
+
 #[napi]
 pub async fn reverie_list_conversations(
   codex_home_path: String,
@@ -116,6 +141,174 @@ pub async fn reverie_search_conversations(
   Ok(results)
 }
 
+#[napi]
+pub async fn reverie_search_semantic(
+  codex_home_path: String,
+  context_text: String,
+  options: Option<ReverieSemanticSearchOptions>,
+) -> napi::Result<Vec<ReverieSearchResult>> {
+  let trimmed = context_text.trim();
+  if trimmed.is_empty() {
+    return Ok(Vec::new());
+  }
+
+  let opts = options.unwrap_or_default();
+  let limit = opts.limit.unwrap_or(10).max(1) as usize;
+  let max_candidates = opts
+    .max_candidates
+    .unwrap_or(80)
+    .max(limit as i32) as usize;
+
+  let project_root_for_cache = opts.project_root.clone();
+  let normalized_project_root = opts
+    .project_root
+    .as_deref()
+    .map(|root| normalize_path(root));
+
+  let codex_home = Path::new(&codex_home_path);
+  let raw_conversations = load_reverie_conversations(codex_home, max_candidates.saturating_mul(2), 0)
+    .await
+    .map_err(|e| napi::Error::from_reason(format!("Failed to load conversations: {e}")))?;
+
+  let mut candidates = Vec::<SemanticCandidate>::new();
+  for conversation in raw_conversations {
+    if !conversation_matches_project(&conversation.head_records, normalized_project_root.as_deref()) {
+      continue;
+    }
+
+    let insights = derive_insights_for_semantic(&conversation.head_records, &conversation.tail_records);
+    let doc_text = build_compact_document(&conversation.head_records, &conversation.tail_records, &insights);
+
+    if doc_text.trim().is_empty() {
+      continue;
+    }
+
+    candidates.push(SemanticCandidate {
+      conversation,
+      insights,
+      doc_text,
+    });
+
+    if candidates.len() >= max_candidates {
+      break;
+    }
+  }
+
+  if candidates.is_empty() {
+    return Ok(Vec::new());
+  }
+
+  let mut inputs = Vec::with_capacity(candidates.len() + 1);
+  inputs.push(trimmed.to_string());
+  for candidate in &candidates {
+    inputs.push(candidate.doc_text.clone());
+  }
+
+  let embed_request = FastEmbedEmbedRequest {
+    inputs,
+    batch_size: opts.batch_size,
+    normalize: opts.normalize,
+    project_root: project_root_for_cache,
+    cache: opts.cache,
+  };
+
+  let embeddings = fast_embed_embed(embed_request).await?;
+  if embeddings.len() != candidates.len() + 1 {
+    return Err(napi::Error::from_reason("Embedding API returned unexpected length"));
+  }
+
+  let (query_embedding, doc_embeddings) = embeddings.split_first().unwrap();
+  let mut scored: Vec<ReverieSearchResult> = candidates
+    .into_iter()
+    .zip(doc_embeddings.iter())
+    .map(|(candidate, embedding)| {
+      let score = cosine_similarity(query_embedding, embedding);
+      ReverieSearchResult {
+        conversation: candidate.conversation,
+        relevance_score: score,
+        matching_excerpts: vec![build_excerpt(&candidate.doc_text)],
+        insights: candidate.insights,
+      }
+    })
+    .collect();
+
+  scored.sort_by(|a, b| b
+    .relevance_score
+    .partial_cmp(&a.relevance_score)
+    .unwrap_or(std::cmp::Ordering::Equal));
+  scored.truncate(limit);
+
+  Ok(scored)
+}
+
+#[napi]
+pub async fn reverie_index_semantic(
+  codex_home_path: String,
+  options: Option<ReverieSemanticSearchOptions>,
+) -> napi::Result<ReverieSemanticIndexStats> {
+  let opts = options.unwrap_or_default();
+  let max_candidates = opts.max_candidates.unwrap_or(500).max(1) as usize;
+  let doc_limit = opts
+    .limit
+    .unwrap_or(max_candidates as i32)
+    .max(1) as usize;
+  let project_root = opts
+    .project_root
+    .as_deref()
+    .map(|root| normalize_path(root));
+
+  let codex_home = Path::new(&codex_home_path);
+  let conversations = load_reverie_conversations(codex_home, max_candidates, 0)
+    .await
+    .map_err(|e| napi::Error::from_reason(format!("Failed to load conversations: {e}")))?;
+
+  let mut documents = Vec::new();
+  for conversation in conversations {
+    if !conversation_matches_project(&conversation.head_records, project_root.as_deref()) {
+      continue;
+    }
+    let insights = derive_insights_for_semantic(&conversation.head_records, &conversation.tail_records);
+    let doc_text = build_compact_document(&conversation.head_records, &conversation.tail_records, &insights);
+    if doc_text.trim().is_empty() {
+      continue;
+    }
+    documents.push(doc_text);
+    if documents.len() >= doc_limit {
+      break;
+    }
+  }
+
+  if documents.is_empty() {
+    return Ok(ReverieSemanticIndexStats {
+      conversations_indexed: 0,
+      documents_embedded: 0,
+      batches: 0,
+    });
+  }
+
+  const INDEX_CHUNK: usize = 64;
+  let chunk_size = INDEX_CHUNK;
+  let mut batches = 0;
+  for chunk in documents.chunks(chunk_size) {
+    batches += 1;
+    let embed_request = FastEmbedEmbedRequest {
+      inputs: chunk.to_vec(),
+      batch_size: opts.batch_size,
+      normalize: opts.normalize,
+      project_root: opts.project_root.clone(),
+      cache: opts.cache.or(Some(true)),
+    };
+    // Ignore the result; the goal is to populate the cache
+    let _ = fast_embed_embed(embed_request).await?;
+  }
+
+  Ok(ReverieSemanticIndexStats {
+    conversations_indexed: documents.len() as i32,
+    documents_embedded: documents.len() as i32,
+    batches,
+  })
+}
+
 async fn load_reverie_conversations(
   codex_home: &Path,
   limit: usize,
@@ -172,6 +365,12 @@ fn serialize_json_records(values: &[serde_json::Value]) -> Vec<String> {
     .collect()
 }
 
+struct SemanticCandidate {
+  conversation: ReverieConversation,
+  insights: Vec<String>,
+  doc_text: String,
+}
+
 fn extract_insight_from_json(value: &serde_json::Value) -> Option<String> {
   // Extract meaningful content from JSON records
   // RolloutItem uses tag+content serde format, so data is in "payload" field
@@ -217,6 +416,119 @@ fn extract_insight_from_json(value: &serde_json::Value) -> Option<String> {
   }
 
   None
+}
+
+fn derive_insights_for_semantic(head_records: &[String], tail_records: &[String]) -> Vec<String> {
+  let mut insights = Vec::new();
+  for record in head_records.iter().chain(tail_records.iter()) {
+    if insights.len() >= MAX_INSIGHTS_PER_CONVERSATION {
+      break;
+    }
+    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(record)
+      && let Some(content) = extract_insight_from_json(&json_value)
+    {
+      insights.push(content.chars().take(400).collect());
+    }
+  }
+  insights
+}
+
+fn build_compact_document(
+  head_records: &[String],
+  tail_records: &[String],
+  insights: &[String],
+) -> String {
+  const MAX_CHARS: usize = 4000;
+  let mut texts: Vec<String> = Vec::new();
+  for record in head_records.iter().chain(tail_records.iter()) {
+    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(record)
+      && let Some(content) = extract_insight_from_json(&json_value)
+    {
+      texts.push(content);
+    }
+  }
+  texts.extend(insights.iter().cloned());
+  let joined = texts.join(" ");
+  truncate_to_chars(&joined, MAX_CHARS)
+}
+
+fn truncate_to_chars(input: &str, max_chars: usize) -> String {
+  if input.chars().count() <= max_chars {
+    return input.to_string();
+  }
+  input.chars().take(max_chars).collect()
+}
+
+fn conversation_matches_project(head_records: &[String], project_root: Option<&Path>) -> bool {
+  let Some(root) = project_root else {
+    return true;
+  };
+  for record in head_records {
+    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(record) {
+      if let Some(cwd) = json_value
+        .get("meta")
+        .and_then(|meta| meta.get("cwd"))
+        .and_then(|cwd| cwd.as_str())
+        .or_else(|| json_value.get("cwd").and_then(|cwd| cwd.as_str()))
+      {
+        let candidate = normalize_path(cwd);
+        if path_starts_with(&candidate, root) {
+          return true;
+        }
+      }
+    }
+  }
+  false
+}
+
+fn normalize_path<P: AsRef<Path>>(value: P) -> PathBuf {
+  let path = value.as_ref();
+  if path.is_absolute() {
+    path.to_path_buf()
+  } else if let Ok(cwd) = std::env::current_dir() {
+    cwd.join(path)
+  } else {
+    path.to_path_buf()
+  }
+}
+
+fn path_starts_with(candidate: &Path, root: &Path) -> bool {
+  candidate == root || candidate.starts_with(root)
+}
+
+fn cosine_similarity(query: &[f32], document: &[f32]) -> f64 {
+  if query.len() != document.len() {
+    return 0.0;
+  }
+  let mut dot = 0.0f64;
+  let mut q_norm = 0.0f64;
+  let mut d_norm = 0.0f64;
+  for (q, d) in query.iter().zip(document.iter()) {
+    let qf = *q as f64;
+    let df = *d as f64;
+    dot += qf * df;
+    q_norm += qf * qf;
+    d_norm += df * df;
+  }
+  if q_norm == 0.0 || d_norm == 0.0 {
+    return 0.0;
+  }
+  dot / (q_norm.sqrt() * d_norm.sqrt())
+}
+
+fn build_excerpt(text: &str) -> String {
+  let trimmed = text.trim();
+  if trimmed.is_empty() {
+    return String::new();
+  }
+  const MAX_EXCERPT_CHARS: usize = 240;
+  if trimmed.chars().count() <= MAX_EXCERPT_CHARS {
+    trimmed.to_string()
+  } else {
+    let mut excerpt: String = trimmed.chars().take(MAX_EXCERPT_CHARS).collect();
+    excerpt.push('…');
+    excerpt
+  }
 }
 
 #[napi]

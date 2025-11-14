@@ -8,7 +8,7 @@ import type {
 } from "../nativeBinding";
 import type { NativeTuiRequest } from "../tui";
 
-export type CommandName = "run" | "tui";
+export type CommandName = "run" | "tui" | "reverie-index";
 
 export interface GlobalOptions {
   config?: string;
@@ -170,4 +170,3 @@ export interface CliContext {
   config: LoadedConfigFile;
   combinedConfig: CombinedConfig;
 }
-

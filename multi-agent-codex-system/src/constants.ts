@@ -13,6 +13,8 @@ export const CONFIG: MultiAgentConfig = {
   reviewBranch: true,
   ciCheck: true,
   model: DEFAULT_MODEL,
+  sandboxMode: "danger-full-access",
+  approvalMode: "never",
   embedder: {
     initOptions: {
       model: "BAAI/bge-large-en-v1.5",
@@ -25,4 +27,15 @@ export const CONFIG: MultiAgentConfig = {
   suppressedChecks: [],
   enableLspDiagnostics: true,
   lspWaitForDiagnostics: true,
+  autoReverieHints: true,
+  reverieHintIntervalMs: 120_000,
+  reverieHintMinScore: 0.45,
+  reverieHintMaxMatches: 2,
+  reverieHintContextChars: 800,
+  reverieHintReasoningWeight: 0.6,
+  reverieHintDialogueWeight: 0.4,
+  reverieHintMinReasoningChars: 120,
+  reverieHintMinDialogueChars: 160,
+  reverieHintUseMiniModel: true,
+  reverieHintModel: DEFAULT_MINI_MODEL,
 };

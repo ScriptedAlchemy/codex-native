@@ -7,6 +7,7 @@ import packageJson from "../../package.json";
 import { loadCliConfig } from "./config";
 import { executeRunCommand } from "./run";
 import { executeTuiCommand } from "./tui";
+import { executeReverieCommand } from "./reverie";
 import type {
   CliContext,
   ConfigLoaderOptions,
@@ -76,20 +77,24 @@ async function main(): Promise<void> {
 
   const generalHelpRequested = hasFlag(rawArgs, "--help") || hasFlag(rawArgs, "-h");
 
-  const { command, args } = selectCommand(rawArgs);
-
-  if (generalHelpRequested && command === "run" && args.length === rawArgs.length) {
+  if (generalHelpRequested && !hasExplicitCommand(rawArgs)) {
     printGeneralHelp();
     return;
   }
+
+  const { command, args } = selectCommand(rawArgs);
 
   if (hasCommandHelpFlag(args)) {
     printCommandHelp(command);
     return;
   }
 
-  const options =
-    command === "tui" ? parseTuiCommand(args) : parseRunCommand(args);
+  if (command === "reverie-index") {
+    await executeReverieCommand(args);
+    return;
+  }
+
+  const options = command === "tui" ? parseTuiCommand(args) : parseRunCommand(args);
 
   validateOptionChoices(command, options);
 
@@ -112,20 +117,35 @@ function selectCommand(argv: string[]): { command: CommandName; args: string[] }
     if (first === "run") {
       return { command: "run", args: rest };
     }
+    if (first === "reverie") {
+      if (rest.length === 0) {
+        return { command: "reverie-index", args: [] };
+      }
+      return { command: "reverie-index", args: rest };
+    }
     // Unrecognized first arg: treat as prompt
   }
 
-  // Smart default based on whether we're in an interactive terminal
-  // If TTY: prefer TUI (better UX for interactive users)
-  // If non-TTY: prefer run (for scripts/pipes)
-  const isInteractive = process.stdout.isTTY && process.stdin.isTTY;
-
+  // Default behavior when no arguments: start TUI only when a TTY is available
+  // This matches codex-rs behavior for interactive shells; headless users can rely on
+  // the run command without needing additional flags
   if (argv.length === 0) {
+    const isInteractive = process.stdout.isTTY && process.stdin.isTTY;
     return { command: isInteractive ? "tui" : "run", args: [] };
   }
 
   // Non-empty argv without explicit command: treat as prompt
+  // Smart default based on whether we're in an interactive terminal
+  const isInteractive = process.stdout.isTTY && process.stdin.isTTY;
   return { command: isInteractive ? "tui" : "run", args: argv };
+}
+
+function hasExplicitCommand(argv: string[]): boolean {
+  if (argv.length === 0) {
+    return false;
+  }
+  const first = argv[0];
+  return first === "tui" || first === "run" || first === "reverie";
 }
 
 function parseRunCommand(args: string[]): RunCommandOptions {
@@ -215,16 +235,17 @@ function printGeneralHelp(): void {
 Usage:
   codex-native [options] [prompt]
   codex-native run [options] [prompt]
+  codex-native tui [options] [prompt]
 
 Default behavior:
-  In an interactive terminal, launches the TUI with optional initial prompt.
-  In a non-TTY environment (e.g., piped input), runs non-interactively.
-  Use 'codex-native run' to force non-interactive mode.
+  Running 'codex-native' without arguments launches the interactive TUI.
+  Use 'codex-native run <prompt>' for non-interactive exec mode.
 
 Commands:
-  (default)   Launch TUI (if interactive) or run (if non-TTY)
+  (default)   Launch the interactive TUI (with optional initial prompt)
   run         Run Codex in non-interactive exec mode
-  tui         Force launch the interactive TUI
+  tui         Explicitly launch the interactive TUI
+  reverie index  Pre-compute reverie embeddings for the current repo
 
 Global options:
   --config <path>        Path to codex.config.js (or similar)
@@ -272,6 +293,26 @@ TUI options:
 }
 
 function printCommandHelp(command: CommandName): void {
+  if (command === "reverie-index") {
+    console.log(`codex-native reverie index [options]
+
+Options:
+  --codex-home <path>     Override CODEX_HOME (defaults to ~/.codex)
+  --project-root <path>   Project root for scoping + embedding cache (default: cwd)
+  --limit <n>             Maximum conversations to index (default: 10)
+  --max-candidates <n>    Scan window before filtering (default: 80)
+  --batch-size <n>        Batch size forwarded to FastEmbed
+  --normalize             Force vector normalization (default: embed config)
+  --no-normalize          Disable normalization
+  --cache / --no-cache    Override embedding cache behavior
+  --embed-model <name>    FastEmbed model (default: BAAI/bge-large-en-v1.5)
+  --embed-cache-dir <dir> Cache directory (defaults to $CODEX_EMBED_CACHE or system tmp)
+  --embed-max-length <n>  Override FastEmbed max token length
+  --no-progress           Hide FastEmbed download progress
+  --skip-embed-init       Assume fastEmbedInit was already called in this process
+`);
+    return;
+  }
   if (command === "tui") {
     console.log(`codex-native tui [options] [prompt]
 
@@ -352,4 +393,3 @@ main().catch((error) => {
   logError(error);
   process.exitCode = 1;
 });
-

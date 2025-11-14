@@ -160,6 +160,8 @@ export interface ReverieConversation {
 
 export declare function reverieGetConversationInsights(conversationPath: string, query?: string | undefined | null): Promise<Array<string>>
 
+export declare function reverieIndexSemantic(codexHomePath: string, options?: ReverieSemanticSearchOptions | undefined | null): Promise<ReverieSemanticIndexStats>
+
 export declare function reverieListConversations(codexHomePath: string, limit?: number | undefined | null, offset?: number | undefined | null): Promise<Array<ReverieConversation>>
 
 export declare function reverieSearchConversations(codexHomePath: string, query: string, limit?: number | undefined | null): Promise<Array<ReverieSearchResult>>
@@ -169,6 +171,23 @@ export interface ReverieSearchResult {
   relevanceScore: number
   matchingExcerpts: Array<string>
   insights: Array<string>
+}
+
+export declare function reverieSearchSemantic(codexHomePath: string, contextText: string, options?: ReverieSemanticSearchOptions | undefined | null): Promise<Array<ReverieSearchResult>>
+
+export interface ReverieSemanticIndexStats {
+  conversationsIndexed: number
+  documentsEmbedded: number
+  batches: number
+}
+
+export interface ReverieSemanticSearchOptions {
+  limit?: number
+  maxCandidates?: number
+  projectRoot?: string
+  batchSize?: number
+  normalize?: boolean
+  cache?: boolean
 }
 
 export interface RunRequest {

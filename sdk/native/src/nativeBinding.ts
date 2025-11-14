@@ -142,6 +142,21 @@ export type ReverieSearchResult = {
   insights: string[];
 };
 
+export type ReverieSemanticSearchOptions = {
+  limit?: number;
+  maxCandidates?: number;
+  projectRoot?: string;
+  batchSize?: number;
+  normalize?: boolean;
+  cache?: boolean;
+};
+
+export type ReverieSemanticIndexStats = {
+  conversationsIndexed: number;
+  documentsEmbedded: number;
+  batches: number;
+};
+
 // ============================================================================
 // FastEmbed Types
 // ============================================================================
@@ -233,6 +248,15 @@ export type NativeBinding = {
   // Reverie system - conversation search and insights
   reverieListConversations(codexHomePath: string, limit?: number, offset?: number): Promise<ReverieConversation[]>;
   reverieSearchConversations(codexHomePath: string, query: string, limit?: number): Promise<ReverieSearchResult[]>;
+  reverieSearchSemantic?(
+    codexHomePath: string,
+    context: string,
+    options?: ReverieSemanticSearchOptions,
+  ): Promise<ReverieSearchResult[]>;
+  reverieIndexSemantic?(
+    codexHomePath: string,
+    options?: ReverieSemanticSearchOptions,
+  ): Promise<ReverieSemanticIndexStats>;
   reverieGetConversationInsights(conversationPath: string, query?: string): Promise<string[]>;
   // FastEmbed hooks
   fastEmbedInit?(options: FastEmbedInitOptions): Promise<void>;
@@ -408,6 +432,25 @@ export async function reverieSearchConversations(
   const binding = getNativeBinding();
   if (!binding?.reverieSearchConversations) throw new Error("Native binding not available or reverie functions not supported");
   return (binding as any).reverieSearchConversations(codexHomePath, query, limit);
+}
+
+export async function reverieSearchSemantic(
+  codexHomePath: string,
+  context: string,
+  options?: ReverieSemanticSearchOptions,
+): Promise<ReverieSearchResult[]> {
+  const binding = getNativeBinding();
+  if (!binding?.reverieSearchSemantic) throw new Error("Native binding not available or reverie functions not supported");
+  return (binding as any).reverieSearchSemantic(codexHomePath, context, options);
+}
+
+export async function reverieIndexSemantic(
+  codexHomePath: string,
+  options?: ReverieSemanticSearchOptions,
+): Promise<ReverieSemanticIndexStats> {
+  const binding = getNativeBinding();
+  if (!binding?.reverieIndexSemantic) throw new Error("Native binding not available or reverie functions not supported");
+  return (binding as any).reverieIndexSemantic(codexHomePath, options);
 }
 
 export async function reverieGetConversationInsights(

@@ -8,14 +8,22 @@ setupNativeBinding();
 
 let reverieListConversations: any;
 let reverieSearchConversations: any;
+let reverieSearchSemantic: any;
+let reverieIndexSemantic: any;
 let reverieGetConversationInsights: any;
+let fastEmbedInit: any;
 
 beforeAll(async () => {
   const mod = await import("../src/index");
   reverieListConversations = mod.reverieListConversations;
   reverieSearchConversations = mod.reverieSearchConversations;
+  reverieSearchSemantic = mod.reverieSearchSemantic;
+  reverieIndexSemantic = mod.reverieIndexSemantic;
   reverieGetConversationInsights = mod.reverieGetConversationInsights;
+  fastEmbedInit = mod.fastEmbedInit;
 });
+
+const LONG_TIMEOUT_MS = 120_000;
 
 function writeJsonl(file: string, lines: string[]): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -124,4 +132,55 @@ describe("Reverie native helpers", () => {
     expect(Array.isArray(insights)).toBe(true);
     expect(insights.some((s: string) => s.toLowerCase().includes("auth"))).toBe(true);
   });
+
+  it(
+    "returns semantic matches using FastEmbed",
+    async () => {
+      const { home } = makeFakeCodexHome();
+      const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-reverie-cache-"));
+
+      await fastEmbedInit({
+        model: "BAAI/bge-small-en-v1.5",
+        cacheDir,
+        maxLength: 512,
+        showDownloadProgress: false,
+      });
+
+      const results = await reverieSearchSemantic(home, "auth timeout fix", {
+        projectRoot: home,
+        limit: 5,
+        normalize: true,
+        cache: true,
+      });
+
+      expect(Array.isArray(results)).toBe(true);
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].relevanceScore).toBeGreaterThan(0);
+    },
+    LONG_TIMEOUT_MS,
+  );
+
+  it(
+    "indexes reveries to warm the cache",
+    async () => {
+      const { home } = makeFakeCodexHome();
+      await fastEmbedInit({
+        model: "BAAI/bge-small-en-v1.5",
+        maxLength: 256,
+        showDownloadProgress: false,
+      });
+
+      const stats = await reverieIndexSemantic(home, {
+        limit: 5,
+        maxCandidates: 5,
+        projectRoot: home,
+        normalize: true,
+        cache: true,
+      });
+
+      expect(stats.documentsEmbedded).toBeGreaterThan(0);
+      expect(stats.batches).toBeGreaterThan(0);
+    },
+    LONG_TIMEOUT_MS,
+  );
 });

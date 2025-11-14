@@ -1,5 +1,5 @@
 import process from "node:process";
-import type { NativeTuiRequest, Thread } from "@codex-native/sdk";
+import type { NativeTuiRequest, Thread, TuiSession } from "@codex-native/sdk";
 
 function assertInteractiveTerminal(): void {
   if (!process.stdout?.isTTY || !process.stdin?.isTTY) {
@@ -7,18 +7,29 @@ function assertInteractiveTerminal(): void {
   }
 }
 
-async function runThreadTui(
+function runThreadTui(
   thread: Thread,
   overrides: Partial<NativeTuiRequest> & { prompt: string },
   label?: string,
-): Promise<void> {
+): TuiSession {
   assertInteractiveTerminal();
   try {
-    await thread.tui(overrides);
+    const session = thread.launchTui(overrides);
+    return session;
   } catch (error) {
     const suffix = label ? ` (${label})` : "";
     throw new Error(`Failed to run Codex TUI${suffix}`, { cause: error as Error });
   }
 }
 
-export { runThreadTui };
+async function waitForTuiSession(session: TuiSession, label?: string): Promise<void> {
+  try {
+    await session.wait();
+  } catch (error) {
+    const suffix = label ? ` (${label})` : "";
+    console.error(`Codex TUI session failed${suffix}:`, error);
+    throw error;
+  }
+}
+
+export { runThreadTui, waitForTuiSession };

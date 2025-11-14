@@ -64,9 +64,14 @@ class CICheckerSystem {
     }
     return fixes
       .map((fix, idx) => {
-        const steps = fix.steps?.length ? ` Steps: ${fix.steps.join(" | ")}` : "";
-        const commands = fix.commands?.length ? ` Commands: ${fix.commands.join(" | ")}` : "";
-        return `#${idx + 1} [${fix.priority}] ${fix.title}${steps}${commands}`;
+        const detailParts = [
+          fix.owner && `Owner: ${fix.owner}`,
+          fix.etaHours != null && `ETA: ${fix.etaHours}h`,
+          fix.steps.length ? `Steps: ${fix.steps.join(" | ")}` : null,
+          fix.commands.length ? `Commands: ${fix.commands.join(" | ")}` : null,
+        ].filter(Boolean) as string[];
+        const suffix = detailParts.length ? ` — ${detailParts.join("; ")}` : "";
+        return `#${idx + 1} [${fix.priority}] ${fix.title}${suffix}`;
       })
       .join("\n");
   }
@@ -212,11 +217,11 @@ Produce a prioritized remediation checklist with owners and commands.`,
         model: this.config.model ?? DEFAULT_MODEL,
         workingDirectory: repoContext.cwd,
         skipGitRepoCheck: this.config.skipGitRepoCheck,
-        approvalMode: "on-request",
-        sandboxMode: "workspace-write",
+        approvalMode: this.config.approvalMode ?? "never",
+        sandboxMode: this.config.sandboxMode ?? "danger-full-access",
       });
     if (!ciThread) {
-      attachApplyPatchReminder(thread, "workspace-write");
+      attachApplyPatchReminder(thread, this.config.sandboxMode ?? "danger-full-access");
     }
     this.diagnostics?.attach(thread);
 

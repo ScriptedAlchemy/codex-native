@@ -3,7 +3,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use codex_native::{
-  reverie_get_conversation_insights, reverie_list_conversations, reverie_search_conversations,
+  fast_embed_init, reverie_get_conversation_insights, reverie_index_semantic,
+  reverie_list_conversations, reverie_search_conversations, reverie_search_semantic,
+  FastEmbedInitOptions, ReverieSemanticSearchOptions,
 };
 use codex_protocol::ConversationId;
 use codex_protocol::models::{ContentItem, ResponseItem};
@@ -125,4 +127,67 @@ async fn test_reverie_get_conversation_insights_filters() {
   .unwrap();
   assert!(!insights.is_empty(), "expected at least one insight");
   assert!(insights.iter().any(|s| s.to_lowercase().contains("auth")));
+}
+
+#[tokio::test]
+async fn test_reverie_search_semantic_matches_context() {
+  let (home, _convo) = make_fake_codex_home();
+  let path = home.path().to_string_lossy().to_string();
+
+  let cache_dir = tempfile::tempdir().unwrap();
+  fast_embed_init(FastEmbedInitOptions {
+    model: Some("BAAI/bge-small-en-v1.5".to_string()),
+    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
+    max_length: Some(512),
+    show_download_progress: Some(false),
+  })
+  .await
+  .unwrap();
+
+  let options = ReverieSemanticSearchOptions {
+    limit: Some(5),
+    max_candidates: Some(10),
+    project_root: Some(home.path().to_string_lossy().to_string()),
+    batch_size: None,
+    normalize: Some(true),
+    cache: Some(true),
+  };
+
+  let results = reverie_search_semantic(path, "auth timeout debugging".to_string(), Some(options))
+    .await
+    .unwrap();
+  assert!(!results.is_empty(), "expected semantic matches");
+  assert!(results[0].relevance_score > 0.0);
+}
+
+#[tokio::test]
+async fn test_reverie_index_semantic_populates_cache() {
+  let (home, _convo) = make_fake_codex_home();
+  let path = home.path().to_string_lossy().to_string();
+
+  let cache_dir = tempfile::tempdir().unwrap();
+  fast_embed_init(FastEmbedInitOptions {
+    model: Some("BAAI/bge-small-en-v1.5".to_string()),
+    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
+    max_length: Some(256),
+    show_download_progress: Some(false),
+  })
+  .await
+  .unwrap();
+
+  let stats = reverie_index_semantic(
+    path,
+    Some(ReverieSemanticSearchOptions {
+      limit: Some(5),
+      max_candidates: Some(5),
+      project_root: None,
+      batch_size: Some(8),
+      normalize: Some(true),
+      cache: Some(true),
+    }),
+  )
+  .await
+  .unwrap();
+  assert!(stats.documents_embedded > 0, "expected embeddings to be generated");
+  assert!(stats.batches >= 1);
 }

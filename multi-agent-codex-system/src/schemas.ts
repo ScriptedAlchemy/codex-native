@@ -42,9 +42,9 @@ const CiFixSchema = z.object({
   title: z.string().min(5).max(160),
   priority: z.enum(["P0", "P1", "P2", "P3"]),
   steps: z.array(z.string()).default([]),
-  owner: z.string().optional(),
-  etaHours: z.number().min(0).max(40).optional(),
-  commands: z.array(z.string()).default([]),
+  owner: z.string().min(2).max(160).optional(),
+  etaHours: z.number().min(0).max(720).optional(),
+  commands: z.array(z.string()).min(1),
 });
 export type CiFix = z.output<typeof CiFixSchema>;
 const CiFixListSchema = z.array(CiFixSchema).min(1).max(15);
@@ -71,8 +71,15 @@ function optionalStringField(max?: number) {
   return stringField(undefined, max);
 }
 
-function stringArrayField() {
-  return { type: "array" as const, items: { type: "string" as const } };
+function stringArrayField(options?: { minItems?: number; maxItems?: number }) {
+  const schema: Record<string, any> = { type: "array" as const, items: { type: "string" as const } };
+  if (typeof options?.minItems === "number") {
+    schema.minItems = options.minItems;
+  }
+  if (typeof options?.maxItems === "number") {
+    schema.maxItems = options.maxItems;
+  }
+  return schema;
 }
 
 function buildResponseSchema(
@@ -165,11 +172,11 @@ const CiFixOutputType: JsonSchemaDefinition = {
       title: stringField(5, 160),
       priority: { type: "string", enum: ["P0", "P1", "P2", "P3"] },
       steps: stringArrayField(),
-      owner: optionalStringField(),
-      etaHours: { type: "number", minimum: 0, maximum: 40 },
-      commands: stringArrayField(),
+      owner: stringField(2, 160),
+      etaHours: { type: "number", minimum: 0, maximum: 720 },
+      commands: stringArrayField({ minItems: 1 }),
     },
-    ["title", "priority"],
+    ["title", "priority", "steps", "commands"],
     { maxItems: 15 },
   ),
 };

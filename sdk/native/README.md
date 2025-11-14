@@ -627,9 +627,30 @@ const matches = await reverieSearchConversations(codexHome, "authentication issu
 
 // Read the highlights/insights from a specific conversation rollout
 const insights = await reverieGetConversationInsights(matches[0].conversation.path, "JWT");
+
+// Run semantic search using FastEmbed (requires fastEmbedInit to run once in your process)
+const semantic = await reverieSearchSemantic(codexHome, liveContext, {
+  projectRoot: process.cwd(),
+  maxCandidates: 80,
+  limit: 5,
+  normalize: true,
+});
+
+// Pre-build the semantic cache without issuing a query (helpful for CI or cron jobs)
+await reverieIndexSemantic(codexHome, {
+  projectRoot: process.cwd(),
+  maxCandidates: 200,
+  limit: 200,
+});
 ```
 
-Results include `headRecords` and `tailRecords`, mirroring the summaries used by the Rust CLI/TUI, so you can plug them into custom dashboards or route them back into an agent as `<system notification>`s.
+To warm the cache without writing code, use the CLI:
+
+```bash
+npx codex-native reverie index --project-root /path/to/repo --embed-model BAAI/bge-large-en-v1.5
+```
+
+Results include `headRecords` and `tailRecords`, mirroring the summaries used by the Rust CLI/TUI, so you can plug them into custom dashboards or route them back into an agent as `<system notification>`s. The semantic helper expects `fastEmbedInit` to have been called earlier in your process so the FastEmbed model is ready.
 
 ### Tokenizer Helpers (tiktoken)
 

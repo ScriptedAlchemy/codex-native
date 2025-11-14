@@ -32,6 +32,9 @@ export class LspClient {
 
   private async initialize(): Promise<void> {
     const [command, ...args] = this.config.command;
+    if (!command) {
+      throw new Error(`LSP server ${this.config.id} is missing a command executable`);
+    }
     try {
       this.process = spawn(command, args, {
         cwd: this.root,
@@ -42,15 +45,16 @@ export class LspClient {
       throw new Error(`Failed to spawn ${this.config.displayName} (${command}): ${String(error)}`);
     }
 
-    this.process.stderr?.on("data", (chunk) => {
+    const child = this.process;
+    child.stderr.on("data", (chunk) => {
       const text = chunk.toString();
       if (text.trim().length > 0) {
         console.debug(`[lsp:${this.config.id}] ${text.trim()}`);
       }
     });
 
-    const reader = new StreamMessageReader(this.process.stdout);
-    const writer = new StreamMessageWriter(this.process.stdin);
+    const reader = new StreamMessageReader(child.stdout);
+    const writer = new StreamMessageWriter(child.stdin);
     this.connection = createMessageConnection(reader, writer);
 
     this.connection.onNotification("textDocument/publishDiagnostics", (payload: PublishDiagnosticsParams) => {
@@ -198,4 +202,3 @@ export function normalizeSeverity(severity?: Diagnostic["severity"]): "error" | 
       return "error";
   }
 }
-

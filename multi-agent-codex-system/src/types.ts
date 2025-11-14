@@ -1,4 +1,4 @@
-import type { FastEmbedEmbedRequest, FastEmbedInitOptions, Thread } from "@codex-native/sdk";
+import type { FastEmbedEmbedRequest, FastEmbedInitOptions, Thread, SandboxMode, ApprovalMode } from "@codex-native/sdk";
 import type { CiFix, CiIssue, Intention, Recommendation } from "./schemas.js";
 
 export type CiCheckKind = "lint" | "tests" | "build" | "security";
@@ -17,11 +17,24 @@ export type MultiAgentConfig = {
   ciCheck?: boolean;
   reverieQuery?: string;
   model?: string;
+  sandboxMode?: SandboxMode;
+  approvalMode?: ApprovalMode;
   baseBranchOverride?: string;
   embedder?: FastEmbedConfig;
   suppressedChecks?: CiCheckKind[];
   enableLspDiagnostics?: boolean;
   lspWaitForDiagnostics?: boolean;
+  autoReverieHints?: boolean;
+  reverieHintIntervalMs?: number;
+  reverieHintMinScore?: number;
+  reverieHintMaxMatches?: number;
+  reverieHintContextChars?: number;
+  reverieHintReasoningWeight?: number;
+  reverieHintDialogueWeight?: number;
+  reverieHintMinReasoningChars?: number;
+  reverieHintMinDialogueChars?: number;
+  reverieHintUseMiniModel?: boolean;
+  reverieHintModel?: string;
 };
 
 export type CommandResult = {
@@ -81,10 +94,4 @@ export type ReverieResult = {
   relevance: number;
   excerpt: string;
   insights: string[];
-};
-
-export type ProcessedReverie = ReverieResult & {
-  rawRelevance: number;
-  headRecords: string[];
-  tailRecords: string[];
 };

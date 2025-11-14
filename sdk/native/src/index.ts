@@ -107,6 +107,8 @@ import { getNativeBinding } from "./nativeBinding";
 export {
   reverieListConversations,
   reverieSearchConversations,
+  reverieSearchSemantic,
+  reverieIndexSemantic,
   reverieGetConversationInsights,
   fastEmbedInit,
   fastEmbedEmbed,
