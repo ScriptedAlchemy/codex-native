@@ -116,26 +116,36 @@ fn test_build_cli_workspace_write_overrides() {
 
   let cli = build_cli(&options, None, false);
   let overrides = cli.config_overrides.raw_overrides;
-  assert!(overrides
-    .iter()
-    .any(|o| o == "sandbox_workspace_write.network_access=true"));
-  assert!(overrides
-    .iter()
-    .any(|o| o.contains("sandbox_workspace_write.writable_roots")));
-  assert!(overrides
-    .iter()
-    .any(|o| o == "sandbox_workspace_write.exclude_tmpdir_env_var=true"));
-  assert!(overrides
-    .iter()
-    .any(|o| o == "sandbox_workspace_write.exclude_slash_tmp=false"));
+  assert!(
+    overrides
+      .iter()
+      .any(|o| o == "sandbox_workspace_write.network_access=true")
+  );
+  assert!(
+    overrides
+      .iter()
+      .any(|o| o.contains("sandbox_workspace_write.writable_roots"))
+  );
+  assert!(
+    overrides
+      .iter()
+      .any(|o| o == "sandbox_workspace_write.exclude_tmpdir_env_var=true")
+  );
+  assert!(
+    overrides
+      .iter()
+      .any(|o| o == "sandbox_workspace_write.exclude_slash_tmp=false")
+  );
 }
 
 #[test]
 fn test_build_cli_force_compact_override() {
   let options = base_internal_request();
   let cli = build_cli(&options, None, true);
-  assert!(cli
-    .config_overrides
-    .raw_overrides
-    .contains(&"native.force_compact=true".to_string()));
+  assert!(
+    cli
+      .config_overrides
+      .raw_overrides
+      .contains(&"native.force_compact=true".to_string())
+  );
 }
