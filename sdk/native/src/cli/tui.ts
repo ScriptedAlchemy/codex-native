@@ -21,7 +21,7 @@ export async function executeTuiCommand(
   emitWarnings(combinedConfig.warnings);
   const warningCount = combinedConfig.warnings.length;
 
-  const { request, threadOptions } = buildTuiConfig({
+  const { request, thread: threadOptions } = buildTuiConfig({
     argv,
     defaults: combinedConfig.tuiDefaults,
     cwd: context.cwd,
@@ -87,7 +87,7 @@ function buildTuiConfig(params: {
   if (argv.dangerouslyBypassApprovalsAndSandbox !== undefined) {
     request.dangerouslyBypassApprovalsAndSandbox = argv.dangerouslyBypassApprovalsAndSandbox;
   }
-  if (argv.workingDirectory !== undefined) request.workingDirectory = argv.workingDirectory;
+  if (argv.cd !== undefined) request.workingDirectory = argv.cd;
   if (argv.configProfile !== undefined) request.configProfile = argv.configProfile;
   if (argv.webSearch !== undefined) request.webSearch = argv.webSearch;
   if (argv.linuxSandboxPath !== undefined) request.linuxSandboxPath = argv.linuxSandboxPath;

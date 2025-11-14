@@ -123,7 +123,7 @@ export interface RunCommandOptions extends GlobalOptions {
   linuxSandboxPath?: string;
   fullAuto?: boolean;
   skipGitRepoCheck?: boolean;
-  workingDirectory?: string;
+  cd?: string;
   image?: string[];
   reviewMode?: boolean;
   reviewHint?: string;
@@ -140,7 +140,7 @@ export interface TuiCommandOptions extends GlobalOptions {
   resumePicker?: boolean;
   fullAuto?: boolean;
   dangerouslyBypassApprovalsAndSandbox?: boolean;
-  workingDirectory?: string;
+  cd?: string;
   configProfile?: string;
   configOverrides?: string[];
   addDir?: string[];
