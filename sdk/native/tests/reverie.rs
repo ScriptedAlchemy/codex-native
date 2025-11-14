@@ -207,7 +207,10 @@ async fn test_reverie_search_semantic_empty_query_short_circuits() {
   let results = reverie_search_semantic(path, "   ".to_string(), None)
     .await
     .unwrap();
-  assert!(results.is_empty(), "whitespace-only queries should return no matches");
+  assert!(
+    results.is_empty(),
+    "whitespace-only queries should return no matches"
+  );
 }
 
 #[tokio::test]
@@ -238,7 +241,10 @@ async fn test_reverie_search_semantic_filters_project_root() {
   let results = reverie_search_semantic(path, "auth timeout".to_string(), Some(options))
     .await
     .unwrap();
-  assert!(results.is_empty(), "conversations outside project root should be filtered out");
+  assert!(
+    results.is_empty(),
+    "conversations outside project root should be filtered out"
+  );
 }
 
 #[tokio::test]
