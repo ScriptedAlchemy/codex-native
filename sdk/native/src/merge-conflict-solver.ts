@@ -183,6 +183,7 @@ type WorkerOutcome = {
   summary?: string;
   threadId?: string;
   error?: string;
+  validationStatus?: "ok" | "fail";
 };
 
 class GitRepo {
@@ -500,6 +501,10 @@ class MergeConflictSolver {
       process.exitCode = 1;
     } else {
       logInfo("All conflicts resolved according to git diff --name-only --diff-filter=U");
+      const validationOutcomes = await this.runValidationPhase(outcomes);
+      if (validationOutcomes.length > 0) {
+        await this.runReviewer(validationOutcomes, this.remoteComparison, true);
+      }
     }
   }
 
@@ -619,6 +624,7 @@ class MergeConflictSolver {
   private async runReviewer(
     outcomes: WorkerOutcome[],
     remoteComparison: RemoteComparison | null,
+    validationMode = false,
   ): Promise<string | null> {
     logInfo("Launching reviewer agent for final validation");
     const reviewerThread = this.codex.startThread(this.reviewerThreadOptions);
@@ -631,9 +637,32 @@ class MergeConflictSolver {
       remaining,
       workerSummaries: outcomes,
       remoteComparison,
+      validationMode,
     });
     const turn = await reviewerThread.run(reviewerPrompt);
     return turn.finalResponse ?? null;
+  }
+
+  private async runValidationPhase(outcomes: WorkerOutcome[]): Promise<WorkerOutcome[]> {
+    const validations: WorkerOutcome[] = [];
+    for (const outcome of outcomes) {
+      if (!outcome.success) {
+        continue;
+      }
+      logInfo(`Starting validation for ${outcome.path}`);
+      const thread = this.codex.startThread(this.workerThreadOptions);
+      const prompt = buildValidationPrompt(outcome.path, outcome.summary ?? "");
+      const turn = await thread.run(prompt);
+      const { status, summary } = parseValidationSummary(turn.finalResponse ?? "");
+      validations.push({
+        path: outcome.path,
+        success: status === "ok",
+        summary,
+        threadId: thread.id ?? undefined,
+        validationStatus: status,
+      });
+    }
+    return validations;
   }
 }
 
@@ -910,6 +939,7 @@ Constraints:
 - Summarize what you kept from each side plus any follow-up commands/tests to run.
 - Your shell/file-write accesses are gated by an autonomous supervisor; justify sensitive steps so approvals go through.
 - Begin with a short research note referencing the diffs/logs below before modifying any code.
+- Do not run tests/builds/formatters during this resolution phase; a dedicated validation turn will follow.
 
 Helpful context:
 ${combinedContext || "(no file excerpts available)"}
@@ -931,22 +961,24 @@ function buildReviewerPrompt(input: {
   remaining: string[];
   workerSummaries: WorkerOutcome[];
   remoteComparison: RemoteComparison | null;
+  validationMode?: boolean;
 }): string {
   const workerNotes =
     input.workerSummaries
       .map((outcome) => {
         const status = outcome.success ? "resolved" : "unresolved";
         const summary = outcome.summary ? outcome.summary.slice(0, 2000) : "(no summary)";
-        return `- ${outcome.path}: ${status}\n${summary}`;
+        return `- ${outcome.path}: ${status}
+${summary}`;
       })
-      .join("\n\n") || "(workers produced no summaries)";
+      .join("
+
+") || "(workers produced no summaries)";
   const remoteSection = input.remoteComparison
     ? `Remote divergence (${input.remoteComparison.originRef} ↔ ${input.remoteComparison.upstreamRef})
-Commits only on ${input.remoteComparison.upstreamRef}:
-${input.remoteComparison.commitsMissingFromOrigin ?? "<none>"}
+Commits only on ${input.remoteComparison.upstreamRef ?? "<none>"}
 
-Commits only on ${input.remoteComparison.originRef}:
-${input.remoteComparison.commitsMissingFromUpstream ?? "<none>"}
+Commits only on ${input.remoteComparison.originRef ?? "<none>"}
 
 Diff ${input.remoteComparison.originRef}..${input.remoteComparison.upstreamRef}:
 ${input.remoteComparison.diffstatOriginToUpstream ?? "<no diff>"}`
@@ -963,7 +995,8 @@ Diffstat:
 ${input.diffStat || "<none>"}
 
 Remaining conflicted files (git diff --name-only --diff-filter=U):
-${input.remaining.length ? input.remaining.join("\n") : "<none>"}
+${input.remaining.length ? input.remaining.join("
+") : "<none>"}
 
 Worker notes:
 ${workerNotes}
@@ -974,13 +1007,45 @@ Historical guardrails to honor:
 ${HISTORICAL_PLAYBOOK}
 
 Tasks:
-1. Double-check no conflict markers remain (consider 'rg "<<<<<<<"' across repo).
-2. Ensure git status is staged/clean as appropriate.
-3. If feasible, run pnpm install, pnpm build, and pnpm run ci. If they are too heavy, explain when/how they should run.
+1. ${input.validationMode ? "Run targeted tests for each resolved file (unit/integration only)." : "Double-check no conflict markers remain (consider 'rg "<<<<<<"' across repo)."}
+2. ${input.validationMode ? "Report pass/fail per file and note any new issues." : "Ensure git status is staged/clean as appropriate."}
+3. ${input.validationMode ? "List broader suites (pnpm build/ci) to run once targeted checks pass." : "If feasible, run pnpm install, pnpm build, and pnpm run ci. If they are too heavy, explain when/how they should run."}
 4. Summarize final merge state plus TODOs for the human operator.
 5. Call out any files that still need manual attention.
 
 Respond with a crisp summary plus checklist.`;
+}
+
+function buildValidationPrompt(path: string, workerSummary: string): string {
+  return `# Targeted Validation for ${path}
+
+The merge conflict for ${path} is resolved. Your task now is to run the most relevant tests for this file (unit/integration only). Do not edit code; focus on verifying the fix.
+
+Instructions:
+- Identify the smallest set of tests that exercise ${path}.
+- Run those tests. Prefer targeted commands (e.g., cargo test -p <crate> -- <filter>, pnpm test -- <file>, etc.).
+- If no tests exist, explain why and suggest follow-up coverage.
+- Summarize results starting with either "VALIDATION_OK:" or "VALIDATION_FAIL:" followed by details.
+
+Reference summary from the merge agent:
+${workerSummary || "(no summary provided)"}
+
+Report:
+- What tests you ran (commands/output).
+- Whether they passed or failed.
+- Any further actions needed.`;
+}
+
+function parseValidationSummary(text: string): { status: "ok" | "fail"; summary: string } {
+  const normalized = text.trim();
+  const lower = normalized.toLowerCase();
+  if (lower.startsWith("validation_ok")) {
+    return { status: "ok", summary: normalized };
+  }
+  if (lower.startsWith("validation_fail")) {
+    return { status: "fail", summary: normalized };
+  }
+  return { status: "fail", summary: normalized || "VALIDATION_FAIL: No output returned" };
 }
 
 async function main(): Promise<void> {
