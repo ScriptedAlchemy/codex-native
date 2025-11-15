@@ -27,6 +27,26 @@ Basic examples using the Native SDK directly (without OpenAI Agents framework).
   - Generates normalized sentence embeddings & stores them under `~/.codex/embeddings`
   - Perfect starting point for reverie re-ranking or custom RAG flows
 
+### `/reverie` - Semantic Search & Indexing
+
+- **`manual-semantic-search.ts`** — Reverie indexing stats + semantic hits
+  - Seeds demo reverie logs (if none exist) or uses your real `~/.codex/sessions`
+  - Warms the FastEmbed cache and reports cached file/byte counts
+  - Shows conversations being indexed plus chunk/doc statistics from `reverieIndexSemantic`
+  - Color-coded output (with legend) explains cache/index phases, transcript excerpts, and semantic hits
+  - Demonstrates the `encodeToToon` helper to compact reasoning context before embedding or display
+  - Executes `reverieSearchSemantic` with a real agent reasoning snippet and prints matching chunks
+- **`eval/index.ts`** — Retrieval strategy tournament with GPT-5.1 judge
+  - Builds an evaluation dataset by extracting reasoning tokens from reverie transcripts
+  - Runs multiple semantic-search strategies (user prompt, reasoning tokens, assistant response)
+  - Feeds each strategy's hits to `gpt-5.1` via `CodexProvider` and produces a JSON-scored verdict
+  - Prints a ranked scoreboard with win rates so you can tune embedding/re-ranking strategies
+  - Accepts CLI flags for slice limits, custom models, and selectable strategy subsets
+- **`eval/snapshot.ts`** — Reasoning slice snapshot helper
+  - Reads your `~/.codex/sessions` directory and writes curated slices to `examples/reverie/eval/data/`
+  - Produces `slices.json`, `user_messages.json`, and `assistant_responses.json` for reproducible eval runs
+  - Pair with `eval/index.ts --dataset=.../slices.json` to benchmark without re-scanning all transcripts
+
 ### `/basic` - Core Features
 Basic SDK functionality and common use cases.
 
@@ -46,6 +66,10 @@ Basic SDK functionality and common use cases.
   - Custom review prompts
   - Processing review findings
   - Review output handling
+- **`repo-diff-summary.ts`** — Git context summaries from Rust
+  - Uses `collectRepoDiffSummary` via the N-API binding
+  - Prints branch/base info, status summaries, and per-file diffs
+  - Demonstrates how to re-use codex-core’s git plumbing from Node
 
 ### `/tools` - Tool Management
 Custom tool registration and override capabilities.

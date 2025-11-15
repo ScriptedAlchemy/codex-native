@@ -22,6 +22,7 @@
     "*.node"
   ],
   "dependencies": {
+    "@toon-format/toon": "^1.0.0",
     "pyright": "^1.1.386",
     "typescript-language-server": "^4.3.3",
     "vscode-jsonrpc": "^8.2.1",

@@ -129,6 +129,39 @@ export type NativeTuiSession = {
   readonly closed: boolean;
 };
 
+// ============================================================================ 
+// Repo diff summaries
+// ============================================================================ 
+
+export type RepoDiffFileChange = {
+  path: string;
+  status: string;
+  diff: string;
+  truncated: boolean;
+  previousPath?: string | null;
+};
+
+export type RepoDiffSummary = {
+  repoPath: string;
+  branch: string;
+  baseBranch: string;
+  upstreamRef?: string | null;
+  mergeBase: string;
+  statusSummary: string;
+  diffStat: string;
+  recentCommits: string;
+  changedFiles: RepoDiffFileChange[];
+  totalChangedFiles: number;
+};
+
+export type RepoDiffSummaryOptions = {
+  cwd?: string;
+  baseBranchOverride?: string;
+  maxFiles?: number;
+  diffContextLines?: number;
+  diffCharLimit?: number;
+};
+
 // ============================================================================
 // Reverie System Types
 // ============================================================================
@@ -140,6 +173,8 @@ export type ReverieConversation = {
   updatedAt?: string;
   headRecords: string[];
   tailRecords: string[];
+  headRecordsToon: string[];
+  tailRecordsToon: string[];
 };
 
 export type ReverieSearchResult = {
@@ -295,6 +330,7 @@ export type NativeBinding = {
     options?: ReverieSemanticSearchOptions,
   ): Promise<ReverieSemanticIndexStats>;
   reverieGetConversationInsights(conversationPath: string, query?: string): Promise<string[]>;
+  toonEncode(value: unknown): string;
   // FastEmbed hooks
   fastEmbedInit?(options: FastEmbedInitOptions): Promise<void>;
   fastEmbedEmbed?(request: FastEmbedEmbedRequest): Promise<number[][]>;
@@ -302,6 +338,11 @@ export type NativeBinding = {
   tokenizerCount(text: string, options?: TokenizerOptions): number;
   tokenizerEncode(text: string, options?: TokenizerEncodeOptions): number[];
   tokenizerDecode(tokens: number[], options?: TokenizerOptions): string;
+  collectRepoDiffSummary?(
+    cwd: string,
+    baseBranchOverride?: string,
+    options?: NativeRepoDiffOptions,
+  ): Promise<RepoDiffSummary>;
 };
 
 export type NativeToolInfo = {
@@ -333,6 +374,12 @@ export type NativeForkResult = {
 export type ApprovalRequest = {
   type: "shell" | "file_write" | "network_access";
   details?: unknown;
+};
+
+type NativeRepoDiffOptions = {
+  maxFiles?: number;
+  diffContextLines?: number;
+  diffCharLimit?: number;
 };
 
 let cachedBinding: NativeBinding | null | undefined;
@@ -508,6 +555,12 @@ export async function reverieGetConversationInsights(
   return (binding as any).reverieGetConversationInsights(conversationPath, query);
 }
 
+export function encodeToToon(value: unknown): string {
+  const binding = getNativeBinding();
+  if (!binding?.toonEncode) throw new Error("Native binding not available or toon encoder not supported");
+  return (binding as any).toonEncode(value);
+}
+
 // FastEmbed helpers
 export async function fastEmbedInit(options: FastEmbedInitOptions): Promise<void> {
   const binding = getNativeBinding();
@@ -538,4 +591,26 @@ export function tokenizerDecode(tokens: number[], options?: TokenizerOptions): s
   const binding = getNativeBinding();
   if (!binding?.tokenizerDecode) throw new Error("Native binding not available or tokenizer functions not supported");
   return (binding as any).tokenizerDecode(tokens, options);
+}
+
+export async function collectRepoDiffSummary(
+  options?: RepoDiffSummaryOptions,
+): Promise<RepoDiffSummary> {
+  const binding = getNativeBinding();
+  if (!binding?.collectRepoDiffSummary) {
+    throw new Error("Native binding not available or repo diff helpers not supported");
+  }
+  const cwd = options?.cwd ?? process.cwd();
+  const nativeOptions: NativeRepoDiffOptions | undefined =
+    options &&
+    (options.maxFiles !== undefined ||
+      options.diffContextLines !== undefined ||
+      options.diffCharLimit !== undefined)
+      ? {
+          maxFiles: options.maxFiles,
+          diffContextLines: options.diffContextLines,
+          diffCharLimit: options.diffCharLimit,
+        }
+      : undefined;
+  return binding.collectRepoDiffSummary(cwd, options?.baseBranchOverride, nativeOptions);
 }

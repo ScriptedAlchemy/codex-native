@@ -1,0 +1,29 @@
+[
+  {
+    "id": "demo-1:chunk-0",
+    "conversationId": "demo-1",
+    "reasoningText": "We updated Clippy-related checks, so we must rerun the crates we touched. Prioritize codex-core and codex-exec; if the user approves a full sweep later we can expand to cargo test --all-features.",
+    "userMessage": "Codex, audit the Clippy fixes and tell me which tests to run.",
+    "assistantResponse": "I'll start with targeted runs for codex-core and codex-exec before escalating to the workspace-wide suite.",
+    "reasoningSource": "reasoning",
+    "chunkIndex": 0,
+    "chunkSize": 5,
+    "previewToon": [
+      "session_meta — Clippy regression + targeted test plan"
+    ]
+  },
+  {
+    "id": "demo-2:chunk-1",
+    "conversationId": "demo-2",
+    "reasoningText": "Deployment rehearsal flagged flaky load tests; documenting the mitigation steps will keep on-call rotations lighter.",
+    "userMessage": "Capture lessons learned from the release sprint.",
+    "assistantResponse": "Documented rollout rehearsal steps, telemetry approvals, and flaky load-test mitigations.",
+    "reasoningSource": "reasoning",
+    "chunkIndex": 1,
+    "chunkSize": 4,
+    "previewToon": [
+      "session_meta — Deployment rehearsals"
+    ]
+  }
+]
+

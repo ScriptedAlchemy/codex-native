@@ -64,6 +64,9 @@ export type {
 export type {
   FastEmbedInitOptions,
   FastEmbedEmbedRequest,
+  RepoDiffSummary,
+  RepoDiffFileChange,
+  RepoDiffSummaryOptions,
 } from "./nativeBinding";
 
 // LSP diagnostics integration
@@ -110,11 +113,13 @@ export {
   reverieSearchSemantic,
   reverieIndexSemantic,
   reverieGetConversationInsights,
+  encodeToToon,
   fastEmbedInit,
   fastEmbedEmbed,
   tokenizerCount,
   tokenizerEncode,
   tokenizerDecode,
+  collectRepoDiffSummary,
 } from "./nativeBinding";
 
 export type {

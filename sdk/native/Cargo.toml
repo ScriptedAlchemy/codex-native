@@ -19,6 +19,7 @@ vt100 = "0.16.2"
 regex = "1"
 sha1 = "0.10"
 fastembed = "5.2"
+toon-rust = "0.1.3"
 
 [dependencies.napi]
 version = "3"

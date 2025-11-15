@@ -2,37 +2,21 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { spawnSync } from "node:child_process";
 
 import { Agent, Runner } from "@openai/agents";
 import type { JsonSchemaDefinition } from "@openai/agents-core";
 import {
   CodexProvider,
+  collectRepoDiffSummary,
   fastEmbedInit,
+  LspManager,
   reverieSearchSemantic,
+  type FileDiagnostics,
+  type LspManagerOptions,
+  type RepoDiffSummary,
+  type RepoDiffFileChange,
   type ReverieSemanticSearchOptions,
 } from "@codex-native/sdk";
-
-type FileChange = {
-  path: string;
-  status: string;
-  diff: string;
-  truncated: boolean;
-  previousPath?: string;
-};
-
-type BranchDiffContext = {
-  repoPath: string;
-  branch: string;
-  baseBranch: string;
-  upstreamRef?: string;
-  mergeBase: string;
-  statusSummary: string;
-  diffStat: string;
-  recentCommits: string;
-  changedFiles: FileChange[];
-  totalChangedFiles: number;
-};
 
 type BranchIntentPlan = {
   intent_summary: string;
@@ -67,19 +51,14 @@ type ReverieContext = {
 const DEFAULT_DIFF_AGENT_REPO = fs.existsSync("/Volumes/sandisk/codex/multi-agent-codex-system")
   ? "/Volumes/sandisk/codex/multi-agent-codex-system"
   : path.resolve(process.cwd(), "multi-agent-codex-system");
-const DEFAULT_BRANCH = "main";
 const DEFAULT_MODEL = "gpt-5-codex";
-const REVERSIBLE_STATUS = new Set(["M", "A", "D", "R", "C"]);
-const MAX_STATUS_LINES = 200;
-const MAX_STATUS_CHARS = 4_800;
-const MAX_COMMIT_CHARS = 1_200;
-const MAX_DIFF_CHARS = 16_000;
 const DEFAULT_MAX_FILES = 12;
 const DEFAULT_REVERIE_LIMIT = 6;
 const DEFAULT_REVERIE_MAX_CANDIDATES = 80;
 const REVERIE_EMBED_MODEL = "BAAI/bge-large-en-v1.5";
 const REVERIE_RERANKER_MODEL = "BAAI/bge-reranker-v2-m3";
 const LOG_LABEL = "[DiffAgent]";
+const MAX_DIAGNOSTICS_PER_FILE = 4;
 let reverieReady = false;
 
 const BRANCH_PLAN_OUTPUT_TYPE: JsonSchemaDefinition = {
@@ -181,7 +160,11 @@ void main().catch((error) => {
 
 async function main(): Promise<void> {
   const resolvedRepo = assertRepo(repoPath);
-  const context = collectBranchContext(resolvedRepo, baseOverride, maxFiles);
+  const context = await collectRepoDiffSummary({
+    cwd: resolvedRepo,
+    baseBranchOverride: baseOverride,
+    maxFiles,
+  });
   if (context.changedFiles.length === 0) {
     console.log(`${LOG_LABEL} No changed files detected between ${context.mergeBase} and HEAD.`);
     return;
@@ -193,10 +176,13 @@ async function main(): Promise<void> {
 
   renderBranchReport(context, branchPlan, reverieContext.branch);
 
+  const diagnosticsByFile = await collectDiagnosticsForChanges(context);
+
   for (const change of context.changedFiles) {
     const insights = reverieContext.perFile.get(change.path) ?? [];
     const assessment = await assessFileChange(runner, context, change, branchPlan, insights);
-    renderFileAssessment(assessment, change, insights);
+    const diagnostics = diagnosticsByFile.get(normalizeRepoPath(change.path));
+    renderFileAssessment(assessment, change, insights, diagnostics);
   }
 }
 
@@ -214,124 +200,7 @@ function createRunner(
   return new Runner({ modelProvider: provider });
 }
 
-function collectBranchContext(repo: string, baseRefOverride: string | undefined, maxFilesToInclude: number): BranchDiffContext {
-  const branch = runGit(["rev-parse", "--abbrev-ref", "HEAD"], repo).stdout.trim() || "unknown";
-  const upstream = detectUpstream(repo);
-  const baseBranch = baseRefOverride || upstream?.split("/").slice(-1)[0] || DEFAULT_BRANCH;
-  const targetRef = baseRefOverride || upstream || baseBranch;
-  const mergeBaseCommand = runGit(["merge-base", "HEAD", targetRef], repo);
-  const mergeBase = mergeBaseCommand.stdout.trim() || targetRef || "HEAD";
-  const statusSummary = limitText(runGit(["status", "-sb"], repo).stdout, MAX_STATUS_LINES, MAX_STATUS_CHARS) || "<no status>";
-  const diffStat = limitText(
-    runGit(["--no-pager", "diff", "--stat", `${mergeBase}...HEAD`], repo).stdout,
-    MAX_STATUS_LINES,
-    MAX_STATUS_CHARS,
-  ) || "<no diff stat>";
-  const recentCommits = limitText(
-    runGit(["--no-pager", "log", "-5", "--oneline"], repo).stdout,
-    20,
-    MAX_COMMIT_CHARS,
-  ) || "<no commits>";
-
-  const fileList = parseChangedFiles(
-    runGit(["--no-pager", "diff", "--name-status", "--find-renames", `${mergeBase}...HEAD`], repo).stdout,
-  );
-  const limitedFiles = fileList.slice(0, maxFilesToInclude);
-  const fileDiffs = limitedFiles.map((entry) => {
-    const diffResult = readFileDiff(repo, mergeBase, entry.path, entry.previousPath);
-    return {
-      ...entry,
-      diff: diffResult.diff,
-      truncated: diffResult.truncated,
-    };
-  });
-
-  return {
-    repoPath: repo,
-    branch,
-    baseBranch,
-    upstreamRef: targetRef,
-    mergeBase,
-    statusSummary,
-    diffStat,
-    recentCommits,
-    changedFiles: fileDiffs,
-    totalChangedFiles: fileList.length,
-  };
-}
-
-function parseChangedFiles(raw: string): FileChange[] {
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [statusChunk, ...rest] = line.split(/\s+/);
-      if (!statusChunk) return null;
-      const status = statusChunk[0];
-      if (!REVERSIBLE_STATUS.has(status)) return null;
-      if (status === "R" || status === "C") {
-        const arrowIndex = line.indexOf("\t");
-        if (arrowIndex === -1) return null;
-        const parts = line.split("\t");
-        const prev = parts[1];
-        const next = parts[2];
-        if (!prev || !next) return null;
-        return { path: next.trim(), status, truncated: false, diff: "", previousPath: prev.trim() };
-      }
-      const path = rest.join(" ").trim();
-      if (!path) return null;
-      return { path, status, truncated: false, diff: "" };
-    })
-    .filter((entry): entry is FileChange => Boolean(entry));
-}
-
-function readFileDiff(
-  repo: string,
-  mergeBase: string,
-  filePath: string,
-  previousPath?: string,
-): { diff: string; truncated: boolean } {
-  const target = previousPath && previousPath !== filePath ? previousPath : filePath;
-  const diff = runGit(["--no-pager", "diff", "-U5", `${mergeBase}...HEAD`, "--", target], repo).stdout;
-  if (diff.length <= MAX_DIFF_CHARS) {
-    return { diff: diff.trim() || `<no diff for ${filePath}>`, truncated: false };
-  }
-  return { diff: `${diff.slice(0, MAX_DIFF_CHARS)}\n...\n<diff truncated>`, truncated: true };
-}
-
-function detectUpstream(repo: string): string | undefined {
-  const upstream = runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], repo);
-  if (upstream.code === 0) {
-    return upstream.stdout.trim();
-  }
-  return undefined;
-}
-
-function runGit(args: string[], cwd: string): { code: number; stdout: string; stderr: string } {
-  const result = spawnSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  return {
-    code: result.status ?? 0,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-  };
-}
-
-function limitText(input: string, maxLines: number, maxChars: number): string {
-  if (!input) return "";
-  const lines = input.split(/\r?\n/).slice(0, maxLines);
-  const joined = lines.join("\n");
-  if (joined.length <= maxChars) {
-    return joined.trimEnd();
-  }
-  return `${joined.slice(0, maxChars - 3)}...`;
-}
-
-async function collectReverieContext(context: BranchDiffContext): Promise<ReverieContext> {
+async function collectReverieContext(context: RepoDiffSummary): Promise<ReverieContext> {
   const branchContext = [
     `Branch: ${context.branch} -> Base: ${context.baseBranch}`,
     `Status:\n${context.statusSummary}`,
@@ -402,7 +271,7 @@ async function ensureReverieReady(): Promise<void> {
 
 async function analyzeBranchIntent(
   runner: Runner,
-  context: BranchDiffContext,
+  context: RepoDiffSummary,
   branchReveries: ReverieInsight[],
 ): Promise<BranchIntentPlan> {
   const branchAgent = new Agent<unknown, JsonSchemaDefinition>({
@@ -423,8 +292,8 @@ async function analyzeBranchIntent(
 
 async function assessFileChange(
   runner: Runner,
-  context: BranchDiffContext,
-  change: FileChange,
+  context: RepoDiffSummary,
+  change: RepoDiffFileChange,
   plan: BranchIntentPlan,
   insights: ReverieInsight[],
 ): Promise<FileAssessment> {
@@ -446,7 +315,7 @@ async function assessFileChange(
   return parseStructuredOutput<FileAssessment>((await runner.run(reviewer, input)).finalOutput, fallback);
 }
 
-function buildBranchPrompt(context: BranchDiffContext, insights: ReverieInsight[]): string {
+function buildBranchPrompt(context: RepoDiffSummary, insights: ReverieInsight[]): string {
   const filesPreview = context.changedFiles
     .map((file, index) => `${index + 1}. [${file.status}] ${file.path}${file.truncated ? " (diff truncated)" : ""}`)
     .join("\n");
@@ -473,8 +342,8 @@ function buildBranchPrompt(context: BranchDiffContext, insights: ReverieInsight[
 }
 
 function buildFilePrompt(
-  context: BranchDiffContext,
-  change: FileChange,
+  context: RepoDiffSummary,
+  change: RepoDiffFileChange,
   plan: BranchIntentPlan,
   insights: ReverieInsight[],
 ): string {
@@ -506,7 +375,41 @@ function parseStructuredOutput<T>(value: unknown, fallback: T): T {
   }
 }
 
-function renderBranchReport(context: BranchDiffContext, plan: BranchIntentPlan, insights: ReverieInsight[]): void {
+async function collectDiagnosticsForChanges(context: RepoDiffSummary): Promise<Map<string, FileDiagnostics>> {
+  const diagnostics = new Map<string, FileDiagnostics>();
+  if (context.changedFiles.length === 0) {
+    return diagnostics;
+  }
+
+  const managerOptions: LspManagerOptions = {
+    workingDirectory: context.repoPath,
+    waitForDiagnostics: true,
+  };
+  const manager = new LspManager(managerOptions);
+
+  try {
+    const targets = context.changedFiles.map((change) =>
+      path.isAbsolute(change.path) ? change.path : path.resolve(context.repoPath, change.path),
+    );
+    const entries = await manager.collectDiagnostics(targets);
+    for (const entry of entries) {
+      const relative = path.relative(context.repoPath, entry.path) || entry.path;
+      diagnostics.set(normalizeRepoPath(relative), entry);
+    }
+  } catch (error) {
+    console.warn(`${LOG_LABEL} Unable to collect LSP diagnostics:`, error);
+  } finally {
+    try {
+      await manager.dispose();
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+
+  return diagnostics;
+}
+
+function renderBranchReport(context: RepoDiffSummary, plan: BranchIntentPlan, insights: ReverieInsight[]): void {
   console.log(`\n${LOG_LABEL} Branch Intent Summary`);
   console.log(`Branch ${context.branch} vs ${context.baseBranch} (merge-base ${context.mergeBase})`);
   console.log(`Intent: ${plan.intent_summary || "(missing)"}`);
@@ -534,7 +437,12 @@ function renderBranchReport(context: BranchDiffContext, plan: BranchIntentPlan, 
   }
 }
 
-function renderFileAssessment(assessment: FileAssessment, change: FileChange, insights: ReverieInsight[]): void {
+function renderFileAssessment(
+  assessment: FileAssessment,
+  change: RepoDiffFileChange,
+  insights: ReverieInsight[],
+  diagnostics?: FileDiagnostics,
+): void {
   console.log(`\n${LOG_LABEL} File: ${assessment.file}`);
   console.log(`Status: ${change.status}${change.previousPath ? ` (from ${change.previousPath})` : ""}`);
   console.log(`Intent: ${assessment.change_intent || "(not captured)"}`);
@@ -552,6 +460,18 @@ function renderFileAssessment(assessment: FileAssessment, change: FileChange, in
     insights.slice(0, 2).forEach((match) => {
       console.log(`  - ${match.insights.join("; ") || match.excerpt} (${Math.round(match.relevance * 100)}%)`);
     });
+  }
+  if (diagnostics && diagnostics.diagnostics.length > 0) {
+    console.log("Diagnostics:");
+    diagnostics.diagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE).forEach((diag) => {
+      const { line, character } = diag.range.start;
+      const location = `${line + 1}:${character + 1}`;
+      const source = diag.source ? ` · ${diag.source}` : "";
+      console.log(`  - [${diag.severity.toUpperCase()}] ${diag.message} (${location}${source})`);
+    });
+    if (diagnostics.diagnostics.length > MAX_DIAGNOSTICS_PER_FILE) {
+      console.log("  - …");
+    }
   }
 }
 
@@ -578,4 +498,8 @@ function parseEnvInt(value: string | undefined, fallback: number): number {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeRepoPath(filePath: string): string {
+  return filePath.replace(/\\/g, "/");
 }

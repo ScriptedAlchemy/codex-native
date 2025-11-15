@@ -4,7 +4,7 @@
   "description": "Tools for repo-wide maintenance.",
   "scripts": {
     "preinstall": "node -e \"if (!/pnpm/.test(process.env.npm_execpath||'') && !/pnpm/.test(process.env.npm_config_user_agent||'')) { console.error('This repository uses PNPM. Please run: pnpm install'); process.exit(1) }\"",
-    "cx": "node sdk/native/dist/cli.cjs tui --sandbox workspace-write",
+    "cx": "node sdk/native/dist/cli.cjs tui --sandbox danger-full-access --approval never --dangerously-bypass-approvals-and-sandbox",
     "build": "pnpm --filter @codex-native/sdk run build && pnpm recursive run build",
     "format": "prettier --check *.json *.md docs/*.md .github/workflows/*.yml **/*.js",
     "format:fix": "prettier --write *.json *.md docs/*.md .github/workflows/*.yml **/*.js",

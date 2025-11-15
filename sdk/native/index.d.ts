@@ -20,6 +20,8 @@ export declare function cloudTasksGetDiff(taskId: string, baseUrl?: string | und
 
 export declare function cloudTasksList(envFilter?: string | undefined | null, baseUrl?: string | undefined | null, apiKey?: string | undefined | null): Promise<string>
 
+export declare function collectRepoDiffSummary(cwd: string, baseBranchOverride?: string | undefined | null, options?: RepoDiffOptions | undefined | null): Promise<RepoDiffSummary>
+
 export declare function compactThread(req: RunRequest): Promise<Array<string>>
 
 export declare function emitBackgroundEvent(req: JsEmitBackgroundEventRequest): void
@@ -151,6 +153,33 @@ export declare function registerTool(info: NativeToolInfo, handler: (call: JsToo
 
 export declare function registerToolInterceptor(toolName: string, handler: (context: JsToolInterceptorContext) => NativeToolResponse | Promise<NativeToolResponse>): void
 
+export interface RepoDiffFileChange {
+  path: string
+  status: string
+  diff: string
+  truncated: boolean
+  previousPath?: string
+}
+
+export interface RepoDiffOptions {
+  maxFiles?: number
+  diffContextLines?: number
+  diffCharLimit?: number
+}
+
+export interface RepoDiffSummary {
+  repoPath: string
+  branch: string
+  baseBranch: string
+  upstreamRef?: string
+  mergeBase: string
+  statusSummary: string
+  diffStat: string
+  recentCommits: string
+  changedFiles: Array<RepoDiffFileChange>
+  totalChangedFiles: number
+}
+
 export interface ReverieConversation {
   id: string
   path: string
@@ -158,6 +187,8 @@ export interface ReverieConversation {
   updatedAt?: string
   headRecords: Array<string>
   tailRecords: Array<string>
+  headRecordsToon: Array<string>
+  tailRecordsToon: Array<string>
 }
 
 export declare function reverieGetConversationInsights(conversationPath: string, query?: string | undefined | null): Promise<Array<string>>
@@ -257,6 +288,8 @@ export interface TokenUsageSummary {
   reasoningOutputTokens: number
   totalTokens: number
 }
+
+export declare function toonEncode(value: JsonValue): string
 
 export interface TuiExitInfo {
   tokenUsage: TokenUsageSummary

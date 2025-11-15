@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 
+use anyhow::Result;
+use anyhow::anyhow;
 use codex_app_server_protocol::GitSha;
 use codex_protocol::protocol::GitInfo;
 use futures::future::join_all;
@@ -43,11 +45,61 @@ pub fn get_git_repo_root(base_dir: &Path) -> Option<PathBuf> {
 
 /// Timeout for git commands to prevent freezing on large repositories
 const GIT_COMMAND_TIMEOUT: TokioDuration = TokioDuration::from_secs(5);
+const DEFAULT_FALLBACK_BASE_BRANCH: &str = "main";
+const STATUS_LINE_LIMIT: usize = 200;
+const STATUS_CHAR_LIMIT: usize = 4_800;
+const DIFF_STAT_LINE_LIMIT: usize = 200;
+const DIFF_STAT_CHAR_LIMIT: usize = 4_800;
+const RECENT_COMMIT_LINE_LIMIT: usize = 20;
+const RECENT_COMMIT_CHAR_LIMIT: usize = 1_200;
+const DEFAULT_MAX_FILES: usize = 24;
+const DEFAULT_DIFF_CONTEXT_LINES: usize = 5;
+const DEFAULT_DIFF_CHAR_LIMIT: usize = 16_000;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GitDiffToRemote {
     pub sha: GitSha,
     pub diff: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RepoDiffFileChange {
+    pub path: String,
+    pub status: String,
+    pub diff: String,
+    pub truncated: bool,
+    pub previous_path: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RepoDiffSummary {
+    pub cwd: String,
+    pub branch: String,
+    pub base_branch: String,
+    pub upstream_ref: Option<String>,
+    pub merge_base: String,
+    pub status_summary: String,
+    pub diff_stat: String,
+    pub recent_commits: String,
+    pub changed_files: Vec<RepoDiffFileChange>,
+    pub total_changed_files: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RepoDiffConfig {
+    pub max_files: usize,
+    pub diff_context_lines: usize,
+    pub diff_char_limit: usize,
+}
+
+impl Default for RepoDiffConfig {
+    fn default() -> Self {
+        Self {
+            max_files: DEFAULT_MAX_FILES,
+            diff_context_lines: DEFAULT_DIFF_CONTEXT_LINES,
+            diff_char_limit: DEFAULT_DIFF_CHAR_LIMIT,
+        }
+    }
 }
 
 /// Collect git repository information from the given working directory using command-line git.
@@ -178,6 +230,118 @@ pub async fn git_diff_to_remote(cwd: &Path) -> Option<GitDiffToRemote> {
     })
 }
 
+/// Collects a detailed summary of the diff between HEAD and the configured base branch.
+/// Returns textual summaries plus truncated per-file diffs for up to `max_files`.
+pub async fn collect_repo_diff_summary(
+    cwd: &Path,
+    base_branch_override: Option<&str>,
+    options: RepoDiffConfig,
+) -> Result<RepoDiffSummary> {
+    ensure_git_repository(cwd).await?;
+
+    let branch = capture_git_trimmed(&["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+        .await
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let upstream_ref = capture_git_trimmed(
+        &[
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ],
+        cwd,
+    )
+    .await;
+
+    let (base_branch, diff_target) =
+        resolve_base_branch(base_branch_override, upstream_ref.as_deref());
+
+    let merge_base = capture_git_trimmed_owned(
+        vec!["merge-base".into(), "HEAD".into(), diff_target.clone()],
+        cwd,
+    )
+    .await
+    .unwrap_or_else(|| diff_target.clone());
+
+    let status_summary_raw = capture_git_stdout(&["status", "-sb"], cwd)
+        .await
+        .unwrap_or_default();
+    let status_summary = limit_text(&status_summary_raw, STATUS_LINE_LIMIT, STATUS_CHAR_LIMIT);
+
+    let diff_range = format!("{merge_base}...HEAD");
+    let diff_stat_args = vec![
+        "--no-pager".to_string(),
+        "diff".to_string(),
+        "--stat".to_string(),
+        diff_range.clone(),
+    ];
+    let diff_stat_raw = capture_git_stdout_owned(diff_stat_args, cwd)
+        .await
+        .unwrap_or_default();
+    let diff_stat = limit_text(&diff_stat_raw, DIFF_STAT_LINE_LIMIT, DIFF_STAT_CHAR_LIMIT);
+
+    let recent_commits_raw = capture_git_stdout(&["--no-pager", "log", "-5", "--oneline"], cwd)
+        .await
+        .unwrap_or_default();
+    let recent_commits = limit_text(
+        &recent_commits_raw,
+        RECENT_COMMIT_LINE_LIMIT,
+        RECENT_COMMIT_CHAR_LIMIT,
+    );
+
+    let name_status_args = vec![
+        "--no-pager".to_string(),
+        "diff".to_string(),
+        "--name-status".to_string(),
+        "--find-renames".to_string(),
+        diff_range.clone(),
+    ];
+    let name_status_raw = capture_git_stdout_owned(name_status_args, cwd)
+        .await
+        .unwrap_or_default();
+    let parsed_changes = parse_name_status(&name_status_raw);
+    let total_changed_files = parsed_changes.len();
+    let max_files = options.max_files.max(1);
+
+    let mut changed_files = Vec::new();
+    for entry in parsed_changes.into_iter().take(max_files) {
+        let diff_args = vec![
+            "--no-pager".to_string(),
+            "diff".to_string(),
+            format!("-U{}", options.diff_context_lines),
+            diff_range.clone(),
+            "--".to_string(),
+            entry.path.clone(),
+        ];
+        let diff_raw = capture_git_stdout_owned(diff_args, cwd)
+            .await
+            .unwrap_or_default();
+        let (diff_text, truncated) =
+            truncate_diff_content(&diff_raw, &entry.path, options.diff_char_limit);
+        changed_files.push(RepoDiffFileChange {
+            path: entry.path,
+            status: entry.status,
+            diff: diff_text,
+            truncated,
+            previous_path: entry.previous_path,
+        });
+    }
+
+    Ok(RepoDiffSummary {
+        cwd: cwd.display().to_string(),
+        branch,
+        base_branch,
+        upstream_ref,
+        merge_base,
+        status_summary,
+        diff_stat,
+        recent_commits,
+        changed_files,
+        total_changed_files,
+    })
+}
+
 /// Run a git command with a timeout to prevent blocking on large repositories
 async fn run_git_command_with_timeout(args: &[&str], cwd: &Path) -> Option<std::process::Output> {
     let result = timeout(
@@ -190,6 +354,130 @@ async fn run_git_command_with_timeout(args: &[&str], cwd: &Path) -> Option<std::
         Ok(Ok(output)) => Some(output),
         _ => None, // Timeout or error
     }
+}
+
+async fn ensure_git_repository(cwd: &Path) -> Result<()> {
+    let Some(output) = run_git_command_with_timeout(&["rev-parse", "--git-dir"], cwd).await else {
+        return Err(anyhow!("Not a git repository: {}", cwd.display()));
+    };
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(anyhow!("Not a git repository: {}", cwd.display()))
+    }
+}
+
+fn resolve_base_branch(override_ref: Option<&str>, upstream_ref: Option<&str>) -> (String, String) {
+    if let Some(explicit) = override_ref {
+        return (explicit.to_string(), explicit.to_string());
+    }
+    if let Some(upstream) = upstream_ref {
+        let display_branch = upstream.rsplit('/').next().unwrap_or(upstream).to_string();
+        return (display_branch, upstream.to_string());
+    }
+    (
+        DEFAULT_FALLBACK_BASE_BRANCH.to_string(),
+        DEFAULT_FALLBACK_BASE_BRANCH.to_string(),
+    )
+}
+
+async fn capture_git_stdout(args: &[&str], cwd: &Path) -> Option<String> {
+    let output = run_git_command_with_timeout(args, cwd).await?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+async fn capture_git_stdout_owned(args: Vec<String>, cwd: &Path) -> Option<String> {
+    let refs: Vec<&str> = args.iter().map(std::string::String::as_str).collect();
+    capture_git_stdout(&refs, cwd).await
+}
+
+async fn capture_git_trimmed(args: &[&str], cwd: &Path) -> Option<String> {
+    capture_git_stdout(args, cwd)
+        .await
+        .map(|value| value.trim().to_string())
+}
+
+async fn capture_git_trimmed_owned(args: Vec<String>, cwd: &Path) -> Option<String> {
+    capture_git_stdout_owned(args, cwd)
+        .await
+        .map(|value| value.trim().to_string())
+}
+
+fn limit_text(input: &str, max_lines: usize, max_chars: usize) -> String {
+    if input.is_empty() {
+        return String::new();
+    }
+    let mut lines: Vec<&str> = input.lines().take(max_lines).collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+    // Preserve explicit newline structure but trim trailing blank lines.
+    while matches!(lines.last(), Some(line) if line.trim().is_empty()) {
+        lines.pop();
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    let joined = lines.join("\n");
+    if joined.chars().count() <= max_chars {
+        return joined.trim_end().to_string();
+    }
+    let display_budget = max_chars.saturating_sub(3);
+    let truncated: String = joined.chars().take(display_budget).collect();
+    format!("{truncated}...")
+}
+
+#[derive(Clone, Debug)]
+struct NameStatusEntry {
+    status: String,
+    path: String,
+    previous_path: Option<String>,
+}
+
+fn parse_name_status(output: &str) -> Vec<NameStatusEntry> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let mut parts = trimmed.split('\t');
+            let status_token = parts.next()?.trim().to_string();
+            let first_path = parts.next().map(|value| value.trim().to_string());
+            let second_path = parts.next().map(|value| value.trim().to_string());
+            match (status_token.as_str(), first_path, second_path) {
+                (_, None, _) => None,
+                (status, Some(path), None) => Some(NameStatusEntry {
+                    status: status.to_string(),
+                    path,
+                    previous_path: None,
+                }),
+                (status, Some(previous), Some(current)) => Some(NameStatusEntry {
+                    status: status.to_string(),
+                    path: current,
+                    previous_path: Some(previous),
+                }),
+            }
+        })
+        .collect()
+}
+
+fn truncate_diff_content(diff_raw: &str, path: &str, max_chars: usize) -> (String, bool) {
+    let trimmed = diff_raw.trim();
+    if trimmed.is_empty() {
+        return (format!("<no diff for {path}>"), false);
+    }
+    let char_count = trimmed.chars().count();
+    if char_count <= max_chars {
+        return (trimmed.to_string(), false);
+    }
+    let budget = max_chars.max(64);
+    let truncated: String = trimmed.chars().take(budget).collect();
+    (format!("{truncated}\n...\n<diff truncated>"), true)
 }
 
 async fn get_git_remotes(cwd: &Path) -> Option<Vec<String>> {

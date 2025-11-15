@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
+
 #[derive(Clone)]
 #[napi(object)]
 pub struct ReverieConversation {
@@ -18,6 +19,10 @@ pub struct ReverieConversation {
   pub head_records: Vec<String>,
   #[napi(js_name = "tailRecords")]
   pub tail_records: Vec<String>,
+  #[napi(js_name = "headRecordsToon")]
+  pub head_records_toon: Vec<String>,
+  #[napi(js_name = "tailRecordsToon")]
+  pub tail_records_toon: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -434,21 +439,42 @@ fn conversation_item_to_reverie(item: ConversationItem) -> ReverieConversation {
     .unwrap_or("unknown")
     .to_string();
 
+  let (head_records, head_records_toon) = serialize_records(&item.head);
+  let (tail_records, tail_records_toon) = serialize_records(&item.tail);
+
   ReverieConversation {
     id,
     path: item.path.to_string_lossy().into_owned(),
     created_at: item.created_at,
     updated_at: item.updated_at,
-    head_records: serialize_json_records(&item.head),
-    tail_records: serialize_json_records(&item.tail),
+    head_records,
+    tail_records,
+    head_records_toon,
+    tail_records_toon,
   }
 }
 
-fn serialize_json_records(values: &[serde_json::Value]) -> Vec<String> {
-  values
-    .iter()
-    .map(|value| serde_json::to_string(value).unwrap_or_else(|_| value.to_string()))
-    .collect()
+fn serialize_records(values: &[serde_json::Value]) -> (Vec<String>, Vec<String>) {
+  let mut json_records = Vec::with_capacity(values.len());
+  let mut toon_records = Vec::with_capacity(values.len());
+  for value in values {
+    let json_text = serde_json::to_string(value).unwrap_or_else(|_| value.to_string());
+    let toon_text = encode_json_value_to_toon(value).unwrap_or_else(|| fallback_toon_snippet(&json_text));
+    json_records.push(json_text);
+    toon_records.push(toon_text);
+  }
+  (json_records, toon_records)
+}
+
+fn fallback_toon_snippet(source: &str) -> String {
+  const MAX_FALLBACK_CHARS: usize = 320;
+  if source.chars().count() <= MAX_FALLBACK_CHARS {
+    source.to_string()
+  } else {
+    let mut snippet: String = source.chars().take(MAX_FALLBACK_CHARS).collect();
+    snippet.push('…');
+    snippet
+  }
 }
 
 #[derive(Clone)]
@@ -535,6 +561,7 @@ fn derive_insights_for_semantic(head_records: &[String], tail_records: &[String]
       break;
     }
     if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(record)
+      && !is_metadata_record(&json_value)
       && let Some(content) = extract_insight_from_json(&json_value)
     {
       insights.push(content.chars().take(400).collect());
@@ -543,55 +570,99 @@ fn derive_insights_for_semantic(head_records: &[String], tail_records: &[String]
   insights
 }
 
-fn collect_texts_from_records(records: &[String]) -> Vec<String> {
-  records
-    .iter()
-    .filter_map(|record| serde_json::from_str::<serde_json::Value>(record).ok())
-    .filter_map(|json_value| extract_insight_from_json(&json_value))
-    .collect()
-}
-
-fn load_full_conversation_segments(path: &str) -> Vec<String> {
-  let file = match File::open(path) {
-    Ok(file) => file,
-    Err(_) => return Vec::new(),
-  };
-  let reader = BufReader::new(file);
-  reader
-    .lines()
-    .filter_map(|line| {
-      let line = line.ok()?;
-      let trimmed = line.trim();
-      if trimmed.is_empty() {
-        return None;
-      }
-      serde_json::from_str::<serde_json::Value>(trimmed).ok()
-    })
-    .filter_map(|json_value| extract_insight_from_json(&json_value))
-    .collect()
-}
-
 fn build_compact_document(
   conversation: &ReverieConversation,
   insights: &[String],
 ) -> String {
   const MAX_CHARS: usize = 4000;
-  let mut texts = load_full_conversation_segments(&conversation.path);
-  if texts.is_empty() {
-    texts = collect_texts_from_records(&conversation.head_records);
-    texts.extend(collect_texts_from_records(&conversation.tail_records));
+  const MAX_SEGMENTS: usize = 64;
+  let mut segments = load_full_conversation_json_segments(&conversation.path, MAX_SEGMENTS);
+  segments.retain(|value| !is_metadata_record(value));
+  if segments.is_empty() {
+    segments = parse_json_strings(&conversation.head_records, MAX_SEGMENTS / 2);
+    segments.extend(parse_json_strings(&conversation.tail_records, MAX_SEGMENTS / 2));
   }
-  if texts.is_empty() {
-    texts.extend(
+  if segments.is_empty() {
+    let filtered: Vec<_> = conversation
+      .head_records
+      .iter()
+      .chain(conversation.tail_records.iter())
+      .filter(|line| !contains_instruction_marker(line))
+      .take(MAX_SEGMENTS)
+      .cloned()
+      .collect();
+    let fallback_source = if filtered.is_empty() {
       conversation
         .head_records
         .iter()
         .chain(conversation.tail_records.iter())
-        .cloned(),
-    );
+        .take(MAX_SEGMENTS)
+        .cloned()
+        .collect()
+    } else {
+      filtered
+    };
+    let fallback = fallback_source.join("\n");
+    return truncate_to_chars(&fallback, MAX_CHARS);
   }
-  texts.extend(insights.iter().cloned());
-  truncate_to_chars(&texts.join(" "), MAX_CHARS)
+
+  let mut textual_segments: Vec<String> = segments
+    .iter()
+    .filter_map(|value| extract_insight_from_json(value))
+    .map(|text| text.trim().to_string())
+    .filter(|text| !text.is_empty() && !contains_instruction_marker(text))
+    .collect();
+
+  if textual_segments.is_empty() {
+    textual_segments = segments.iter().map(|value| value.to_string()).collect();
+  }
+
+  textual_segments.extend(insights.iter().cloned());
+
+  truncate_to_chars(&textual_segments.join("\n"), MAX_CHARS)
+}
+
+fn load_full_conversation_json_segments(path: &str, max_records: usize) -> Vec<serde_json::Value> {
+  if max_records == 0 {
+    return Vec::new();
+  }
+  let file = match File::open(path) {
+    Ok(file) => file,
+    Err(_) => return Vec::new(),
+  };
+  let reader = BufReader::new(file);
+  let mut records = Vec::new();
+  for line in reader.lines() {
+    if records.len() >= max_records {
+      break;
+    }
+    let line = match line {
+      Ok(line) => line,
+      Err(_) => continue,
+    };
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+      continue;
+    }
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed)
+      && !is_metadata_record(&value)
+    {
+      records.push(value);
+    }
+  }
+  records
+}
+
+fn parse_json_strings(records: &[String], limit: usize) -> Vec<serde_json::Value> {
+  if limit == 0 {
+    return Vec::new();
+  }
+  records
+    .iter()
+    .take(limit)
+    .filter_map(|record| serde_json::from_str::<serde_json::Value>(record).ok())
+    .filter(|value| !is_metadata_record(value))
+    .collect()
 }
 
 fn truncate_to_chars(input: &str, max_chars: usize) -> String {
@@ -599,6 +670,52 @@ fn truncate_to_chars(input: &str, max_chars: usize) -> String {
     return input.to_string();
   }
   input.chars().take(max_chars).collect()
+}
+
+fn is_metadata_record(value: &serde_json::Value) -> bool {
+  if let Some(record_type) = value.get("type").and_then(|kind| kind.as_str()) {
+    if record_type == "session_meta" {
+      return true;
+    }
+    if record_type == "event_msg" {
+      if let Some(payload) = value.get("payload") {
+        if payload
+          .get("type")
+          .and_then(|kind| kind.as_str())
+          .is_some_and(|kind| kind == "user_message")
+        {
+          if let Some(message) = payload.get("message").and_then(|msg| msg.as_str()) {
+            if contains_instruction_marker(message) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    if record_type == "message" {
+      if let Some(content) = value.get("content").and_then(|c| c.as_str()) {
+        if contains_instruction_marker(content) {
+          return true;
+        }
+      }
+    }
+  }
+
+  if let Some(text) = value.get("text").and_then(|t| t.as_str()) {
+    if contains_instruction_marker(text) {
+      return true;
+    }
+  }
+  false
+}
+
+fn contains_instruction_marker(text: &str) -> bool {
+  let normalized = text.to_lowercase();
+  normalized.contains("# agents.md instructions")
+    || normalized.contains("<environment_context>")
+    || normalized.contains("<system>")
+    || normalized.contains("codex-rs folder where the rust code lives")
+    || normalized.contains("<instructions>")
 }
 
 fn conversation_matches_project(head_records: &[String], project_root: Option<&Path>) -> bool {

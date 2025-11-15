@@ -12,6 +12,7 @@ let reverieSearchSemantic: any;
 let reverieIndexSemantic: any;
 let reverieGetConversationInsights: any;
 let fastEmbedInit: any;
+let encodeToToon: any;
 
 beforeAll(async () => {
   const mod = await import("../src/index");
@@ -21,6 +22,7 @@ beforeAll(async () => {
   reverieIndexSemantic = mod.reverieIndexSemantic;
   reverieGetConversationInsights = mod.reverieGetConversationInsights;
   fastEmbedInit = mod.fastEmbedInit;
+  encodeToToon = mod.encodeToToon;
 });
 
 const LONG_TIMEOUT_MS = 120_000;
@@ -109,6 +111,9 @@ describe("Reverie native helpers", () => {
     const first = list[0];
     expect(first.path).toContain("rollout-2025-01-01T12-00-00");
     expect(first.path.endsWith(".jsonl")).toBe(true);
+    expect(Array.isArray(first.headRecordsToon)).toBe(true);
+    expect(first.headRecordsToon.length).toBe(first.headRecords.length);
+    expect(first.headRecordsToon[0]).not.toHaveLength(0);
   });
 
   it("searches conversations by keyword", async () => {
@@ -183,4 +188,15 @@ describe("Reverie native helpers", () => {
     },
     LONG_TIMEOUT_MS,
   );
+
+  it("encodes arbitrary payloads to TOON", () => {
+    const encoded = encodeToToon({
+      items: [
+        { sku: "A1", qty: 2 },
+        { sku: "B2", qty: 1 },
+      ],
+    });
+    expect(encoded).toContain("items[2]");
+    expect(encoded).toContain("sku");
+  });
 });
