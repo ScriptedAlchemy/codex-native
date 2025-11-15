@@ -35,14 +35,37 @@ import {
   type ApprovalRequest,
 } from "@codex-native/sdk";
 
-const LOG_PREFIX = "[merge-solver]";
+type LogScope =
+  | "merge"
+  | "git"
+  | "coordinator"
+  | "worker"
+  | "supervisor"
+  | "reviewer"
+  | "validation";
 
-function logInfo(message: string): void {
-  console.log(`${LOG_PREFIX} ${message}`);
+const LOG_SCOPE_COLORS: Record<LogScope, string> = {
+  merge: "\x1b[35m", // magenta
+  git: "\x1b[34m", // blue
+  coordinator: "\x1b[36m", // cyan
+  worker: "\x1b[33m", // yellow
+  supervisor: "\x1b[95m", // bright magenta
+  reviewer: "\x1b[32m", // green
+  validation: "\x1b[92m", // bright green
+};
+
+function formatScope(scope: LogScope): string {
+  const color = LOG_SCOPE_COLORS[scope] ?? "";
+  const reset = "\x1b[0m";
+  return `${color}[merge-solver:${scope}]${reset}`;
 }
 
-function logWarn(message: string): void {
-  console.warn(`${LOG_PREFIX} ${message}`);
+function logInfo(scope: LogScope, message: string): void {
+  console.log(`${formatScope(scope)} ${message}`);
+}
+
+function logWarn(scope: LogScope, message: string): void {
+  console.warn(`${formatScope(scope)} ${message}`);
 }
 
 function getErrorCode(error: unknown): number | undefined {
@@ -432,19 +455,19 @@ class MergeConflictSolver {
 
   async run(): Promise<void> {
     await this.ensureUpstreamMerge();
-    logInfo("Collecting merge conflicts via git diff --diff-filter=U");
+    logInfo("git", "Collecting merge conflicts via git diff --diff-filter=U");
     const conflicts = await this.git.collectConflicts({
       originRef: this.options.originRef,
       upstreamRef: this.options.upstreamRef,
     });
     if (conflicts.length === 0) {
-      logInfo("No merge conflicts detected. Exiting early.");
+      logInfo("merge", "No merge conflicts detected. Exiting early.");
       return;
     }
 
-    logInfo(`Detected ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"}`);
+    logInfo("merge", `Detected ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"}`);
     for (const conflict of conflicts) {
-      logInfo(` └ ${conflict.path}`);
+      logInfo("worker", `Queue -> ${conflict.path}`);
     }
 
     logInfo(
@@ -475,32 +498,33 @@ class MergeConflictSolver {
     const reviewSummary = await this.runReviewer(outcomes, this.remoteComparison);
     const remaining = await this.git.listConflictPaths();
 
-    logInfo("Summarizing per-file outcomes");
+    logInfo("merge", "Summarizing per-file outcomes");
     for (const outcome of outcomes) {
       const icon = outcome.success ? "✅" : "⚠️";
-      logInfo(`${icon} ${outcome.path}`);
+      logInfo("worker", `${icon} ${outcome.path}`);
       if (outcome.summary) {
-        logInfo(indent(outcome.summary.trim(), 2));
+        logInfo("worker", indent(outcome.summary.trim(), 2));
       }
       if (outcome.error) {
-        logWarn(indent(`Error: ${outcome.error}`, 2));
+        logWarn("worker", indent(`Error: ${outcome.error}`, 2));
       }
     }
 
     if (reviewSummary) {
-      logInfo("Reviewer summary emitted");
+      logInfo("reviewer", "Reviewer summary emitted");
       console.log(reviewSummary);
     }
 
     if (remaining.length > 0) {
       logWarn(
+        "merge",
         `Conflicts still present in ${remaining.length} file${remaining.length === 1 ? "" : "s"}: ${remaining.join(
           ", ",
         )}`,
       );
       process.exitCode = 1;
     } else {
-      logInfo("All conflicts resolved according to git diff --name-only --diff-filter=U");
+      logInfo("merge", "All conflicts resolved according to git diff --name-only --diff-filter=U");
       const validationOutcomes = await this.runValidationPhase(outcomes);
       if (validationOutcomes.length > 0) {
         await this.runReviewer(validationOutcomes, this.remoteComparison, true);
@@ -511,38 +535,38 @@ class MergeConflictSolver {
   private async ensureUpstreamMerge(): Promise<void> {
     const upstreamRef = this.options.upstreamRef;
     if (!upstreamRef) {
-      logInfo("No upstream ref configured; skipping auto-merge step");
+      logInfo("git", "No upstream ref configured; skipping auto-merge step");
       return;
     }
     if (await this.git.isMergeInProgress()) {
-      logInfo("Merge already in progress; skipping auto-merge initiation");
+      logInfo("git", "Merge already in progress; skipping auto-merge initiation");
       return;
     }
     const delimiterIndex = upstreamRef.indexOf("/");
     if (delimiterIndex <= 0) {
-      logWarn(`Unable to parse upstream ref '${upstreamRef}'; expected format remote/branch`);
+      logWarn("git", `Unable to parse upstream ref '${upstreamRef}'; expected format remote/branch`);
       return;
     }
     const remote = upstreamRef.slice(0, delimiterIndex);
     const branch = upstreamRef.slice(delimiterIndex + 1);
     if (!branch) {
-      logWarn(`Upstream ref '${upstreamRef}' is missing a branch component`);
+      logWarn("git", `Upstream ref '${upstreamRef}' is missing a branch component`);
       return;
     }
 
-    logInfo(`Fetching latest ${branch} from ${remote}`);
+    logInfo("git", `Fetching latest ${branch} from ${remote}`);
     await execFileAsync("git", ["fetch", remote, branch], { cwd: this.options.workingDirectory });
 
-    logInfo(`Merging ${upstreamRef} into current branch with --no-commit --no-ff`);
+    logInfo("git", `Merging ${upstreamRef} into current branch with --no-commit --no-ff`);
     try {
       await execFileAsync("git", ["merge", "--no-commit", "--no-ff", upstreamRef], {
         cwd: this.options.workingDirectory,
       });
-      logInfo("Upstream merge completed without conflicts");
+      logInfo("git", "Upstream merge completed without conflicts");
     } catch (error) {
       const exitCode = getErrorCode(error);
       if (exitCode === 1) {
-        logInfo("Merge introduced conflicts; invoking resolver workflow");
+        logInfo("git", "Merge introduced conflicts; invoking resolver workflow");
       } else {
         throw error;
       }
@@ -572,17 +596,17 @@ class MergeConflictSolver {
   private async startCoordinator(snapshot: RepoSnapshot): Promise<void> {
     this.coordinatorThread = this.codex.startThread(this.coordinatorThreadOptions);
     const coordinatorPrompt = buildCoordinatorPrompt(snapshot);
-    logInfo("Launching coordinator agent for global merge plan");
+    logInfo("coordinator", "Launching coordinator agent for global merge plan");
     const turn = await this.coordinatorThread.run(coordinatorPrompt);
     this.coordinatorPlan = turn.finalResponse ?? null;
     if (this.coordinatorPlan) {
-      logInfo("Coordinator issued plan:");
+      logInfo("coordinator", "Coordinator issued plan:");
       console.log(this.coordinatorPlan);
     }
   }
 
   private async resolveConflict(conflict: ConflictContext): Promise<WorkerOutcome> {
-    logInfo(`Dispatching worker agent for ${conflict.path}`);
+    logInfo("worker", `Dispatching worker for ${conflict.path}`);
     const workerThread = this.codex.startThread(this.workerThreadOptions);
     const prompt = buildWorkerPrompt(conflict, this.coordinatorPlan, {
       originRef: this.options.originRef,
@@ -599,6 +623,7 @@ class MergeConflictSolver {
       const remaining = await this.git.listConflictPaths();
       const stillConflicted = remaining.includes(conflict.path);
       logInfo(
+        "worker",
         `${conflict.path} worker completed; ${stillConflicted ? "conflict persists" : "file resolved"}`,
       );
       this.approvalSupervisor?.setContext(null);
@@ -611,7 +636,7 @@ class MergeConflictSolver {
       };
     } catch (error: any) {
       this.approvalSupervisor?.setContext(null);
-      logWarn(`Worker for ${conflict.path} failed: ${error}`);
+      logWarn("worker", `Worker for ${conflict.path} failed: ${error}`);
       return {
         path: conflict.path,
         success: false,
@@ -626,7 +651,7 @@ class MergeConflictSolver {
     remoteComparison: RemoteComparison | null,
     validationMode = false,
   ): Promise<string | null> {
-    logInfo("Launching reviewer agent for final validation");
+    logInfo(validationMode ? "validation" : "reviewer", "Launching reviewer agent");
     const reviewerThread = this.codex.startThread(this.reviewerThreadOptions);
     const remaining = await this.git.listConflictPaths();
     const status = await this.git.getStatusShort();
@@ -640,7 +665,11 @@ class MergeConflictSolver {
       validationMode,
     });
     const turn = await reviewerThread.run(reviewerPrompt);
-    return turn.finalResponse ?? null;
+    const summary = turn.finalResponse ?? null;
+    if (summary) {
+      logInfo(validationMode ? "validation" : "reviewer", "Reviewer produced summary");
+    }
+    return summary;
   }
 
   private async runValidationPhase(outcomes: WorkerOutcome[]): Promise<WorkerOutcome[]> {
@@ -649,7 +678,7 @@ class MergeConflictSolver {
       if (!outcome.success) {
         continue;
       }
-      logInfo(`Starting validation for ${outcome.path}`);
+      logInfo("validation", `Starting validation for ${outcome.path}`);
       const thread = this.codex.startThread(this.workerThreadOptions);
       const prompt = buildValidationPrompt(outcome.path, outcome.summary ?? "");
       const turn = await thread.run(prompt);
@@ -661,6 +690,10 @@ class MergeConflictSolver {
         threadId: thread.id ?? undefined,
         validationStatus: status,
       });
+      logInfo(
+        "validation",
+        `${outcome.path} validation ${status === "ok" ? "passed" : "failed"}`,
+      );
     }
     return validations;
   }
