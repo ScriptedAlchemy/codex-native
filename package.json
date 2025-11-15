@@ -25,7 +25,7 @@
     "ci:build": "bash -c 'cd codex-rs && cargo build'",
     "ci:test": "bash -c 'cd codex-rs && cargo nextest run --profile ci-test --fail-fast || cargo test --profile ci-test'",
     "ci:test:fallback": "bash -c 'cd codex-rs && cargo test --lib --bins --tests --profile ci-test'",
-    "ci:test:fast": "bash -c 'cd codex-rs && cargo test --lib --bins --tests --profile test-cache --quiet'",
+    "ci:test:fast": "bash -c 'cd codex-rs && cargo test --lib --bins --tests --profile test-cache -- --quiet'",
     "ci:test:deps": "bash -c 'cd codex-rs && cargo check --all-targets --profile test-cache'",
     "ci:prebuild": "bash -c 'cd codex-rs && cargo check --profile test-cache --quiet && cargo check --tests --profile test-cache --quiet'",
     "ci:checks": "concurrently -n format,spell,mcp,shear \"pnpm run ci:format\" \"pnpm run ci:codespell\" \"pnpm run ci:mcp-types\" \"pnpm run ci:shear\"",

@@ -2,7 +2,7 @@
  * Re-export unified logging from SDK
  * This maintains backward compatibility while using the centralized logging system
  */
-export { logger, LogLevel, createThreadLogger } from "@codex-native/sdk";
+export { logger, LogLevel } from "@codex-native/sdk";
 export type { LogScope, ThreadLoggingSink } from "@codex-native/sdk";
 
 /**

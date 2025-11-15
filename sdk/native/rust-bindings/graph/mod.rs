@@ -96,20 +96,12 @@ pub struct BranchVisual {
 }
 
 /// Complete agent graph representation
+#[derive(Default)]
 pub struct AgentGraph {
     /// All agent nodes, indexed by ID
     pub agents: HashMap<String, AgentNode>,
     /// Agent IDs in chronological order (oldest first)
     pub timeline: Vec<String>,
-}
-
-impl Default for AgentGraph {
-    fn default() -> Self {
-        Self {
-            agents: HashMap::new(),
-            timeline: Vec::new(),
-        }
-    }
 }
 
 impl AgentNode {
@@ -343,10 +335,10 @@ impl AgentGraph {
 
             // Extend the branch backward to find its start
             let start_index = self.find_branch_start(agent_id, indices, agent_branch_traces);
-            if let Some(branch) = branches.get_mut(branch_index) {
-                if let Some(idx) = start_index {
-                    branch.range.0 = Some(idx);
-                }
+            if let Some(branch) = branches.get_mut(branch_index)
+                && let Some(idx) = start_index
+            {
+                branch.range.0 = Some(idx);
             }
 
             let mut max_idx = indices.get(agent_id).copied();
@@ -368,10 +360,10 @@ impl AgentGraph {
             if let Some(branch) = branches.get_mut(branch_index) {
                 if branch.range.1.is_none() {
                     branch.range.1 = max_idx;
-                } else if let (Some(existing), Some(new_idx)) = (branch.range.1, max_idx) {
-                    if new_idx > existing {
-                        branch.range.1 = Some(new_idx);
-                    }
+                } else if let (Some(existing), Some(new_idx)) = (branch.range.1, max_idx)
+                    && new_idx > existing
+                {
+                    branch.range.1 = Some(new_idx);
                 }
             }
 
@@ -401,10 +393,10 @@ impl AgentGraph {
             let parent_idx = *indices.get(parent_id)?;
 
             // If parent is already on a different branch, stop here
-            if let Some(parent_branch_idx) = agent_branch_traces.get(parent_id) {
-                if *parent_branch_idx != agent_branch_traces.get(start_agent_id).copied().unwrap_or(0) {
-                    return Some(start_index);
-                }
+            if let Some(parent_branch_idx) = agent_branch_traces.get(parent_id)
+                && *parent_branch_idx != agent_branch_traces.get(start_agent_id).copied().unwrap_or(0)
+            {
+                return Some(start_index);
             }
 
             // Continue backward
@@ -493,19 +485,18 @@ impl AgentGraph {
                 let mut char_idx = 0; // SPACE
 
                 // Check if there's a branch to the right that merges here
-                if let Some(right_branch) = sorted_branches.iter().find(|b| b.visual.column == Some(col + 1)) {
-                    if right_branch.source_branch.is_some() && right_branch.range.0 == Some(timeline_idx) {
-                        char_idx = 6; // └ (right-up corner)
-                    }
+                if let Some(right_branch) = sorted_branches.iter().find(|b| b.visual.column == Some(col + 1))
+                    && right_branch.source_branch.is_some() && right_branch.range.0 == Some(timeline_idx)
+                {
+                    char_idx = 6; // └ (right-up corner)
                 }
 
                 // Check if there's a branch to the left that merges here
-                if col > 0 {
-                    if let Some(left_branch) = sorted_branches.iter().find(|b| b.visual.column == Some(col - 1)) {
-                        if left_branch.target_branch.is_some() && left_branch.range.1 == Some(timeline_idx) {
-                            char_idx = 8; // ┐ (left-down corner)
-                        }
-                    }
+                if col > 0
+                    && let Some(left_branch) = sorted_branches.iter().find(|b| b.visual.column == Some(col - 1))
+                    && left_branch.target_branch.is_some() && left_branch.range.1 == Some(timeline_idx)
+                {
+                    char_idx = 8; // ┐ (left-down corner)
                 }
 
                 // Check for horizontal connections between branches
@@ -547,10 +538,10 @@ impl AgentGraph {
         line.push_str(&format!("{} {} {}", short_hash, state_indicator, agent.name));
 
         // Add parent information if not root
-        if let Some(parent_id) = &agent.parent_id {
-            if let Some(parent) = self.agents.get(parent_id) {
-                line.push_str(&format!(" (forked from {})", parent.name));
-            }
+        if let Some(parent_id) = &agent.parent_id
+            && let Some(parent) = self.agents.get(parent_id)
+        {
+            line.push_str(&format!(" (forked from {})", parent.name));
         }
 
         // Add current activity (streaming information)

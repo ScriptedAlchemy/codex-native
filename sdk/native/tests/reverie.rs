@@ -416,13 +416,9 @@ async fn test_reverie_search_semantic_reranker_failure_falls_back() {
     ..Default::default()
   };
 
-  let results = reverie_search_semantic(
-    path,
-    "auth timeout debugging".to_string(),
-    Some(options),
-  )
-  .await
-  .unwrap();
+  let results = reverie_search_semantic(path, "auth timeout debugging".to_string(), Some(options))
+    .await
+    .unwrap();
 
   assert!(
     !results.is_empty(),
