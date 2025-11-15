@@ -29,7 +29,10 @@ import { promisify } from "node:util";
 import {
   Codex,
   type Thread,
+  type ThreadEvent,
+  type ThreadItem,
   type ThreadOptions,
+  type TurnOptions,
   type ApprovalMode,
   type SandboxMode,
   type ApprovalRequest,
@@ -85,6 +88,8 @@ const DEFAULT_REVIEWER_MODEL = "gpt-5-codex";
 const DEFAULT_SANDBOX_MODE: SandboxMode = "workspace-write";
 const DEFAULT_APPROVAL_MODE: ApprovalMode = "on-request";
 const MAX_CONTEXT_CHARS = 5000;
+const CI_LOG_CONTEXT_LIMIT = 15000;
+const THREAD_EVENT_TEXT_LIMIT = 400;
 const SUPERVISOR_OUTPUT_SCHEMA = {
   name: "merge_conflict_approval_decision",
   schema: {
@@ -434,6 +439,7 @@ class MergeConflictSolver {
   private coordinatorPlan: string | null = null;
   private remoteComparison: RemoteComparison | null = null;
   private coordinatorUserMessageCount = 0;
+  private readonly workerThreads = new Map<string, Thread>();
 
   constructor(private readonly options: SolverConfig) {
     this.codex = new Codex({
@@ -518,7 +524,9 @@ class MergeConflictSolver {
           : `Conflict still open for ${conflict.path}. ${
               outcome.error ? `Error: ${outcome.error}` : "The file is still marked as conflicted."
             }`;
-        await this.coordinatorThread.run(
+        await runThreadTurnWithLogs(
+          this.coordinatorThread,
+          "coordinator",
           `Status update for ${conflict.path} from worker thread ${outcome.threadId ?? "n/a"}:\n${update}`,
         );
       }
@@ -557,6 +565,12 @@ class MergeConflictSolver {
       const validationOutcomes = await this.runValidationPhase(outcomes);
       if (validationOutcomes.length > 0) {
         await this.runReviewer(validationOutcomes, this.remoteComparison, true);
+      }
+      const ciResult = await this.runFullCi();
+      if (ciResult.success) {
+        logInfo("merge", "Verification stack complete (workers + pnpm run ci).");
+      } else {
+        await this.dispatchCiFailures(outcomes, ciResult.log);
       }
     }
   }
@@ -626,7 +640,7 @@ class MergeConflictSolver {
     this.coordinatorThread = this.codex.startThread(this.coordinatorThreadOptions);
     const coordinatorPrompt = buildCoordinatorPrompt(snapshot);
     logInfo("coordinator", "Launching coordinator agent for global merge plan");
-    const turn = await this.coordinatorThread.run(coordinatorPrompt);
+    const turn = await runThreadTurnWithLogs(this.coordinatorThread, "coordinator", coordinatorPrompt);
     this.coordinatorPlan = turn.finalResponse ?? null;
     this.coordinatorUserMessageCount += 1;
     if (this.coordinatorPlan) {
@@ -649,7 +663,7 @@ class MergeConflictSolver {
       extraNotes: "Worker is preparing to resolve this file.",
     });
     try {
-      const turn = await workerThread.run(prompt);
+      const turn = await runThreadTurnWithLogs(workerThread, "worker", prompt, conflict.path);
       const remaining = await this.git.listConflictPaths();
       const stillConflicted = remaining.includes(conflict.path);
       const summaryText = turn.finalResponse ?? "";
@@ -692,7 +706,11 @@ class MergeConflictSolver {
       remoteComparison,
       validationMode,
     });
-    const turn = await reviewerThread.run(reviewerPrompt);
+    const turn = await runThreadTurnWithLogs(
+      reviewerThread,
+      validationMode ? "validation" : "reviewer",
+      reviewerPrompt,
+    );
     const summary = turn.finalResponse ?? null;
     if (summary) {
       logInfo(validationMode ? "validation" : "reviewer", "Reviewer produced summary");
@@ -709,7 +727,7 @@ class MergeConflictSolver {
       logInfo("validation", "Starting validation", outcome.path);
       const thread = this.codex.startThread(this.workerThreadOptions);
       const prompt = buildValidationPrompt(outcome.path, outcome.summary ?? "");
-      const turn = await thread.run(prompt);
+      const turn = await runThreadTurnWithLogs(thread, "validation", prompt, outcome.path);
       const { status, summary } = parseValidationSummary(turn.finalResponse ?? "");
       validations.push({
         path: outcome.path,
@@ -725,6 +743,43 @@ class MergeConflictSolver {
       );
     }
     return validations;
+  }
+
+  private async runFullCi(): Promise<{ success: boolean; log: string }> {
+    logInfo("merge", "Running pnpm run ci for full verification suite");
+    try {
+      const { stdout, stderr } = await execFileAsync("pnpm", ["run", "ci"], {
+        cwd: this.options.workingDirectory,
+      });
+      logInfo("merge", "pnpm run ci completed successfully");
+      const combined = [stdout?.toString() ?? "", stderr?.toString() ?? ""]
+        .filter((segment) => segment.length > 0)
+        .join("\n");
+      return { success: true, log: combined };
+    } catch (error: any) {
+      const stdout = error?.stdout ? error.stdout.toString() : "";
+      const stderr = error?.stderr ? error.stderr.toString() : "";
+      const combined = [stdout, stderr].filter((segment) => segment.length > 0).join("\n");
+      logWarn("merge", `pnpm run ci failed${error?.code ? ` (exit ${error.code})` : ""}`);
+      return { success: false, log: combined };
+    }
+  }
+
+  private async dispatchCiFailures(outcomes: WorkerOutcome[], ciLog: string): Promise<void> {
+    const truncatedLog = limitText(ciLog, CI_LOG_CONTEXT_LIMIT) ?? ciLog;
+    for (const outcome of outcomes) {
+      const thread = this.workerThreads.get(outcome.path);
+      if (!thread) {
+        logWarn("worker", "No worker thread available for CI follow-up", outcome.path);
+        continue;
+      }
+      const prompt = buildCiFailurePrompt(outcome.path, outcome.summary ?? "", truncatedLog);
+      try {
+        await runThreadTurnWithLogs(thread, "worker", prompt, outcome.path);
+      } catch (error) {
+        logWarn("worker", `Failed to push CI failure context: ${error}`, outcome.path);
+      }
+    }
   }
 
   private selectWorkerModel(filePath: string): string {
@@ -747,6 +802,10 @@ class MergeConflictSolver {
   }
 
   private async acquireWorkerThread(filePath: string): Promise<Thread> {
+    const existing = this.workerThreads.get(filePath);
+    if (existing) {
+      return existing;
+    }
     const model = this.selectWorkerModel(filePath);
     const threadOptions: ThreadOptions = {
       ...this.workerThreadOptions,
@@ -754,15 +813,19 @@ class MergeConflictSolver {
     };
     if (this.coordinatorThread) {
       try {
-        return await this.coordinatorThread.fork({
+        const forked = await this.coordinatorThread.fork({
           nthUserMessage: this.coordinatorUserMessageCount,
           threadOptions,
         });
+        this.workerThreads.set(filePath, forked);
+        return forked;
       } catch (error) {
         logWarn("worker", `Unable to fork coordinator for ${filePath}; starting standalone thread`, filePath);
       }
     }
-    return this.codex.startThread(threadOptions);
+    const thread = this.codex.startThread(threadOptions);
+    this.workerThreads.set(filePath, thread);
+    return thread;
   }
 }
 
@@ -831,7 +894,13 @@ Approval request:
 Respond on the first line with either "APPROVE: <short reason>" or "DENY: <short reason>". You may follow up with bullet points containing corrective actions if denying.`;
 
     try {
-      const turn = await this.thread.run(prompt, { outputSchema: SUPERVISOR_OUTPUT_SCHEMA });
+      const turn = await runThreadTurnWithLogs(
+        this.thread,
+        "supervisor",
+        prompt,
+        this.context?.conflictPath,
+        { outputSchema: SUPERVISOR_OUTPUT_SCHEMA },
+      );
       const parsedDecision = parseSupervisorDecision(turn.finalResponse);
       if (!parsedDecision) {
         logWarn("supervisor", "Produced non-JSON response; denying request", request.type);
@@ -849,7 +918,7 @@ Respond on the first line with either "APPROVE: <short reason>" or "DENY: <short
           const note =
             `Supervisor denied ${request.type}.\nReason: ${parsedDecision.reason}\n` +
             `Actions: ${parsedDecision.corrective_actions?.join("; ") ?? "(none)"}\nContext: ${contextSummary}`;
-          await coordinator.run(note);
+          await runThreadTurnWithLogs(coordinator, "coordinator", note);
         }
       }
       logInfo("supervisor", summary, request.type);
@@ -859,6 +928,117 @@ Respond on the first line with either "APPROVE: <short reason>" or "DENY: <short
       return false;
     }
   }
+}
+
+async function runThreadTurnWithLogs(
+  thread: Thread,
+  scope: LogScope,
+  prompt: string,
+  subject?: string,
+  turnOptions?: TurnOptions,
+) {
+  const unsubscribe = attachThreadLogger(thread, scope, subject);
+  try {
+    if (turnOptions) {
+      return await thread.run(prompt, turnOptions);
+    }
+    return await thread.run(prompt);
+  } finally {
+    unsubscribe();
+  }
+}
+
+function attachThreadLogger(thread: Thread, scope: LogScope, subject?: string): () => void {
+  return thread.onEvent((event) => logThreadEvent(scope, subject, event));
+}
+
+function logThreadEvent(scope: LogScope, subject: string | undefined, event: ThreadEvent): void {
+  switch (event.type) {
+    case "thread.started":
+      logInfo(scope, `Thread started (id: ${event.thread_id})`, subject);
+      return;
+    case "turn.started":
+      logInfo(scope, "Turn started", subject);
+      return;
+    case "turn.completed":
+      logInfo(
+        scope,
+        `Turn completed (input ${event.usage.input_tokens}, cached ${event.usage.cached_input_tokens}, output ${event.usage.output_tokens})`,
+        subject,
+      );
+      return;
+    case "turn.failed":
+      logWarn(scope, `Turn failed: ${event.error.message}`, subject);
+      return;
+    case "item.started":
+      logInfo(scope, `Item started: ${describeThreadItemForLog(event.item)}`, subject);
+      return;
+    case "item.updated":
+      logInfo(scope, `Item updated: ${describeThreadItemForLog(event.item)}`, subject);
+      return;
+    case "item.completed": {
+      const message = `Item completed: ${describeThreadItemForLog(event.item)}`;
+      if (event.item.type === "error") {
+        logWarn(scope, message, subject);
+      } else {
+        logInfo(scope, message, subject);
+      }
+      return;
+    }
+    case "background_event":
+      logInfo(scope, `Background: ${summarizeLogText(event.message)}`, subject);
+      return;
+    case "exited_review_mode":
+      logInfo(scope, "Exited review mode", subject);
+      return;
+    case "error":
+      logWarn(scope, `Stream error: ${event.message}`, subject);
+      return;
+    case "raw_event":
+      return;
+    default:
+      return;
+  }
+}
+
+function describeThreadItemForLog(item: ThreadItem): string {
+  switch (item.type) {
+    case "agent_message":
+      return `agent message → ${summarizeLogText(item.text)}`;
+    case "reasoning":
+      return `reasoning → ${summarizeLogText(item.text)}`;
+    case "command_execution": {
+      const exit = item.exit_code !== undefined ? ` exit=${item.exit_code}` : "";
+      return `command "${summarizeLogText(item.command)}" [${item.status}${exit}]`;
+    }
+    case "file_change": {
+      const changeList = item.changes.map((change) => `${change.kind}:${change.path}`).join(", ");
+      return `file change [${item.status}] ${summarizeLogText(changeList)}`;
+    }
+    case "mcp_tool_call":
+      return `mcp ${item.server}.${item.tool} [${item.status}]`;
+    case "web_search":
+      return `web search "${summarizeLogText(item.query)}"`;
+    case "todo_list": {
+      const completed = item.items.filter((todo) => todo.completed).length;
+      return `todo list ${completed}/${item.items.length}`;
+    }
+    case "error":
+      return `error → ${summarizeLogText(item.message)}`;
+    default:
+      return item.type;
+  }
+}
+
+function summarizeLogText(text: string | undefined, limit = THREAD_EVENT_TEXT_LIMIT): string {
+  if (!text) {
+    return "";
+  }
+  const flattened = text.replace(/\s+/g, " ").trim();
+  if (flattened.length <= limit) {
+    return flattened;
+  }
+  return `${flattened.slice(0, limit)}…`;
 }
 
 function parseSupervisorDecision(response: string): SupervisorDecision | null {
@@ -1101,6 +1281,26 @@ function buildReviewerPrompt(input: {
       ? "List broader suites (pnpm build/ci) to run once targeted checks pass."
       : "If feasible, run pnpm install, pnpm build, and pnpm run ci. If they are too heavy, explain when/how they should run."
   }\n4. Summarize final merge state plus TODOs for the human operator.\n5. Call out any files that still need manual attention.\n\nRespond with a crisp summary plus checklist.`;
+}
+
+function buildCiFailurePrompt(path: string, workerSummary: string, ciLog: string): string {
+  return `# pnpm run ci regression follow-up – ${path}
+
+The full verification command "pnpm run ci" failed after the merge agents finished their passes. Continue from your prior context for ${path} and focus on diagnosing the relevant CI failure(s).
+
+Previous merge summary:
+${workerSummary || "(no summary provided)"}
+
+Latest pnpm run ci log (truncated to ${CI_LOG_CONTEXT_LIMIT} chars):
+${ciLog || "(no log output captured)"}
+
+Tasks:
+1. Inspect the log to determine whether the failure involves ${path} or nearby crates/modules.
+2. Explain why the error is occurring and propose concrete code or configuration changes to fix it.
+3. Outline the commands/tests you will run after applying the fix (including rerunning pnpm run ci when appropriate).
+4. If the issue is unrelated to your area, document that and specify which subsystem should own it.
+
+Respond with a structured summary plus next steps so the orchestrator can decide how to re-run CI.`;
 }
 
 function buildValidationPrompt(path: string, workerSummary: string): string {
