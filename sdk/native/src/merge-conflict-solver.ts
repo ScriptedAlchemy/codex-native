@@ -43,6 +43,22 @@ const DEFAULT_REVIEWER_MODEL = "gpt-5-codex";
 const DEFAULT_SANDBOX_MODE: SandboxMode = "workspace-write";
 const DEFAULT_APPROVAL_MODE: ApprovalMode = "on-request";
 const MAX_CONTEXT_CHARS = 5000;
+const SUPERVISOR_OUTPUT_SCHEMA = {
+  name: "merge_conflict_approval_decision",
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      decision: { type: "string", enum: ["approve", "deny"] },
+      reason: { type: "string", minLength: 4 },
+      corrective_actions: {
+        type: "array",
+        items: { type: "string", minLength: 4 },
+      },
+    },
+    required: ["decision", "reason"],
+  },
+};
 
 const HISTORICAL_PLAYBOOK = `Session 019a8536-2265-7353-8669-7451ddaa2855 surfaced the following merge heuristics:
 - Inspect each conflicting file to understand what our branch changed versus upstream before editing anything.
@@ -125,6 +141,12 @@ type ApprovalContext = {
   coordinatorPlan?: string | null;
   remoteInfo?: RemoteComparison | null;
   extraNotes?: string;
+};
+
+type SupervisorDecision = {
+  decision: "approve" | "deny";
+  reason: string;
+  corrective_actions?: string[];
 };
 
 type SupervisorOptions = {
@@ -563,26 +585,63 @@ Approval request:
 Respond on the first line with either "APPROVE: <short reason>" or "DENY: <short reason>". You may follow up with bullet points containing corrective actions if denying.`;
 
     try {
-      const turn = await this.thread.run(prompt);
-      const decisionLine = (turn.finalResponse ?? "").split("\n").find((line) => line.trim().length > 0) ?? "";
-      const normalized = decisionLine.trim().toLowerCase();
-      const approved = normalized.startsWith("approve");
+      const turn = await this.thread.run(prompt, { outputSchema: SUPERVISOR_OUTPUT_SCHEMA });
+      const parsedDecision = parseSupervisorDecision(turn.finalResponse);
+      if (!parsedDecision) {
+        console.warn("⚠️ Supervisor produced non-JSON response; denying request.");
+        return false;
+      }
+      const approved = parsedDecision.decision === "approve";
+      const summary =
+        `${parsedDecision.decision.toUpperCase()}: ${parsedDecision.reason}` +
+        (parsedDecision.corrective_actions?.length
+          ? ` | Actions: ${parsedDecision.corrective_actions.join("; ")}`
+          : "");
       if (!approved) {
         const coordinator = this.coordinatorThreadAccessor();
         if (coordinator) {
           const note =
-            `Supervisor denied ${request.type} request.\nReason: ${decisionLine}\n` +
-            `Context: ${contextSummary}`;
+            `Supervisor denied ${request.type}.\nReason: ${parsedDecision.reason}\n` +
+            `Actions: ${parsedDecision.corrective_actions?.join("; ") ?? "(none)"}\nContext: ${contextSummary}`;
           await coordinator.run(note);
         }
       }
-      console.log(`🔐 Supervisor decision for ${request.type}: ${decisionLine || "(no response)"}`);
+      console.log(`🔐 Supervisor decision for ${request.type}: ${summary}`);
       return approved;
     } catch (error) {
       console.warn("⚠️ Approval supervisor failed to respond; denying request.", error);
       return false;
     }
   }
+}
+
+function parseSupervisorDecision(response: string): SupervisorDecision | null {
+  if (!response) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(response) as SupervisorDecision | { output?: SupervisorDecision };
+    if (isDecision(parsed)) {
+      return parsed;
+    }
+    if (parsed && typeof (parsed as any).output === "object" && isDecision((parsed as any).output)) {
+      return (parsed as any).output;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function isDecision(value: unknown): value is SupervisorDecision {
+  if (!value || typeof value !== "object") return false;
+  const decision = (value as SupervisorDecision).decision;
+  const reason = (value as SupervisorDecision).reason;
+  return (
+    (decision === "approve" || decision === "deny") &&
+    typeof reason === "string" &&
+    reason.trim().length > 0
+  );
 }
 
 function detectLanguage(filePath: string): string {
