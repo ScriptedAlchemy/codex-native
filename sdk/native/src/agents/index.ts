@@ -10,7 +10,7 @@
  * import { Agent, Runner } from '@openai/agents';
  *
  * const provider = new CodexProvider({
- *   defaultModel: 'gpt-5-codex'
+ *   defaultModel: 'gpt-5.1-codex'
  * });
  *
  * const agent = new Agent({

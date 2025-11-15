@@ -6,6 +6,7 @@ import process from "node:process";
 import { type NativeRunRequest, getNativeBinding } from "../nativeBinding";
 import { parseApprovalModeFlag, parseSandboxModeFlag } from "./optionParsers";
 import { emitWarnings, runBeforeStartHooks, runEventHooks } from "./hooks";
+import { applyElevatedRunDefaults } from "./elevatedDefaults";
 import type {
   CliContext,
   CommandName,
@@ -25,6 +26,7 @@ export async function executeRunCommand(
     prompt,
     argv,
     combinedDefaults: combinedConfig.runDefaults,
+    cwd: context.cwd,
   });
 
   if (!request.skipGitRepoCheck) {
@@ -149,8 +151,9 @@ async function buildRunRequest(params: {
   prompt: string;
   argv: RunCommandOptions;
   combinedDefaults: Partial<NativeRunRequest>;
+  cwd: string;
 }): Promise<NativeRunRequest> {
-  const { prompt, argv, combinedDefaults } = params;
+  const { prompt, argv, combinedDefaults, cwd } = params;
   const request: NativeRunRequest = {
     ...(combinedDefaults as NativeRunRequest),
     prompt,
@@ -180,7 +183,7 @@ async function buildRunRequest(params: {
   if (argv.linuxSandboxPath !== undefined) request.linuxSandboxPath = argv.linuxSandboxPath;
   if (argv.fullAuto !== undefined) request.fullAuto = argv.fullAuto;
   if (argv.skipGitRepoCheck !== undefined) request.skipGitRepoCheck = argv.skipGitRepoCheck;
-  if (argv.workingDirectory !== undefined) request.workingDirectory = argv.workingDirectory;
+  if (argv.cd !== undefined) request.workingDirectory = argv.cd;
   if (argv.reviewMode !== undefined) request.reviewMode = argv.reviewMode;
   if (argv.reviewHint !== undefined) request.reviewHint = argv.reviewHint;
 
@@ -194,6 +197,7 @@ async function buildRunRequest(params: {
     request.outputSchema = await readJsonFile(argv.schema);
   }
 
+  applyElevatedRunDefaults(request, cwd);
   return request;
 }
 
@@ -264,9 +268,19 @@ function validateModel(model: string | undefined, oss: boolean): void {
     }
     return;
   }
-  if (trimmed !== "gpt-5" && trimmed !== "gpt-5-codex") {
+  const allowed = new Set([
+    "gpt-5",
+    "gpt-5-codex",
+    "gpt-5-codex-mini",
+    "gpt-5.1",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-mini",
+  ]);
+  if (!allowed.has(trimmed)) {
     throw new Error(
-      `Invalid model "${trimmed}". Supported models are "gpt-5" or "gpt-5-codex".`,
+      `Invalid model "${trimmed}". Supported models are ${Array.from(allowed)
+        .map((m) => `"${m}"`)
+        .join(", " )}.`,
     );
   }
 }
@@ -367,4 +381,3 @@ class AsyncQueue<T> implements AsyncIterable<T> {
     return this;
   }
 }
-

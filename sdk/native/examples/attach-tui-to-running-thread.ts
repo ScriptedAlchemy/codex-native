@@ -34,7 +34,7 @@ async function main() {
   // Start a thread programmatically
   const codex = new Codex();
   const thread = codex.startThread({
-    model: "gpt-5-codex-mini",
+    model: "tub 5.1 mini",
     sandboxMode: "workspace-write",
     approvalMode: "on-request",
     skipGitRepoCheck: true,

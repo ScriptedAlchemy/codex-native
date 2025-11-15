@@ -1,0 +1,23 @@
+{
+  "name": "@codex/diff-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@codex-native/sdk": "workspace:*",
+    "@openai/agents": "^0.3.0",
+    "@openai/agents-core": "^0.3.0",
+    "@toon-format/toon": "^1.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6",
+    "typescript": "^5.7.2"
+  }
+}

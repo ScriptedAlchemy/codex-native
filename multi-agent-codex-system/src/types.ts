@@ -1,4 +1,4 @@
-import type { FastEmbedEmbedRequest, FastEmbedInitOptions, Thread } from "@codex-native/sdk";
+import type { FastEmbedEmbedRequest, FastEmbedInitOptions, Thread, SandboxMode, ApprovalMode } from "@codex-native/sdk";
 import type { CiFix, CiIssue, Intention, Recommendation } from "./schemas.js";
 
 export type CiCheckKind = "lint" | "tests" | "build" | "security";
@@ -7,6 +7,8 @@ export type FastEmbedConfig = {
   initOptions: FastEmbedInitOptions;
   embedRequest: Omit<FastEmbedEmbedRequest, "inputs" | "projectRoot">;
 };
+
+export type StructuredOutputMode = "always" | "actions-only" | "never";
 
 export type MultiAgentConfig = {
   baseUrl?: string;
@@ -18,9 +20,33 @@ export type MultiAgentConfig = {
   ciCheck?: boolean;
   reverieQuery?: string;
   model?: string;
+  sandboxMode?: SandboxMode;
+  approvalMode?: ApprovalMode;
   baseBranchOverride?: string;
   embedder?: FastEmbedConfig;
   suppressedChecks?: CiCheckKind[];
+  enableLspDiagnostics?: boolean;
+  lspWaitForDiagnostics?: boolean;
+  implementFixes?: boolean;
+  autoReverieHints?: boolean;
+  reverieHintIntervalMs?: number;
+  reverieHintMinScore?: number;
+  reverieHintMaxMatches?: number;
+  reverieHintContextChars?: number;
+  reverieHintReasoningWeight?: number;
+  reverieHintDialogueWeight?: number;
+  reverieHintMinReasoningChars?: number;
+  reverieHintMinDialogueChars?: number;
+  reverieHintUseMiniModel?: boolean;
+  reverieHintModel?: string;
+  reverieWarmIndexOnStart?: boolean;
+  reverieIndexLimit?: number;
+  reverieIndexMaxCandidates?: number;
+  reverieRerankerModel?: string;
+  reverieRerankerBatchSize?: number;
+  reverieRerankerTopK?: number;
+  reverieMiniAcceptThreshold?: number;
+  structuredOutputMode?: StructuredOutputMode;
 };
 
 export type CommandResult = {

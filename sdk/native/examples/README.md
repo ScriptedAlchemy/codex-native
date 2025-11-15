@@ -1,334 +1,119 @@
-# Codex Native SDK Examples
+# Agent Graph Renderer Examples
 
-This directory contains example scripts demonstrating various features of the `@codex-native/sdk`.
+This directory contains examples of how to use the `AgentGraphRenderer` to create live, git-graph style visualizations of multi-agent workflows.
 
-## Directory Structure
+## Examples
 
-### Root Level - Direct SDK Examples
-Basic examples using the Native SDK directly (without OpenAI Agents framework).
+### 1. Basic Demo (`agent-graph-demo.ts`)
 
-- **`basic_streaming.ts`** — Direct SDK streaming
-  - Real-time streaming without Agents framework
-  - Handling stream events directly
-  - Token usage tracking
-  - Simple streaming patterns
+Shows a simulated merge conflict resolution workflow with:
+- Coordinator spawning worker agents
+- Real-time progress updates
+- CI verification stage
+- Git-graph style visualization
 
-- **`structured_output.ts`** — Direct SDK structured output
-  - JSON schema validation with direct Thread API
-  - Zod schema integration
-  - Type-safe structured responses
-  - Multiple schema examples (code analysis, task breakdown)
-
-### `/embeddings` - FastEmbed Integration
-
-- **`fast-embed.ts`** — Local embedding pipelines with caching
-  - Initialize the FastEmbed runtime from Node.js
-  - Defaults to the `BAAI/bge-large-en-v1.5` ONNX model bundle
-  - Generates normalized sentence embeddings & stores them under `~/.codex/embeddings`
-  - Perfect starting point for reverie re-ranking or custom RAG flows
-
-### `/basic` - Core Features
-Basic SDK functionality and common use cases.
-
-- **`plan-management.ts`** — Programmatic plan/todo control
-  - Replace the agent plan from code
-  - Add, update, reorder, and remove todo items
-  - Inspect plan updates returned from `thread.run`
-
-- **`streaming-deltas.ts`** — Real-time streaming response examples
-  - Text streaming with incremental updates
-  - Multi-modal input (text + images)
-  - Understanding all stream event types
-  - Token usage tracking
-
-- **`review-example.ts`** — Code review functionality
-  - Creating review sessions
-  - Custom review prompts
-  - Processing review findings
-  - Review output handling
-
-### `/tools` - Tool Management
-Custom tool registration and override capabilities.
-
-- **`automatic-tool-registration.ts`** — Automatic tool registration with agents
-  - Tools registered automatically when passed to Agent
-  - Multiple tools with different capabilities
-  - Tool chaining and validation
-  - Zod schema integration
-
-- **`tool-override-example.ts`** — Built-in tool override
-  - Replacing built-in tools with custom implementations
-  - Mock implementations for testing
-  - Safety wrappers (blocking dangerous commands)
-  - Logging and instrumentation
-  - Multiple tool overrides
-
-### `/provider` - CodexProvider Integration
-OpenAI Agents framework integration examples.
-
-- **`codex-provider-direct.ts`** — Direct provider usage
-  - Basic text input
-  - Multi-modal input (text + images)
-  - Manual provider instantiation
-
-- **`codex-provider-global.ts`** — Global provider configuration
-  - Setting provider as default for all agents
-  - Shared configuration across agents
-
-- **`codex-provider-run.ts`** — Simple provider execution
-  - Minimal example of running with CodexProvider
-  - Quick-start pattern
-
-### `/agents` - OpenAI Agents Framework
-Advanced multi-agent workflows.
-
-- **`agents-integration.ts`** — CodexProvider with OpenAI Agents
-  - Single and multi-agent workflows
-  - Structured output
-  - Streaming support
-  - Conversation continuity
-  - Internal tool execution
-
-- **`agents-with-tools.ts`** — Agents with custom tools
-  - Tool definition with Agents framework
-  - Custom weather and temperature tools
-  - Framework tool execution patterns
-
-- **`agents-handoffs.ts`** — Agent handoffs and delegation
-  - Delegating tasks between specialized agents
-  - Maintaining conversation context across handoffs
-  - Conditional handoffs based on task type
-  - Multi-agent chains and workflows
-  - Router pattern for task routing
-
-- **`agents-guardrails.ts`** — Input validation and guardrails
-  - Input validation guardrails
-  - Content filtering guardrails
-  - Security checks and dangerous command detection
-  - Multiple guardrails combined
-  - Early termination on guardrail failures
-
-- **`agents-structured-output.ts`** — Structured output with JSON schemas
-  - JSON schema validation
-  - Simple and complex nested schemas
-  - Zod schema integration
-  - Type-safe structured responses
-  - Array response schemas
-
-- **`agents-streaming.ts`** — Real-time streaming responses
-  - Real-time streaming deltas
-  - Handling different stream event types
-  - Token usage tracking
-  - Progress indicators
-  - Custom processing of stream events
-  - Error handling in streaming
- 
-- **`agents-fork-into-new-agent.ts`** — Fork thread and continue with another Agent
-  - Fork underlying Codex thread to keep cache benefits
-  - Run a different Agent on the fork with `conversationId`
-  - Isolation from original path with shared context
-
-- **`agents-multi-agent-workflow.ts`** — Complex multi-agent workflows
-  - Multiple specialized agents working together
-  - Sequential workflows (ProductManager → Architect → Developer → Tester)
-  - Parallel agent execution
-  - Iterative refinement workflows
-  - Context sharing between agents
-
-- **`agents-tracing.ts`** — Tracing and debugging
-  - Enabling tracing for agent workflows
-  - Nested tracing for hierarchical workflows
-  - Performance monitoring and token usage
-  - Multi-agent workflow tracing
-  - Error tracing and debugging
-
-- **`multi-agent-handoffs.ts`** — Advanced multi-agent handoffs
-  - Complex agent delegation patterns
-  - Orchestrating multi-step workflows
-  - Context preservation across agents
-  - Production-ready handoff patterns
-
-- **`streaming-responses.ts`** — Streaming with real-time updates
-  - Real-time streaming deltas
-  - Processing incremental updates
-  - Building responsive user experiences
-  - Custom stream event processing
-
-- **`structured-output.ts`** — Comprehensive structured output
-  - Multiple JSON schema examples
-  - Code analysis structured responses
-  - Complex nested data structures
-  - Task breakdown and planning schemas
-
-- **`context-sessions.ts`** — Context management and sessions
-  - Creating and resuming conversation sessions
-  - Managing conversation history
-  - Multi-turn conversations with memory
-  - Context preservation across runs
-
-- **`guardrails-validation.ts`** — Guardrails and validation
-  - Input validation before execution
-  - Output validation after execution
-  - Content filtering and safety checks
-  - Rate limiting and resource constraints
-
-- **`real-world-code-refactor.ts`** — Production code refactoring pipeline
-  - Building production-ready workflows
-  - Multiple specialized agents (Analyzer, Refactorer, Tester, Documenter)
-  - Structured data between agents
-  - Error handling and validation
-  - Practical integration patterns
-
-### `/diagnostics` - Troubleshooting Utilities
-Quick scripts to validate local environments.
-
-- **`gh-network-check.ts`** — GitHub CLI connectivity probe
-  - Ensures `gh` is available inside Codex runs
-  - Confirms TLS trust store configuration by hitting `https://api.github.com`
-  - Highlights command outputs and exit codes for fast debugging
-
-### `/tui` - Terminal UI
-Examples that interact with the Codex TUI, either programmatically through the SDK or by spawning the packaged CLI.
-
-- **`programmatic-launch.ts`** — Launch the TUI directly from Node.js using `runTui`
-  - Passes an initial prompt
-  - Demonstrates launch options (sandbox/approval policies)
-  - Prints exit information (conversation id, token usage)
-
-- **`launch-cli.ts`** — Spawn the `codex-native tui` CLI from a script
-  - Runs the CLI entry point with custom prompts
-  - Inherits stdio so the TUI renders in the current terminal
-  - Shows how to adjust environment variables for automation
-
-- **`thread-transition.ts`** — Transition from programmatic to TUI mode
-  - Start thread programmatically with automated work
-  - Transition to interactive TUI mode
-  - Continue same session in TUI
-  - Seamless handoff between modes
-
-## Running Examples
-
-### Prerequisites
-
-Build the SDK first:
-
+**Run it:**
 ```bash
-cd sdk/native
-npm install
-npm run build
+npx tsx examples/agent-graph-demo.ts
 ```
 
-### Execute an Example
+### 2. Workflow Tracker (`agent-workflow-tracker.ts`)
 
-Using `tsx`:
+Demonstrates integration into real agent workflows with:
+- Sequential agent execution
+- Progress tracking across multiple stages
+- Error handling patterns
+- Live status updates
 
+**Run it:**
 ```bash
-npx tsx examples/basic/streaming-deltas.ts
-npx tsx examples/tools/tool-override-example.ts
-npx tsx examples/agents/agents-integration.ts
-npx tsx examples/tui/programmatic-launch.ts
+npx tsx examples/agent-workflow-tracker.ts
 ```
 
-## Example Categories by Feature
+## Usage in Your Code
 
-### Getting Started
-1. `provider/codex-provider-run.ts` — Simplest example
-2. `basic_streaming.ts` — Direct SDK streaming
-3. `basic/streaming-deltas.ts` — Core streaming features with Agents
-4. `tools/automatic-tool-registration.ts` — Working with tools
-
-### Advanced Features
-- **Multi-Agent**: `agents/agents-integration.ts`, `agents/agents-multi-agent-workflow.ts`, `agents/real-world-code-refactor.ts`
-- **Agent Handoffs**: `agents/agents-handoffs.ts`, `agents/multi-agent-handoffs.ts`
-- **Guardrails**: `agents/agents-guardrails.ts`, `agents/guardrails-validation.ts`
-- **Structured Output**: `agents/agents-structured-output.ts`, `agents/structured-output.ts`, `structured_output.ts`
-- **Streaming**: `agents/agents-streaming.ts`, `agents/streaming-responses.ts`, `basic_streaming.ts`
-- **Context Management**: `agents/context-sessions.ts`
-- **Tracing**: `agents/agents-tracing.ts`
-- **Tool Override**: `tools/tool-override-example.ts`
-- **Code Review**: `basic/review-example.ts`
-- **Plan Management**: `basic/plan-management.ts`
-- **TUI Integration**: `tui/thread-transition.ts`, `tui/programmatic-launch.ts`
-
-### Integration Patterns
-- **OpenAI Agents**: All files in `/agents` and `/provider`
-- **Direct SDK Usage**: Root-level files (`basic_streaming.ts`, `structured_output.ts`), plus `/basic`, `/tools`, and `/tui`
-- **TUI Mode**: All files in `/tui`, including programmatic-to-TUI transitions
-
-## Additional Resources
-
-- **Main README**: `../README.md` — Full SDK documentation
-- **Agents Guide**: `../AGENTS.md` — OpenAI Agents integration details
-- **API Docs**: TypeScript definitions in `../dist/index.d.ts`
-
-## Contributing
-
-When adding new examples:
-
-1. Place in the appropriate category directory
-2. Include clear comments explaining key concepts
-3. Use descriptive console output
-4. Handle errors gracefully
-5. Update this README with the new example
-
-## Common Patterns
-
-### Initialize Codex
+### Basic Setup
 
 ```typescript
-import { Codex } from "@codex-native/sdk";
+import { AgentGraphRenderer } from "@codex-native/sdk";
 
-const codex = new Codex({
-  model: "gpt-5-codex",
-  workingDirectory: process.cwd(),
-});
-```
+// Create renderer instance
+const graph = new AgentGraphRenderer();
 
-### Stream Responses
-
-```typescript
-const thread = codex.startThread();
-const result = await thread.runStreamed("Your prompt here");
-
-for await (const event of result.events) {
-  if (event.type === "item.completed") {
-    console.log(event.item.text);
-  }
-}
-```
-
-### Register Custom Tools
-
-```typescript
-codex.registerTool({
-  name: "my_tool",
-  description: "What this tool does",
-  parameters: { /* JSON schema */ },
-  handler: async (args) => {
-    // Tool implementation
-    return JSON.stringify(result);
-  },
-});
-```
-
-### Use with OpenAI Agents
-
-```typescript
-import { CodexProvider } from "@codex-native/sdk";
-import { Agent, Runner } from "@openai/agents";
-
-const provider = new CodexProvider();
-const agent = new Agent({
-  name: "MyAgent",
-  instructions: "Agent instructions",
+// Add your root agent
+graph.addAgent({
+  id: "my-workflow-001",
+  name: "My Workflow",
+  state: "running",
+  currentActivity: "Starting workflow",
+  progress: "0/5 steps",
 });
 
-const runner = new Runner({ modelProvider: provider });
-const result = await runner.run(agent, "Task description");
+// Build and display the graph
+graph.buildGraph();
+console.log(graph.renderAscii());
 ```
 
-## Support
+### Streaming Updates
 
-For issues or questions:
-- GitHub Issues: [codex-native/issues](https://github.com/ScriptedAlchemy/codex-native/issues)
-- Documentation: Check the main README and AGENTS.md
+```typescript
+// Update agent activity
+graph.updateAgentActivity("my-workflow-001", "Processing step 1");
+
+// Update progress
+graph.updateAgentProgress("my-workflow-001", "1/5 steps");
+
+// Track conversation turns
+graph.incrementAgentTurns("my-workflow-001");
+
+// Mark as completed
+graph.updateAgentState("my-workflow-001", "completed");
+
+// Refresh display
+graph.buildGraph();
+console.log(graph.renderAscii());
+```
+
+### Adding Child Agents
+
+```typescript
+// Add worker agent
+graph.addAgent({
+  id: "worker-002",
+  name: "Data Processor",
+  state: "running",
+  parentId: "my-workflow-001",  // Links to parent
+  currentActivity: "Processing data",
+  progress: "0/100 items",
+});
+
+graph.buildGraph();
+console.log(graph.renderAscii());
+```
+
+## Agent State Values
+
+- `"running"` - Agent is actively working
+- `"completed"` - Agent finished successfully
+- `"failed"` - Agent encountered an error
+- `"waiting"` - Agent is idle/awaiting input
+
+## Integration Tips
+
+1. **Initialize early**: Add agents to the graph when they start
+2. **Update frequently**: Call `updateAgentActivity()` when tasks change
+3. **Track progress**: Use `updateAgentProgress()` for quantifiable work
+4. **Count turns**: Call `incrementAgentTurns()` after each conversation round
+5. **Refresh display**: Call `buildGraph()` + `renderAscii()` to update the view
+6. **Handle completion**: Update state to "completed" or "failed" when done
+
+## Visual Features
+
+- **Git-graph styling**: Uses Unicode box-drawing characters like `●│─└┌┐┘`
+- **Branch connections**: Shows parent-child relationships visually
+- **Live streaming**: Displays current activities and progress
+- **Status indicators**: Visual state with emojis and colors
+- **Turn tracking**: Shows conversation round counts
+- **Timing info**: Displays when agents last updated
+
+The visualization updates in real-time, giving you a `git log --graph` view of your agent workflows!

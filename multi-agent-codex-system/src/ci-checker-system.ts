@@ -1,6 +1,7 @@
 import { Agent, Runner } from "@openai/agents";
 import type { JsonSchemaDefinition } from "@openai/agents-core";
 import { Codex, CodexProvider, type NativeTuiExitInfo, type Thread } from "@codex-native/sdk";
+import type { LspDiagnosticsBridge } from "@codex-native/sdk";
 import { DEFAULT_MODEL, DEFAULT_MINI_MODEL } from "./constants.js";
 import {
   CiFixResponseSchema,
@@ -11,15 +12,23 @@ import {
   type CiFix,
   type CiIssue,
 } from "./schemas.js";
-import type { CiAnalysis, CiCheckKind, MultiAgentConfig, PrStatusSummary, RepoContext } from "./types.js";
+import type {
+  CiAnalysis,
+  CiCheckKind,
+  MultiAgentConfig,
+  PrStatusSummary,
+  RepoContext,
+  StructuredOutputMode,
+} from "./types.js";
 import { formatPrStatus, formatRepoContext } from "./repo.js";
+import { attachApplyPatchReminder } from "./reminders/applyPatchReminder.js";
 
 class CICheckerSystem {
   private codex: Codex;
   private provider: CodexProvider;
   private runner: Runner;
 
-  constructor(private readonly config: MultiAgentConfig) {
+  constructor(private readonly config: MultiAgentConfig, private readonly diagnostics?: LspDiagnosticsBridge) {
     this.codex = new Codex({ baseUrl: config.baseUrl, apiKey: config.apiKey });
     this.provider = new CodexProvider({
       baseUrl: config.baseUrl,
@@ -62,9 +71,14 @@ class CICheckerSystem {
     }
     return fixes
       .map((fix, idx) => {
-        const steps = fix.steps?.length ? ` Steps: ${fix.steps.join(" | ")}` : "";
-        const commands = fix.commands?.length ? ` Commands: ${fix.commands.join(" | ")}` : "";
-        return `#${idx + 1} [${fix.priority}] ${fix.title}${steps}${commands}`;
+        const detailParts = [
+          fix.owner && `Owner: ${fix.owner}`,
+          fix.steps?.length ? `Steps: ${fix.steps.join(" | ")}` : null,
+          fix.commands?.length ? `Commands: ${fix.commands.join(" | ")}` : null,
+          typeof fix.etaHours === "number" ? `ETA: ${fix.etaHours}h` : null,
+        ].filter(Boolean) as string[];
+        const suffix = detailParts.length ? ` — ${detailParts.join("; ")}` : "";
+        return `#${idx + 1} [${fix.priority}] ${fix.title}${suffix}`;
       })
       .join("\n");
   }
@@ -82,12 +96,15 @@ PR/CI Status:
 ${formatPrStatus(prStatus)}
 
 GH checks:
-${prStatus?.ghChecksText ?? '<no gh pr checks output>'}`;
+${prStatus?.ghChecksText ?? "<no gh pr checks output>"}`;
+
+    const useStructuredIssues = this.shouldUseStructuredOutput("ci-issues");
+    const useStructuredFixes = this.shouldUseStructuredOutput("ci-fixes");
 
     const lintChecker = new Agent<unknown, JsonSchemaDefinition>({
       name: "LintChecker",
       model,
-      outputType: CiIssueOutputType,
+      ...(useStructuredIssues ? { outputType: CiIssueOutputType } : {}),
       instructions: `# Lint & Static Analysis Checker
 
 You detect lint, formatting, and static-analysis issues that will fail CI.
@@ -101,7 +118,7 @@ Respond with a JSON array of CiIssue objects. Set "source" to "lint" for every e
     const testChecker = new Agent<unknown, JsonSchemaDefinition>({
       name: "TestChecker",
       model,
-      outputType: CiIssueOutputType,
+      ...(useStructuredIssues ? { outputType: CiIssueOutputType } : {}),
       instructions: `# Test Failure Forecaster
 
 You predict failing or missing tests before CI finishes.
@@ -115,7 +132,7 @@ Respond with a JSON array of CiIssue objects. Set "source" to "tests" for every 
     const buildChecker = new Agent<unknown, JsonSchemaDefinition>({
       name: "BuildChecker",
       model,
-      outputType: CiIssueOutputType,
+      ...(useStructuredIssues ? { outputType: CiIssueOutputType } : {}),
       instructions: `# Build & Dependency Checker
 
 You are detecting build, packaging, and dependency issues before CI runs.
@@ -129,7 +146,7 @@ Respond with a JSON array of CiIssue objects. Set "source" to "build" for every 
     const securityChecker = new Agent<unknown, JsonSchemaDefinition>({
       name: "SecurityChecker",
       model,
-      outputType: CiIssueOutputType,
+      ...(useStructuredIssues ? { outputType: CiIssueOutputType } : {}),
       instructions: `# Security & Secrets Checker
 
 You are identifying security vulnerabilities and secrets hygiene issues.
@@ -143,7 +160,7 @@ Respond with a JSON array of CiIssue objects. Set "source" to "security" for eve
     const fixer = new Agent<unknown, JsonSchemaDefinition>({
       name: "CIFixer",
       model,
-      outputType: CiFixOutputType,
+      ...(useStructuredFixes ? { outputType: CiFixOutputType } : {}),
       instructions: `# CI Issue Remediation Planner
 
 You synthesize issues from multiple checkers and output an ordered remediation plan.
@@ -210,9 +227,13 @@ Produce a prioritized remediation checklist with owners and commands.`,
         model: this.config.model ?? DEFAULT_MODEL,
         workingDirectory: repoContext.cwd,
         skipGitRepoCheck: this.config.skipGitRepoCheck,
-        approvalMode: "on-request",
-        sandboxMode: "workspace-write",
+        approvalMode: this.config.approvalMode ?? "on-request",
+        sandboxMode: this.config.sandboxMode ?? "workspace-write",
       });
+    if (!ciThread) {
+      attachApplyPatchReminder(thread, this.config.sandboxMode ?? "workspace-write");
+    }
+    this.diagnostics?.attach(thread);
 
     const issueSummary = this.formatIssueSummary(issues);
     const fixSummary = this.formatFixSummary(fixes);
@@ -248,6 +269,17 @@ ${this.formatFixSummary(data.fixes)}
 
 Let's jump into the TUI and apply/validate these fixes.`;
     return thread.tui({ prompt, model: this.config.model ?? DEFAULT_MODEL });
+  }
+
+  private shouldUseStructuredOutput(scope: "ci-issues" | "ci-fixes"): boolean {
+    const mode: StructuredOutputMode = this.config.structuredOutputMode ?? "actions-only";
+    if (mode === "always") {
+      return true;
+    }
+    if (mode === "never") {
+      return false;
+    }
+    return scope === "ci-fixes";
   }
 }
 

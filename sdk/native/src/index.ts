@@ -33,6 +33,7 @@ export { Thread } from "./thread";
 export type { RunResult, RunStreamedResult, Input, UserInput, ForkOptions } from "./thread";
 
 export { Codex } from "./codex";
+export type { ConversationListOptions, ConversationListPage, ConversationSummary } from "./codex";
 
 export type { CodexOptions, NativeToolDefinition } from "./codexOptions";
 export type { NativeToolInterceptorContext } from "./codex";
@@ -64,7 +65,28 @@ export type {
 export type {
   FastEmbedInitOptions,
   FastEmbedEmbedRequest,
+  RepoDiffSummary,
+  RepoDiffFileChange,
+  RepoDiffSummaryOptions,
 } from "./nativeBinding";
+
+// LSP diagnostics integration
+export {
+  LspDiagnosticsBridge,
+  attachLspDiagnostics,
+  LspManager,
+  DEFAULT_SERVERS,
+  findServerForFile,
+  resolveWorkspaceRoot,
+} from "./lsp";
+export type {
+  FileDiagnostics,
+  LspDiagnosticSeverity,
+  LspManagerOptions,
+  LspServerConfig,
+  NormalizedDiagnostic,
+  WorkspaceLocator,
+} from "./lsp";
 
 // OpenAI Agents framework integration
 export { CodexProvider, codexTool } from "./agents";
@@ -89,12 +111,31 @@ import { getNativeBinding } from "./nativeBinding";
 export {
   reverieListConversations,
   reverieSearchConversations,
+  reverieSearchSemantic,
+  reverieIndexSemantic,
   reverieGetConversationInsights,
+  encodeToToon,
   fastEmbedInit,
   fastEmbedEmbed,
   tokenizerCount,
   tokenizerEncode,
   tokenizerDecode,
+  collectRepoDiffSummary,
+} from "./nativeBinding";
+
+// Export AgentGraphRenderer class from the native binding
+export const AgentGraphRenderer = (() => {
+  const binding = getNativeBinding();
+  return binding ? (binding as any).AgentGraphRenderer : null;
+})();
+
+// Export GitGraphRenderer for git-style ASCII graphs
+export { GitGraphRenderer, createGraphFromTree } from "./gitGraphRenderer";
+export type { GraphNode, GraphEdge, RenderOptions } from "./gitGraphRenderer";
+
+export type {
+  ReverieSemanticSearchOptions,
+  ReverieSemanticIndexStats,
 } from "./nativeBinding";
 
 export function evCompleted(id: string): string {

@@ -1,6 +1,30 @@
 use codex_native::*;
 use pretty_assertions::assert_eq;
 
+fn base_run_request(prompt: &str) -> RunRequest {
+  RunRequest {
+    prompt: prompt.to_string(),
+    thread_id: None,
+    images: None,
+    model: None,
+    oss: None,
+    sandbox_mode: None,
+    approval_mode: None,
+    workspace_write_options: None,
+    working_directory: None,
+    skip_git_repo_check: None,
+    output_schema: None,
+    base_url: None,
+    api_key: None,
+    linux_sandbox_path: None,
+    reasoning_effort: None,
+    reasoning_summary: None,
+    full_auto: None,
+    review_mode: None,
+    review_hint: None,
+  }
+}
+
 /// Test that WorkspaceWriteOptions struct can be constructed with all fields
 #[test]
 fn test_workspace_write_options_full() {
@@ -56,25 +80,9 @@ fn test_workspace_write_options_clone() {
 /// Test RunRequest with approval_mode field
 #[test]
 fn test_run_request_approval_mode_never() {
-  let req = RunRequest {
-    prompt: "test".to_string(),
-    thread_id: None,
-    images: None,
-    model: None,
-    oss: None,
-    sandbox_mode: Some("workspace-write".to_string()),
-    approval_mode: Some("never".to_string()),
-    workspace_write_options: None,
-    working_directory: None,
-    skip_git_repo_check: None,
-    output_schema: None,
-    base_url: None,
-    api_key: None,
-    linux_sandbox_path: None,
-    full_auto: None,
-    review_mode: None,
-    review_hint: None,
-  };
+  let mut req = base_run_request("test");
+  req.sandbox_mode = Some("workspace-write".to_string());
+  req.approval_mode = Some("never".to_string());
 
   assert_eq!(req.approval_mode, Some("never".to_string()));
 }
@@ -85,25 +93,8 @@ fn test_run_request_all_approval_modes() {
   let modes = vec!["never", "on-request", "on-failure", "untrusted"];
 
   for mode in modes {
-    let req = RunRequest {
-      prompt: "test".to_string(),
-      thread_id: None,
-      images: None,
-      model: None,
-      oss: None,
-      sandbox_mode: None,
-      approval_mode: Some(mode.to_string()),
-      workspace_write_options: None,
-      working_directory: None,
-      skip_git_repo_check: None,
-      output_schema: None,
-      base_url: None,
-      api_key: None,
-      linux_sandbox_path: None,
-      full_auto: None,
-      review_mode: None,
-      review_hint: None,
-    };
+    let mut req = base_run_request("test");
+    req.approval_mode = Some(mode.to_string());
 
     assert_eq!(req.approval_mode, Some(mode.to_string()));
   }
@@ -119,25 +110,14 @@ fn test_run_request_with_workspace_write_options() {
     exclude_slash_tmp: Some(true),
   };
 
-  let req = RunRequest {
-    prompt: "test".to_string(),
-    thread_id: None,
-    images: None,
-    model: Some("gpt-5-codex".to_string()),
-    oss: None,
-    sandbox_mode: Some("workspace-write".to_string()),
-    approval_mode: Some("on-request".to_string()),
-    workspace_write_options: Some(opts),
-    working_directory: Some("/workspace".to_string()),
-    skip_git_repo_check: Some(true),
-    output_schema: None,
-    base_url: None,
-    api_key: None,
-    linux_sandbox_path: None,
-    full_auto: Some(false),
-    review_mode: None,
-    review_hint: None,
-  };
+  let mut req = base_run_request("test");
+  req.model = Some("gpt-5-codex".to_string());
+  req.sandbox_mode = Some("workspace-write".to_string());
+  req.approval_mode = Some("on-request".to_string());
+  req.workspace_write_options = Some(opts);
+  req.working_directory = Some("/workspace".to_string());
+  req.skip_git_repo_check = Some(true);
+  req.full_auto = Some(false);
 
   assert_eq!(req.model, Some("gpt-5-codex".to_string()));
   assert_eq!(req.sandbox_mode, Some("workspace-write".to_string()));
@@ -149,30 +129,15 @@ fn test_run_request_with_workspace_write_options() {
 /// Test RunRequest with combined network and approval configuration
 #[test]
 fn test_run_request_combined_network_approval() {
-  let req = RunRequest {
-    prompt: "test network and approval".to_string(),
-    thread_id: None,
-    images: None,
-    model: None,
-    oss: None,
-    sandbox_mode: Some("workspace-write".to_string()),
-    approval_mode: Some("never".to_string()),
-    workspace_write_options: Some(WorkspaceWriteOptions {
-      network_access: Some(true),
-      writable_roots: None,
-      exclude_tmpdir_env_var: None,
-      exclude_slash_tmp: None,
-    }),
-    working_directory: None,
-    skip_git_repo_check: None,
-    output_schema: None,
-    base_url: None,
-    api_key: None,
-    linux_sandbox_path: None,
-    full_auto: None,
-    review_mode: None,
-    review_hint: None,
-  };
+  let mut req = base_run_request("test network and approval");
+  req.sandbox_mode = Some("workspace-write".to_string());
+  req.approval_mode = Some("never".to_string());
+  req.workspace_write_options = Some(WorkspaceWriteOptions {
+    network_access: Some(true),
+    writable_roots: None,
+    exclude_tmpdir_env_var: None,
+    exclude_slash_tmp: None,
+  });
 
   assert_eq!(req.sandbox_mode, Some("workspace-write".to_string()));
   assert_eq!(req.approval_mode, Some("never".to_string()));
@@ -185,30 +150,14 @@ fn test_run_request_combined_network_approval() {
 #[test]
 fn test_run_request_with_writable_roots() {
   let roots = vec!["/data/output".to_string(), "/tmp/cache".to_string()];
-  let req = RunRequest {
-    prompt: "test".to_string(),
-    thread_id: None,
-    images: None,
-    model: None,
-    oss: None,
-    sandbox_mode: Some("workspace-write".to_string()),
-    approval_mode: None,
-    workspace_write_options: Some(WorkspaceWriteOptions {
-      network_access: None,
-      writable_roots: Some(roots.clone()),
-      exclude_tmpdir_env_var: None,
-      exclude_slash_tmp: None,
-    }),
-    working_directory: None,
-    skip_git_repo_check: None,
-    output_schema: None,
-    base_url: None,
-    api_key: None,
-    linux_sandbox_path: None,
-    full_auto: None,
-    review_mode: None,
-    review_hint: None,
-  };
+  let mut req = base_run_request("test");
+  req.sandbox_mode = Some("workspace-write".to_string());
+  req.workspace_write_options = Some(WorkspaceWriteOptions {
+    network_access: None,
+    writable_roots: Some(roots.clone()),
+    exclude_tmpdir_env_var: None,
+    exclude_slash_tmp: None,
+  });
 
   assert!(req.workspace_write_options.is_some());
   let opts = req.workspace_write_options.as_ref().unwrap();
@@ -218,30 +167,14 @@ fn test_run_request_with_writable_roots() {
 /// Test RunRequest with tmpdir exclusions
 #[test]
 fn test_run_request_with_tmpdir_exclusions() {
-  let req = RunRequest {
-    prompt: "test".to_string(),
-    thread_id: None,
-    images: None,
-    model: None,
-    oss: None,
-    sandbox_mode: Some("workspace-write".to_string()),
-    approval_mode: None,
-    workspace_write_options: Some(WorkspaceWriteOptions {
-      network_access: None,
-      writable_roots: None,
-      exclude_tmpdir_env_var: Some(true),
-      exclude_slash_tmp: Some(true),
-    }),
-    working_directory: None,
-    skip_git_repo_check: None,
-    output_schema: None,
-    base_url: None,
-    api_key: None,
-    linux_sandbox_path: None,
-    full_auto: None,
-    review_mode: None,
-    review_hint: None,
-  };
+  let mut req = base_run_request("test");
+  req.sandbox_mode = Some("workspace-write".to_string());
+  req.workspace_write_options = Some(WorkspaceWriteOptions {
+    network_access: None,
+    writable_roots: None,
+    exclude_tmpdir_env_var: Some(true),
+    exclude_slash_tmp: Some(true),
+  });
 
   assert!(req.workspace_write_options.is_some());
   let opts = req.workspace_write_options.as_ref().unwrap();
@@ -252,25 +185,9 @@ fn test_run_request_with_tmpdir_exclusions() {
 /// Test RunRequest with read-only sandbox mode and approval policy
 #[test]
 fn test_run_request_read_only_with_approval() {
-  let req = RunRequest {
-    prompt: "test".to_string(),
-    thread_id: None,
-    images: None,
-    model: None,
-    oss: None,
-    sandbox_mode: Some("read-only".to_string()),
-    approval_mode: Some("on-request".to_string()),
-    workspace_write_options: None,
-    working_directory: None,
-    skip_git_repo_check: None,
-    output_schema: None,
-    base_url: None,
-    api_key: None,
-    linux_sandbox_path: None,
-    full_auto: None,
-    review_mode: None,
-    review_hint: None,
-  };
+  let mut req = base_run_request("test");
+  req.sandbox_mode = Some("read-only".to_string());
+  req.approval_mode = Some("on-request".to_string());
 
   assert_eq!(req.sandbox_mode, Some("read-only".to_string()));
   assert_eq!(req.approval_mode, Some("on-request".to_string()));
@@ -279,25 +196,9 @@ fn test_run_request_read_only_with_approval() {
 /// Test RunRequest with danger-full-access
 #[test]
 fn test_run_request_danger_full_access() {
-  let req = RunRequest {
-    prompt: "test".to_string(),
-    thread_id: None,
-    images: None,
-    model: None,
-    oss: None,
-    sandbox_mode: Some("danger-full-access".to_string()),
-    approval_mode: Some("never".to_string()),
-    workspace_write_options: None,
-    working_directory: None,
-    skip_git_repo_check: None,
-    output_schema: None,
-    base_url: None,
-    api_key: None,
-    linux_sandbox_path: None,
-    full_auto: None,
-    review_mode: None,
-    review_hint: None,
-  };
+  let mut req = base_run_request("test");
+  req.sandbox_mode = Some("danger-full-access".to_string());
+  req.approval_mode = Some("never".to_string());
 
   assert_eq!(req.sandbox_mode, Some("danger-full-access".to_string()));
   assert_eq!(req.approval_mode, Some("never".to_string()));

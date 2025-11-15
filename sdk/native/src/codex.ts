@@ -8,6 +8,11 @@ import {
   NativeToolInterceptorNativeContext,
   ApprovalRequest,
 } from "./nativeBinding";
+import type {
+  NativeConversationConfig,
+  NativeConversationListPage,
+  NativeConversationSummary,
+} from "./nativeBinding";
 import type { StreamedTurn, Turn } from "./thread";
 import { Thread } from "./thread";
 import { ThreadOptions } from "./threadOptions";
@@ -16,10 +21,23 @@ import { ThreadEvent, ThreadError, Usage } from "./events";
 import { ThreadItem } from "./items";
 import { createOutputSchemaFile, normalizeOutputSchema } from "./outputSchemaFile";
 import { buildReviewPrompt, type ReviewInvocationOptions } from "./reviewOptions";
+import { LspManager } from "./lsp/manager";
+import type { LspManagerOptions } from "./lsp/types";
+import { formatDiagnosticsForTool } from "./lsp/format";
 
 export type NativeToolInterceptorContext = {
   invocation: NativeToolInvocation;
   callBuiltin: (invocation?: NativeToolInvocation) => Promise<NativeToolResult>;
+};
+
+export type ConversationSummary = NativeConversationSummary;
+
+export type ConversationListPage = NativeConversationListPage;
+
+export type ConversationListOptions = ThreadOptions & {
+  pageSize?: number;
+  cursor?: string;
+  modelProviders?: string[];
 };
 
 /**
@@ -33,6 +51,7 @@ export class Codex {
   private exec: CodexExec;
   private options: CodexOptions;
   private readonly nativeBinding: NativeBinding | null;
+  private readonly lspForTools: LspManager | null;
 
   constructor(options: CodexOptions = {}) {
     const predefinedTools = options.tools ? [...options.tools] : [];
@@ -46,6 +65,10 @@ export class Codex {
       for (const tool of predefinedTools) {
         this.registerTool(tool);
       }
+    }
+    this.lspForTools = this.createLspManagerForTools();
+    if (this.lspForTools && this.nativeBinding) {
+      this.registerDefaultReadFileInterceptor();
     }
     this.exec = new CodexExec();
   }
@@ -120,6 +143,95 @@ export class Codex {
     }
   }
 
+  private buildConversationConfig(options: ThreadOptions = {}): NativeConversationConfig {
+    return {
+      model: options.model,
+      oss: options.oss,
+      sandboxMode: options.sandboxMode,
+      approvalMode: options.approvalMode,
+      workspaceWriteOptions: options.workspaceWriteOptions,
+      workingDirectory: options.workingDirectory,
+      skipGitRepoCheck: options.skipGitRepoCheck,
+      reasoningEffort: options.reasoningEffort,
+      reasoningSummary: options.reasoningSummary,
+      fullAuto: options.fullAuto,
+      baseUrl: this.options.baseUrl,
+      apiKey: this.options.apiKey,
+    };
+  }
+
+  private createLspManagerForTools(): LspManager | null {
+    const cwd =
+      typeof process !== "undefined" && typeof process.cwd === "function"
+        ? process.cwd()
+        : ".";
+    const options: LspManagerOptions = {
+      workingDirectory: cwd,
+      waitForDiagnostics: true,
+    };
+    try {
+      return new LspManager(options);
+    } catch {
+      return null;
+    }
+  }
+
+  private registerDefaultReadFileInterceptor(): void {
+    if (!this.lspForTools) {
+      return;
+    }
+    try {
+      this.registerToolInterceptor("read_file", async ({ invocation, callBuiltin }) => {
+        const base = await callBuiltin();
+        if (!base.output || base.success === false) {
+          return base;
+        }
+
+        let filePath: string | undefined;
+        if (invocation.arguments) {
+          try {
+            const args = JSON.parse(invocation.arguments) as {
+              file_path?: unknown;
+              path?: unknown;
+            };
+            const candidate =
+              (typeof args.file_path === "string" && args.file_path) ||
+              (typeof args.path === "string" && args.path) ||
+              undefined;
+            if (candidate && candidate.trim().length > 0) {
+              filePath = candidate;
+            }
+          } catch {
+            // ignore malformed args
+          }
+        }
+        if (!filePath) {
+          return base;
+        }
+
+        let diagnosticsText = "";
+        try {
+          const results = await this.lspForTools!.collectDiagnostics([filePath]);
+          if (!results.length) {
+            return base;
+          }
+          diagnosticsText = formatDiagnosticsForTool(results);
+        } catch {
+          return base;
+        }
+
+        if (!diagnosticsText) {
+          return base;
+        }
+
+        const header = `LSP diagnostics for ${filePath}:\n${diagnosticsText}`;
+        return prependSystemHintToToolResult(base, header);
+      });
+    } catch {
+      // Interceptor support may be unavailable; fail silently.
+    }
+  }
+
   /**
    * Register a programmatic approval callback that Codex will call before executing
    * sensitive operations (e.g., shell commands, file writes).
@@ -151,6 +263,35 @@ export class Codex {
    */
   resumeThread(id: string, options: ThreadOptions = {}): Thread {
     return new Thread(this.exec, this.options, options, id);
+  }
+
+  async listConversations(options: ConversationListOptions = {}): Promise<ConversationListPage> {
+    const request = {
+      config: this.buildConversationConfig(options),
+      pageSize: options.pageSize,
+      cursor: options.cursor,
+      modelProviders: options.modelProviders,
+    };
+    return this.exec.listConversations(request);
+  }
+
+  async deleteConversation(id: string, options: ThreadOptions = {}): Promise<boolean> {
+    const result = await this.exec.deleteConversation({
+      id,
+      config: this.buildConversationConfig(options),
+    });
+    return result.deleted;
+  }
+
+  async resumeConversationFromRollout(
+    rolloutPath: string,
+    options: ThreadOptions = {},
+  ): Promise<Thread> {
+    const result = await this.exec.resumeConversationFromRollout({
+      rolloutPath,
+      config: this.buildConversationConfig(options),
+    });
+    return new Thread(this.exec, this.options, options, result.threadId);
   }
 
   /**
@@ -256,4 +397,23 @@ export class Codex {
       await schemaFile.cleanup();
     }
   }
+}
+
+function prependSystemHintToToolResult(
+  base: NativeToolResult,
+  hint: string,
+): NativeToolResult {
+  const trimmedHint = hint.trim();
+  if (!trimmedHint) {
+    return base;
+  }
+  const existing = base.output ?? "";
+  const separator = existing.length === 0 || existing.startsWith("\n") ? "\n\n" : "\n\n";
+  const output = existing.length === 0
+    ? `[SYSTEM_HINT]\n${trimmedHint}`
+    : `[SYSTEM_HINT]\n${trimmedHint}${separator}${existing}`;
+  return {
+    ...base,
+    output,
+  };
 }

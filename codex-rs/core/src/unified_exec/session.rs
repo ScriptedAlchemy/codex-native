@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::Notify;
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
@@ -74,6 +75,7 @@ pub(crate) struct UnifiedExecSession {
     output_notify: Arc<Notify>,
     output_task: JoinHandle<()>,
     sandbox_type: SandboxType,
+    exit_rx: Mutex<Option<oneshot::Receiver<i32>>>,
 }
 
 impl UnifiedExecSession {
@@ -108,6 +110,7 @@ impl UnifiedExecSession {
             output_notify,
             output_task,
             sandbox_type,
+            exit_rx: Mutex::new(None),
         }
     }
 
@@ -130,7 +133,7 @@ impl UnifiedExecSession {
         self.session.exit_code()
     }
 
-    async fn snapshot_output(&self) -> Vec<Vec<u8>> {
+    pub(super) async fn snapshot_output(&self) -> Vec<Vec<u8>> {
         let guard = self.output_buffer.lock().await;
         guard.snapshot()
     }
@@ -177,6 +180,15 @@ impl UnifiedExecSession {
         Ok(())
     }
 
+    pub(super) async fn take_exit_receiver(&self) -> Option<tokio::sync::oneshot::Receiver<i32>> {
+        self.exit_rx.lock().await.take()
+    }
+
+    pub(super) async fn store_exit_receiver(&self, receiver: tokio::sync::oneshot::Receiver<i32>) {
+        let mut guard = self.exit_rx.lock().await;
+        *guard = Some(receiver);
+    }
+
     pub(super) async fn from_spawned(
         spawned: SpawnedPty,
         sandbox_type: SandboxType,
@@ -195,16 +207,19 @@ impl UnifiedExecSession {
 
         if exit_ready {
             managed.check_for_sandbox_denial().await?;
+            managed.store_exit_receiver(exit_rx).await;
             return Ok(managed);
         }
 
-        tokio::pin!(exit_rx);
+        let mut exit_rx = exit_rx;
         if tokio::time::timeout(Duration::from_millis(50), &mut exit_rx)
             .await
             .is_ok()
         {
             managed.check_for_sandbox_denial().await?;
         }
+
+        managed.store_exit_receiver(exit_rx).await;
 
         Ok(managed)
     }

@@ -25,11 +25,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicI32;
+use std::sync::atomic::AtomicUsize;
 use std::time::Duration;
 
 use rand::Rng;
 use rand::rng;
 use tokio::sync::Mutex;
+use tokio::sync::Notify;
 
 use crate::codex::Session;
 use crate::codex::TurnContext;
@@ -93,10 +95,18 @@ pub(crate) struct UnifiedExecResponse {
     pub session_command: Option<Vec<String>>,
 }
 
-#[derive(Default)]
 pub(crate) struct UnifiedExecSessionManager {
     next_session_id: AtomicI32,
-    sessions: Mutex<HashMap<i32, SessionEntry>>,
+    sessions: Arc<Mutex<HashMap<i32, SessionEntry>>>,
+}
+
+impl Default for UnifiedExecSessionManager {
+    fn default() -> Self {
+        Self {
+            next_session_id: AtomicI32::new(0),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
 }
 
 struct SessionEntry {
@@ -107,6 +117,8 @@ struct SessionEntry {
     command: Vec<String>,
     cwd: PathBuf,
     started_at: tokio::time::Instant,
+    pending_writes: Arc<AtomicUsize>,
+    write_notify: Arc<Notify>,
 }
 
 pub(crate) fn clamp_yield_time(yield_time_ms: u64) -> u64 {
@@ -406,8 +418,6 @@ mod tests {
         let session_id = open_shell.session_id.expect("expected session id");
 
         write_stdin(&session, session_id, "exit\n", 2_500).await?;
-
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let err = write_stdin(&session, session_id, "", 100)
             .await

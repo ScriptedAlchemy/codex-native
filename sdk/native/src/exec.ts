@@ -1,8 +1,13 @@
 import { ApprovalMode, SandboxMode, WorkspaceWriteOptions } from "./threadOptions";
 import {
   NativeBinding,
+  NativeConversationListPage,
+  NativeConversationListRequest,
+  NativeDeleteConversationRequest,
+  NativeDeleteConversationResult,
   NativeForkRequest,
   NativeForkResult,
+  NativeResumeFromRolloutRequest,
   NativeRunRequest,
   getNativeBinding,
 } from "./nativeBinding";
@@ -183,6 +188,24 @@ export class CodexExec {
     };
     return this.native.forkThread(request);
   }
+
+  async listConversations(
+    request: NativeConversationListRequest,
+  ): Promise<NativeConversationListPage> {
+    return this.native.listConversations(request);
+  }
+
+  async deleteConversation(
+    request: NativeDeleteConversationRequest,
+  ): Promise<NativeDeleteConversationResult> {
+    return this.native.deleteConversation(request);
+  }
+
+  async resumeConversationFromRollout(
+    request: NativeResumeFromRolloutRequest,
+  ): Promise<NativeForkResult> {
+    return this.native.resumeConversationFromRollout(request);
+  }
 }
 
 type Resolver<T> = {
@@ -262,9 +285,19 @@ function validateModel(model: string | undefined | null, oss: boolean): void {
     return;
   }
   // Non-OSS mode: restrict to supported hosted models
-  if (trimmed !== "gpt-5" && trimmed !== "gpt-5-codex" && trimmed !== "gpt-5-codex-mini") {
+  const allowed = new Set([
+    "gpt-5",
+    "gpt-5-codex",
+    "gpt-5-codex-mini",
+    "gpt-5.1",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-mini",
+  ]);
+  if (!allowed.has(trimmed)) {
     throw new Error(
-      `Invalid model "${trimmed}". Supported models are "gpt-5", "gpt-5-codex", or "gpt-5-codex-mini".`
+      `Invalid model "${trimmed}". Supported models are ${Array.from(allowed)
+        .map((m) => `"${m}"`)
+        .join(", " )}.`
     );
   }
 }

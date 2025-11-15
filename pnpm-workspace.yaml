@@ -6,6 +6,7 @@ packages:
   - sdk/typescript
   - sdk/native
   - multi-agent-codex-system
+  - diff-agent
 
 ignoredBuiltDependencies:
   - esbuild

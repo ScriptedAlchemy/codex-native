@@ -21,7 +21,11 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
+use codex_arg0::prepend_path_entry_for_codex_aliases;
+use fastembed::{
+  EmbeddingModel, RerankInitOptions, RerankResult, RerankerModel, TextEmbedding, TextInitOptions,
+  TextRerank,
+};
 use sha1::{Digest, Sha1};
 
 use async_trait::async_trait;
@@ -43,7 +47,7 @@ use codex_core::{
 use codex_exec::exec_events::{BackgroundEventEvent, ThreadEvent as ExecThreadEvent};
 use codex_exec::run_with_thread_event_callback;
 use codex_exec::{Cli, Color, Command, ResumeArgs};
-use codex_protocol::config_types::SandboxMode;
+use codex_protocol::config_types::{ReasoningEffort, ReasoningSummary, SandboxMode};
 use codex_tui::AppExitInfo;
 use codex_tui::Cli as TuiCli;
 use codex_tui::update_action::UpdateAction;
@@ -61,7 +65,7 @@ use serde_json::json;
 use serde_json::json as serde_json_json;
 use std::fmt;
 use std::io::{self, Write};
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, TempDir};
 use tokio_util::sync::CancellationToken;
 use toml::Value as TomlValue;
 use uuid::Uuid;
@@ -125,6 +129,28 @@ const EMBEDDED_LINUX_SANDBOX_BYTES: &[u8] = include_bytes!(env!("CODEX_LINUX_SAN
 const ORIGINATOR_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 const NATIVE_ORIGINATOR: &str = "codex_sdk_native";
 
+static APPLY_PATCH_TEMP_DIR: OnceLock<Mutex<TempDir>> = OnceLock::new();
+
+fn ensure_apply_patch_aliases() -> napi::Result<()> {
+  if APPLY_PATCH_TEMP_DIR.get().is_some() {
+    return Ok(());
+  }
+
+  let temp_dir = prepend_path_entry_for_codex_aliases().map_err(|err| {
+    napi::Error::from_reason(format!("Failed to prepare apply_patch helper: {err}"))
+  })?;
+
+  if APPLY_PATCH_TEMP_DIR.set(Mutex::new(temp_dir)).is_err() {
+    // Another thread initialized it first; that's fine.
+  }
+
+  Ok(())
+}
+
+// ============================================================================
+// Additional Sections (included from sibling files)
+// ============================================================================
+
 // ============================================================================
 // Additional Sections (included from sibling files)
 // ============================================================================
@@ -132,8 +158,11 @@ const NATIVE_ORIGINATOR: &str = "codex_sdk_native";
 include!("tools.rs");
 include!("run.rs");
 include!("tui.rs");
+include!("git.rs");
 include!("cloud_tasks.rs");
 include!("events.rs");
 include!("reverie.rs");
 include!("fast_embed.rs");
 include!("tokenizer.rs");
+include!("toon.rs");
+include!("graph/mod.rs");

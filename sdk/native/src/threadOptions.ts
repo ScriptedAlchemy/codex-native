@@ -2,6 +2,22 @@ export type ApprovalMode = "never" | "on-request" | "on-failure" | "untrusted";
 
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 
+/**
+ * Reasoning effort level for reasoning-capable models (e.g., o1, o3).
+ * See https://platform.openai.com/docs/guides/reasoning
+ *
+ * @default "medium" - When undefined, codex uses "medium" as the default
+ */
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+
+/**
+ * Controls whether reasoning summaries are included for reasoning-capable models.
+ * See https://platform.openai.com/docs/guides/reasoning#reasoning-summaries
+ *
+ * @default "auto" - When undefined, codex uses "auto" as the default
+ */
+export type ReasoningSummary = "auto" | "concise" | "detailed" | "none";
+
 export type WorkspaceWriteOptions = {
   /** Enable network access in workspace-write mode. Default: false */
   networkAccess?: boolean;
@@ -24,6 +40,10 @@ export type ThreadOptions = {
   workspaceWriteOptions?: WorkspaceWriteOptions;
   workingDirectory?: string;
   skipGitRepoCheck?: boolean;
+  /** Reasoning effort level (only honored for reasoning-capable models). Defaults to "medium" when undefined. */
+  reasoningEffort?: ReasoningEffort;
+  /** Reasoning summary preference (only honored for reasoning-capable models). Defaults to "auto" when undefined. */
+  reasoningSummary?: ReasoningSummary;
   /** @deprecated Use sandboxMode and approvalMode instead */
   fullAuto?: boolean;
 };

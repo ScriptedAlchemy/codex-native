@@ -1,345 +1,68 @@
-# OpenAI Agents Integration
+# Codex Native SDK Agent Guide
 
-This package provides a `CodexProvider` that enables using Codex as a model provider for the [OpenAI Agents JS framework](https://github.com/openai/openai-agents-js).
+## Scope
+- `sdk/native` exposes `CodexProvider`, letting the OpenAI Agents JS framework talk to the Rust runtime through N-API bindings.
+- The workspace-built `.node` artifact is always preferred; optional platform packages (e.g., `@codex-native/sdk-darwin-arm64`) are only fallbacks when the local build is unavailable.
 
-## Installation
-
-```bash
-npm install @openai/codex-native @openai/agents
-```
+## Build & Test Loop
+- Install toolchain deps first: `pnpm -C sdk/native install`.
+- Build everything (Rust + TS) with `pnpm -C sdk/native run build`; this produces the platform-specific `.node` binary and TypeScript dist artifacts.
+- Tests:
+  - JavaScript: `pnpm -C sdk/native test`
+  - Rust: `cargo test` from `sdk/native`
+- Keep these commands in lockstep with changes because provider consumers rely on the generated bundle.
 
 ## Quick Start
-
-```typescript
+```ts
 import { CodexProvider } from '@openai/codex-native';
 import { Agent, Runner } from '@openai/agents';
 
-// Create the provider
-const provider = new CodexProvider({
-  defaultModel: 'gpt-5-codex'
-});
-
-// Create an agent
-const agent = new Agent({
-  name: 'CodeAssistant',
-  instructions: 'You are a helpful coding assistant'
-});
-
-// Run with Codex backend
+const provider = new CodexProvider({ defaultModel: 'gpt-5.1-codex' });
+const agent = new Agent({ name: 'CodeAssistant', instructions: 'Fix the failing tests' });
 const runner = new Runner({ modelProvider: provider });
-const result = await runner.run(agent, 'Fix the failing tests');
-
+const result = await runner.run(agent, 'Investigate the CI failure');
 console.log(result.finalOutput);
 ```
 
-## Features
+## Provider Capabilities
+- Full `ModelProvider` implementation: buffered (`getResponse`) and streamed (`getStreamedResponse`) calls, plus `getModel` lookups.
+- Thread continuity: honors `conversationId` / `previousResponseId`, so repeated turns keep context automatically.
+- Structured output: passes `outputType.schema` through to Codex, validates responses, and returns typed payloads.
+- Tool execution happens inside Codex—bash, git, FS, and MCP tools don’t need extra framework wiring.
+- Streaming mirrors Codex event names (`response_started`, `reasoning_done`, `response_done`) for real-time UX.
 
-### ✅ Full Provider Compatibility
+## Configuration Cheatsheet
+`CodexProviderOptions` supports:
+- `apiKey` – optional; only needed when your deployment requires explicit auth.
+- `baseUrl` – override the Codex endpoint (default is the CLI-configured URL).
+- `defaultModel` – fallback model name when none is provided per request.
+- `workingDirectory` – where filesystem and git commands run.
+- `skipGitRepoCheck` – bypass repo validation when using temp dirs or sandboxes.
 
-The `CodexProvider` implements the complete `ModelProvider` interface:
-- `getModel(modelName?)` - Get a Codex-backed model instance
-- `getResponse(request)` - Get buffered responses
-- `getStreamedResponse(request)` - Get real-time streaming responses
-
-### ✅ Conversation Continuity
-
-The provider automatically manages thread state:
-- Uses `conversationId` or `previousResponseId` from requests
-- Maintains context across multiple turns
-- Supports thread resumption
-
-### ✅ Structured Output
-
-Codex's JSON schema support integrates seamlessly:
-- Provider passes `outputType.schema` to Codex
-- Enforces schema during generation
-- Returns validated structured data
-
-### ✅ Internal Tool Execution
-
-Codex handles tools internally (no framework configuration needed):
-- Bash commands and scripts
-- File system operations
-- Git operations
-- MCP (Model Context Protocol) tools
-
-### ✅ Streaming Support
-
-Real-time updates during generation:
-- `response_started` - Generation begins
-- `reasoning_done` - Reasoning output
-- `response_done` - Full response with usage
-
-## Local CLI pairing
-
-For quick smoke tests you can reuse the same configuration with the packaged CLI:
-
-```bash
-# Run a one-off turn using the shared config state
-codex-native run "Re-run the failing end-to-end test"
-
-# Launch the native TUI using the same codex.config.ts settings
-codex-native tui
-```
-
-The CLI loads `codex.config.*` files and plugins in the same way as the Agents provider, so you
-can validate tool registration, interceptors, and approval flows locally before wiring them into
-the Agent runner.
-
-## Architecture
-
-### How It Works
-
-```
-┌─────────────────┐
-│  OpenAI Agents  │
-│   Framework     │
-└────────┬────────┘
-         │
-         │ ModelRequest
-         ▼
-┌─────────────────┐
-│  CodexProvider  │  ◄─ You are here
-└────────┬────────┘
-         │
-         │ Codex SDK API
-         ▼
-┌─────────────────┐
-│   Codex NAPI    │
-│    Bindings     │
-└────────┬────────┘
-         │
-         │ Native calls
-         ▼
-┌─────────────────┐
-│   codex-rs      │
-│   (Rust core)   │
-└─────────────────┘
-```
-
-### Key Differences from OpenAI
-
-| Feature | OpenAI Provider | Codex Provider |
-|---------|----------------|----------------|
-| **Tool Execution** | Framework manages tools | Codex manages tools internally |
-| **File Access** | Limited to API | Full file system access |
-| **Commands** | Not supported | Bash, git, etc. supported |
-| **MCP Servers** | Not supported | Full MCP integration |
-| **Model Backend** | OpenAI API | Codex runtime (local or cloud) |
-
-## Configuration
-
-### Provider Options
-
-```typescript
-interface CodexProviderOptions {
-  /** API key for Codex authentication */
-  apiKey?: string;
-
-  /** Base URL for Codex API (optional) */
-  baseUrl?: string;
-
-  /** Default model when none specified */
-  defaultModel?: string;
-
-  /** Working directory for file operations */
-  workingDirectory?: string;
-
-  /** Skip git repository validation */
-  skipGitRepoCheck?: boolean;
-}
-```
-
-### Example Configurations
-
-**Local Development:**
-```typescript
-const provider = new CodexProvider({
+Examples:
+```ts
+// Local iteration
+new CodexProvider({
   workingDirectory: process.cwd(),
   skipGitRepoCheck: true,
-  defaultModel: 'gpt-5-codex'
+  defaultModel: 'gpt-5.1-codex'
 });
-```
 
-**Production:**
-```typescript
-const provider = new CodexProvider({
+// Production deployment
+new CodexProvider({
   baseUrl: 'https://api.codex.example.com',
-  defaultModel: 'gpt-5-codex',
   workingDirectory: '/app',
-  skipGitRepoCheck: false,
-  // apiKey: '...' // Optional: only needed if your deployment enforces explicit credentials
+  defaultModel: 'gpt-5.1-codex'
+  // apiKey: 'optional'
 });
 ```
 
-## Usage Examples
+## CLI Pairing & Approvals
+- The packaged CLI (`codex-native run …`, `codex-native tui`) reuses the same config files. Use it for quick smoke tests before embedding in Agents.
+- For sensitive actions wire in approvals:
+  - JS: `codex.setApprovalCallback((ctx) => boolean | Promise<boolean>)`
+  - Tool interceptor: `registerToolInterceptor("__approval__", handler)`
+  - Both feed a Rust-side interceptor that gates shell/file/Git activity.
 
-### Single Agent
-
-```typescript
-import { CodexProvider } from '@openai/codex-native';
-import { Agent, Runner } from '@openai/agents';
-
-const provider = new CodexProvider();
-
-const bugFixer = new Agent({
-  name: 'BugFixer',
-  instructions: `Analyze code, find bugs, and fix them.
-  Always run tests after making changes to verify fixes.`
-});
-
-const runner = new Runner({ modelProvider: provider });
-const result = await runner.run(bugFixer, 'Fix the TypeScript errors in src/');
-
-console.log(result.finalOutput);
-```
-
-### Multi-Agent Workflow
-
-```typescript
-const coder = new Agent({
-  name: 'Coder',
-  instructions: 'Write clean, tested code'
-});
-
-const reviewer = new Agent({
-  name: 'Reviewer',
-  instructions: 'Review code for quality and suggest improvements'
-});
-
-const runner = new Runner({ modelProvider: provider });
-
-// Coder implements feature
-const implementation = await runner.run(coder, 'Add user authentication');
-
-// Reviewer checks the work
-const review = await runner.run(reviewer, `Review this implementation:
-${implementation.finalOutput}`);
-
-console.log(review.finalOutput);
-```
-
-### Streaming Progress
-
-```typescript
-const model = provider.getModel('gpt-5-codex');
-
-const stream = model.getStreamedResponse({
-  systemInstructions: 'You are a coding assistant',
-  input: 'Refactor the auth module',
-  modelSettings: { temperature: 0.7 },
-  tools: [],
-  outputType: { type: 'json_schema', schema: {} },
-  handoffs: [],
-  tracing: { enabled: true }
-});
-
-for await (const event of stream) {
-  switch (event.type) {
-    case 'output_text_delta':
-      process.stdout.write(event.delta);
-      break;
-    case 'response_done':
-      console.log('\nUsage:', event.response.usage);
-      break;
-  }
-}
-```
-
-## API Reference
-
-### `CodexProvider`
-
-#### Constructor
-
-```typescript
-new CodexProvider(options?: CodexProviderOptions)
-```
-
-#### Methods
-
-##### `getModel(modelName?: string): Model`
-
-Get a Codex-backed model instance.
-
-**Parameters:**
-- `modelName` - Model to use (defaults to `defaultModel` from options)
-
-**Returns:** `Model` instance
-
-### `Model` Interface
-
-#### `getResponse(request: ModelRequest): Promise<ModelResponse>`
-
-Get a buffered response from Codex.
-
-**Parameters:**
-- `request.systemInstructions` - System prompt
-- `request.input` - User input (string or multimodal)
-- `request.modelSettings` - Temperature, max tokens, etc.
-- `request.outputType` - Structured output schema
-- `request.conversationId` - Thread identifier for continuity
-
-**Returns:** Complete `ModelResponse` with usage and output items
-
-#### `getStreamedResponse(request: ModelRequest): AsyncIterable<StreamEvent>`
-
-Get a streamed response from Codex.
-
-**Parameters:** Same as `getResponse`
-
-**Returns:** Async iterable of `StreamEvent` objects
-
-## Type Definitions
-
-The provider includes full TypeScript definitions for:
-- `ModelProvider` - Provider interface
-- `Model` - Model interface
-- `ModelRequest` - Request format
-- `ModelResponse` - Response format
-- `StreamEvent` - Streaming event types
-- `AgentInputItem` - Input types (text, image, audio, files)
-- `AgentOutputItem` - Output types (messages, reasoning, etc.)
-- `Usage` - Token usage metrics
-
-All types are exported from the package:
-
-```typescript
-import type {
-  ModelProvider,
-  Model,
-  ModelRequest,
-  ModelResponse
-} from '@openai/codex-native';
-```
-
-## Limitations
-
-### Not Supported (Yet)
-
-- **Framework Tool Execution**: Tools are handled by Codex internally, not by the Agents framework
-- **Agent Handoffs**: Not yet mapped (could use separate Codex threads)
-- **Image Input**: Requires temp file handling (coming soon)
-- **Audio Input/Output**: Not yet supported
-
-### Workarounds
-
-**Tool Execution**: Let Codex handle tools internally via its built-in capabilities (bash, file edits, MCP servers)
-
-**Handoffs**: Use separate provider instances with different threads
-
-**Images**: Pre-process images to local files that Codex can access
-
-## Examples
-
-See the `examples/` directory for complete examples:
-- `agents-integration.ts` - Basic usage demonstration
-- More examples coming soon!
-
-## Contributing
-
-Issues and pull requests welcome! Please see the main [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
-
-## License
-
-MIT - See [LICENSE](../../LICENSE) for details.
+## Architecture Snapshot
+OpenAI Agents ➜ `CodexProvider` ➜ Codex SDK API ➜ N-API bindings ➜ `codex-rs`. Keep the provider thin—let the Rust core handle orchestration, tools, and persistence.

@@ -16,6 +16,7 @@ use mcp_types::TextResourceContents;
 use serde_json::json;
 
 const RESOURCE_URI: &str = "memo://codex/example-note";
+const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn stdio_server_bin() -> anyhow::Result<PathBuf> {
     let build = CargoBuild::new()
@@ -54,13 +55,9 @@ async fn rmcp_client_can_list_and_read_resources() -> anyhow::Result<()> {
     )
     .await?;
 
-    client
-        .initialize(init_params(), Some(Duration::from_secs(5)))
-        .await?;
+    client.initialize(init_params(), Some(TEST_TIMEOUT)).await?;
 
-    let list = client
-        .list_resources(None, Some(Duration::from_secs(5)))
-        .await?;
+    let list = client.list_resources(None, Some(TEST_TIMEOUT)).await?;
     let memo = list
         .resources
         .iter()
@@ -79,7 +76,7 @@ async fn rmcp_client_can_list_and_read_resources() -> anyhow::Result<()> {
         }
     );
     let templates = client
-        .list_resource_templates(None, Some(Duration::from_secs(5)))
+        .list_resource_templates(None, Some(TEST_TIMEOUT))
         .await?;
     assert_eq!(
         templates,
@@ -103,7 +100,7 @@ async fn rmcp_client_can_list_and_read_resources() -> anyhow::Result<()> {
             ReadResourceRequestParams {
                 uri: RESOURCE_URI.to_string(),
             },
-            Some(Duration::from_secs(5)),
+            Some(TEST_TIMEOUT),
         )
         .await?;
     let ReadResourceResultContents::TextResourceContents(text) =

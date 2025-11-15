@@ -17,10 +17,12 @@ use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_function_call;
 use core_test_support::responses::ev_response_created;
+use core_test_support::responses::mount_mcp_responder;
 use core_test_support::responses::mount_sse_sequence;
 use core_test_support::responses::sse;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
+use core_test_support::skip_if_no_pty;
 use core_test_support::skip_if_sandbox;
 use core_test_support::test_codex::TestCodex;
 use core_test_support::test_codex::test_codex;
@@ -32,6 +34,7 @@ use regex_lite::Regex;
 use serde_json::Value;
 use serde_json::json;
 use tokio::time::Duration;
+use wiremock::MockServer;
 
 fn extract_output_text(item: &Value) -> Option<&str> {
     item.get("output").and_then(|value| match value {
@@ -175,8 +178,9 @@ fn sanitize_workdir_stdout(output: &str) -> Result<String> {
 async fn unified_exec_emits_exec_command_begin_event() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -247,13 +251,20 @@ async fn unified_exec_emits_exec_command_begin_event() -> Result<()> {
     Ok(())
 }
 
+async fn start_server_with_mcp() -> MockServer {
+    let server = start_mock_server().await;
+    mount_mcp_responder(&server).await;
+    server
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "flaky"]
 async fn unified_exec_respects_workdir_override() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -350,8 +361,9 @@ async fn unified_exec_respects_workdir_override() -> Result<()> {
 async fn unified_exec_emits_exec_command_end_event() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -440,8 +452,9 @@ async fn unified_exec_emits_exec_command_end_event() -> Result<()> {
 async fn unified_exec_emits_output_delta_for_exec_command() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -511,8 +524,9 @@ async fn unified_exec_emits_output_delta_for_exec_command() -> Result<()> {
 async fn unified_exec_emits_output_delta_for_write_stdin() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -610,8 +624,9 @@ async fn unified_exec_emits_output_delta_for_write_stdin() -> Result<()> {
 async fn unified_exec_emits_begin_for_write_stdin() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -712,8 +727,9 @@ async fn unified_exec_emits_begin_for_write_stdin() -> Result<()> {
 async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -842,8 +858,9 @@ async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()>
 async fn exec_command_reports_chunk_and_exit_metadata() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);
@@ -954,8 +971,9 @@ async fn exec_command_reports_chunk_and_exit_metadata() -> Result<()> {
 async fn write_stdin_returns_exit_metadata_and_clears_session() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);
@@ -1113,8 +1131,9 @@ async fn write_stdin_returns_exit_metadata_and_clears_session() -> Result<()> {
 async fn unified_exec_emits_end_event_when_session_dies_via_stdin() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -1217,8 +1236,9 @@ async fn unified_exec_emits_end_event_when_session_dies_via_stdin() -> Result<()
 async fn unified_exec_reuses_session_via_stdin() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);
@@ -1325,8 +1345,9 @@ async fn unified_exec_reuses_session_via_stdin() -> Result<()> {
 async fn unified_exec_streams_after_lagged_output() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -1451,8 +1472,9 @@ PY
 async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);
@@ -1557,8 +1579,9 @@ async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
 async fn unified_exec_formats_large_output_summary() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);
@@ -1642,8 +1665,9 @@ PY
 async fn unified_exec_runs_under_sandbox() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
+    skip_if_no_pty!(Ok(()));
 
-    let server = start_mock_server().await;
+    let server = start_server_with_mcp().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);

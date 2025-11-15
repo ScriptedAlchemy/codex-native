@@ -1,5 +1,8 @@
 use std::path::PathBuf;
 
+use crate::context_manager::MODEL_FORMAT_MAX_BYTES;
+use crate::context_manager::MODEL_FORMAT_MAX_LINES;
+use crate::context_manager::format_output_for_model_body;
 use crate::function_tool::FunctionCallError;
 use crate::is_safe_command::is_known_safe_command;
 use crate::protocol::EventMsg;
@@ -264,7 +267,12 @@ fn format_response(response: &UnifiedExecResponse) -> String {
     }
 
     sections.push("Output:".to_string());
-    sections.push(response.output.clone());
+    let formatted = format_output_for_model_body(
+        &response.output,
+        MODEL_FORMAT_MAX_BYTES,
+        MODEL_FORMAT_MAX_LINES,
+    );
+    sections.push(formatted);
 
     sections.join("\n")
 }

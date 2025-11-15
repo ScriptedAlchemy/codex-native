@@ -19,6 +19,7 @@ vt100 = "0.16.2"
 regex = "1"
 sha1 = "0.10"
 fastembed = "5.2"
+toon-rust = "0.1.3"
 
 [dependencies.napi]
 version = "3"
@@ -47,6 +48,9 @@ version = "0.7.16"
 [dependencies.codex-common]
 path = "../../codex-rs/common"
 
+[dependencies.codex-arg0]
+path = "../../codex-rs/arg0"
+
 [dependencies.codex-core]
 path = "../../codex-rs/core"
 
@@ -67,6 +71,15 @@ path = "../../codex-rs/utils/tokenizer"
 
 [dependencies.codex-tui]
 path = "../../codex-rs/tui"
+
+[dependencies.codex-apply-patch]
+path = "../../codex-rs/apply-patch"
+
+[dependencies.git-graph]
+version = "0.7.0"
+
+[dependencies.git2]
+version = "0.20"
 
 [build-dependencies]
 napi-build = "2"
@@ -90,3 +103,4 @@ strip = "symbols"
 [patch.crates-io]
 ratatui = { git = "https://github.com/nornagon/ratatui", branch = "nornagon-v0.29.0-patch" }
 crossterm = { git = "https://github.com/nornagon/crossterm", branch = "nornagon/color-query" }
+git-graph = { path = "../../third_party/git-graph" }

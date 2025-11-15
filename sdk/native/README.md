@@ -629,7 +629,9 @@ const matches = await reverieSearchConversations(codexHome, "authentication issu
 const insights = await reverieGetConversationInsights(matches[0].conversation.path, "JWT");
 ```
 
-Results include `headRecords` and `tailRecords`, mirroring the summaries used by the Rust CLI/TUI, so you can plug them into custom dashboards or route them back into an agent as `<system notification>`s.
+Results include `headRecords` and `tailRecords`, plus the TOON-encoded `headRecordsToon` and `tailRecordsToon` previews used by the Rust CLI/TUI, so you can plug them into custom dashboards or route them back into an agent as `<system notification>`s without wasting tokens.
+
+Need to compact your own JSON payloads before feeding them to an LLM? Call `encodeToToon(value)` from JavaScript to get the same Token-Oriented Object Notation that Codex now uses for reverie search/indexing.
 
 ### Tokenizer Helpers (tiktoken)
 

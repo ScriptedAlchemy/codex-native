@@ -8,14 +8,24 @@ setupNativeBinding();
 
 let reverieListConversations: any;
 let reverieSearchConversations: any;
+let reverieSearchSemantic: any;
+let reverieIndexSemantic: any;
 let reverieGetConversationInsights: any;
+let fastEmbedInit: any;
+let encodeToToon: any;
 
 beforeAll(async () => {
   const mod = await import("../src/index");
   reverieListConversations = mod.reverieListConversations;
   reverieSearchConversations = mod.reverieSearchConversations;
+  reverieSearchSemantic = mod.reverieSearchSemantic;
+  reverieIndexSemantic = mod.reverieIndexSemantic;
   reverieGetConversationInsights = mod.reverieGetConversationInsights;
+  fastEmbedInit = mod.fastEmbedInit;
+  encodeToToon = mod.encodeToToon;
 });
+
+const LONG_TIMEOUT_MS = 120_000;
 
 function writeJsonl(file: string, lines: string[]): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -101,6 +111,9 @@ describe("Reverie native helpers", () => {
     const first = list[0];
     expect(first.path).toContain("rollout-2025-01-01T12-00-00");
     expect(first.path.endsWith(".jsonl")).toBe(true);
+    expect(Array.isArray(first.headRecordsToon)).toBe(true);
+    expect(first.headRecordsToon.length).toBe(first.headRecords.length);
+    expect(first.headRecordsToon[0]).not.toHaveLength(0);
   });
 
   it("searches conversations by keyword", async () => {
@@ -123,5 +136,67 @@ describe("Reverie native helpers", () => {
     const insights = await reverieGetConversationInsights(convoPath, "auth");
     expect(Array.isArray(insights)).toBe(true);
     expect(insights.some((s: string) => s.toLowerCase().includes("auth"))).toBe(true);
+  });
+
+  it(
+    "returns semantic matches using FastEmbed",
+    async () => {
+      const { home } = makeFakeCodexHome();
+      const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-reverie-cache-"));
+
+      await fastEmbedInit({
+        model: "BAAI/bge-small-en-v1.5",
+        cacheDir,
+        maxLength: 512,
+        showDownloadProgress: false,
+      });
+
+      const results = await reverieSearchSemantic(home, "auth timeout fix", {
+        projectRoot: home,
+        limit: 5,
+        normalize: true,
+        cache: true,
+      });
+
+      expect(Array.isArray(results)).toBe(true);
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].relevanceScore).toBeGreaterThan(0);
+    },
+    LONG_TIMEOUT_MS,
+  );
+
+  it(
+    "indexes reveries to warm the cache",
+    async () => {
+      const { home } = makeFakeCodexHome();
+      await fastEmbedInit({
+        model: "BAAI/bge-small-en-v1.5",
+        maxLength: 256,
+        showDownloadProgress: false,
+      });
+
+      const stats = await reverieIndexSemantic(home, {
+        limit: 5,
+        maxCandidates: 5,
+        projectRoot: home,
+        normalize: true,
+        cache: true,
+      });
+
+      expect(stats.documentsEmbedded).toBeGreaterThan(0);
+      expect(stats.batches).toBeGreaterThan(0);
+    },
+    LONG_TIMEOUT_MS,
+  );
+
+  it("encodes arbitrary payloads to TOON", () => {
+    const encoded = encodeToToon({
+      items: [
+        { sku: "A1", qty: 2 },
+        { sku: "B2", qty: 1 },
+      ],
+    });
+    expect(encoded).toContain("items[2]");
+    expect(encoded).toContain("sku");
   });
 });
