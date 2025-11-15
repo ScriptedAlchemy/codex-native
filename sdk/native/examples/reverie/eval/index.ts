@@ -12,7 +12,7 @@ import process from "node:process";
 import { randomUUID } from "node:crypto";
 
 import {
-  encodeToToon,
+  encodeToToon as nativeEncodeToToon,
   fastEmbedInit,
   reverieIndexSemantic,
   reverieListConversations,
@@ -29,6 +29,7 @@ import {
 } from "./strategies";
 import { createStrategyJudge, type JudgeVerdict } from "./judge";
 import { Scoreboard } from "./scoreboard";
+import { encode as encodeToonFallback } from "@toon-format/toon";
 
 const DEFAULT_EMBED_MODEL = process.env.REVERIE_EMBED_MODEL ?? "BAAI/bge-small-en-v1.5";
 const DEFAULT_JUDGE_MODEL = process.env.REVERIE_EVAL_JUDGE_MODEL ?? "gpt-5.1";
@@ -77,13 +78,36 @@ type CliOptions = {
   chunkOverlap: number;
 };
 
+/**
+ * Edit this object to tweak the harness defaults without touching CLI flags.
+ * CLI args still override these values when provided.
+ */
+const HARNESS_DEFAULTS: CliOptions = {
+  codexHome: process.env.CODEX_HOME,
+  sliceLimit: DEFAULT_LIMIT,
+  conversationLimit: DEFAULT_CONVO_LIMIT,
+  topResults: DEFAULT_MAX_RESULTS,
+  embedModel: DEFAULT_EMBED_MODEL,
+  embedCacheDir: DEFAULT_CACHE_DIR,
+  judgeModel: DEFAULT_JUDGE_MODEL,
+  strategyFilter: null,
+  projectRoot: DEFAULT_PROJECT_ROOT,
+  datasetFile: undefined,
+  chunkSize: 8,
+  chunkOverlap: 3,
+};
+
 async function main(): Promise<void> {
   const cli = parseArgs(process.argv.slice(2));
   const codexHome = cli.codexHome ?? resolveCodexHome();
 
   console.log(colorize("🧪 Reverie Evaluation Harness", "header"));
   console.log(colorize(`CODEX_HOME => ${codexHome}`, "info"));
-  console.log(colorize(`Judge model => ${cli.judgeModel}`, "info"));
+  const judgeModel = coerceJudgeModel(cli.judgeModel);
+  console.log(colorize(`Judge model => ${judgeModel.label}`, "info"));
+  if (judgeModel.warning) {
+    console.log(colorize(judgeModel.warning, "warning"));
+  }
   console.log(colorize(`Embed model => ${cli.embedModel}`, "info"));
   console.log(colorize(`Embed cache => ${cli.embedCacheDir}`, "info"));
   if (cli.datasetFile) {
@@ -127,7 +151,8 @@ async function main(): Promise<void> {
   console.log(colorize(`Strategies => ${strategies.map((s) => s.id).join(", ")}`, "info"));
 
   const judge = await createStrategyJudge({
-    modelName: cli.judgeModel,
+    modelName: judgeModel.providerModel,
+    instructions: judgeModel.instructions,
     strategyIds: strategies.map((s) => s.id),
   });
 
@@ -165,18 +190,7 @@ async function main(): Promise<void> {
 }
 
 function parseArgs(argv: string[]): CliOptions {
-  const options: CliOptions = {
-    sliceLimit: DEFAULT_LIMIT,
-    conversationLimit: DEFAULT_CONVO_LIMIT,
-    topResults: DEFAULT_MAX_RESULTS,
-    embedModel: DEFAULT_EMBED_MODEL,
-    embedCacheDir: DEFAULT_CACHE_DIR,
-    judgeModel: DEFAULT_JUDGE_MODEL,
-    strategyFilter: null,
-    projectRoot: DEFAULT_PROJECT_ROOT,
-    chunkSize: 8,
-    chunkOverlap: 3,
-  };
+  const options: CliOptions = { ...HARNESS_DEFAULTS };
 
   for (const arg of argv) {
     if (arg === "--help" || arg === "-h") {
@@ -254,9 +268,17 @@ function printUsage(): void {
   --chunk-overlap=<n>      Event overlap between chunks`);
 }
 
+
+function toToon(value: unknown): string {
+  try {
+    return nativeEncodeToToon(value as any);
+  } catch (error) {
+    return encodeToonFallback(value as any);
+  }
+}
 function printSliceOverview(slice: ReasoningSlice): void {
   console.log(colorize("Reasoning snippet:", "info"));
-  console.log(colorize(indent(encodeToToon({ reasoning: slice.reasoningText.split("\n") })), "muted"));
+  console.log(colorize(indent(toToon({ reasoning: slice.reasoningText.split("\n") })), "muted"));
   if (typeof slice.chunkIndex === "number") {
     console.log(
       colorize(
@@ -286,6 +308,25 @@ async function loadSlicesFromFile(filePath: string): Promise<ReasoningSlice[]> {
     console.error(colorize(`Failed to load dataset ${filePath}: ${describeError(error)}`, "warning"));
   }
   return [];
+}
+
+function coerceJudgeModel(name: string): {
+  label: string;
+  providerModel: string;
+  warning?: string;
+  instructions?: string;
+} {
+  const trimmed = name.trim();
+  if (trimmed === "gpt-5.1") {
+    return {
+      label: "gpt-5.1 (alias → gpt-5-codex)",
+      providerModel: "gpt-5-codex",
+      warning: "gpt-5.1 is unavailable locally; aliasing to gpt-5-codex for scoring.",
+      instructions:
+        "You are simulating GPT-5.1 as a retrieval judge. Acknowledge any confidence penalties introduced by aliasing to gpt-5-codex.",
+    };
+  }
+  return { label: trimmed, providerModel: trimmed };
 }
 
 function printStrategyRun(run: StrategyRun, slice: ReasoningSlice): void {

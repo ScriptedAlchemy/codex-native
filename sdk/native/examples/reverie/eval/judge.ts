@@ -191,7 +191,6 @@ function makeVerdictSchema(strategyIds: string[]) {
             strategy: { type: "string", enum: strategyIds },
             placement: { type: "integer", minimum: 1 },
             justification: { type: "string" },
-            confidence: { type: "string" },
           },
         },
       },
