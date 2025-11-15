@@ -158,8 +158,8 @@ const CONFIG: SolverConfig = {
   baseUrl: process.env.CODEX_BASE_URL,
   apiKey: process.env.CODEX_API_KEY,
   skipGitRepoCheck: false,
-  originRef: "origin/main",
-  upstreamRef: "upstream/main",
+  originRef: "HEAD",
+  upstreamRef: "origin/main",
 };
 
 type RepoSnapshot = {
