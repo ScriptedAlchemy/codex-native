@@ -35,6 +35,16 @@ import {
   type ApprovalRequest,
 } from "@codex-native/sdk";
 
+const LOG_PREFIX = "[merge-solver]";
+
+function logInfo(message: string): void {
+  console.log(`${LOG_PREFIX} ${message}`);
+}
+
+function logWarn(message: string): void {
+  console.warn(`${LOG_PREFIX} ${message}`);
+}
+
 const execFileAsync = promisify(execFile);
 
 const DEFAULT_COORDINATOR_MODEL = "gpt-5-codex";
@@ -371,20 +381,26 @@ class MergeConflictSolver {
   }
 
   async run(): Promise<void> {
+    logInfo("Collecting merge conflicts via git diff --diff-filter=U");
     const conflicts = await this.git.collectConflicts({
       originRef: this.options.originRef,
       upstreamRef: this.options.upstreamRef,
     });
     if (conflicts.length === 0) {
-      console.log("✅ No merge conflicts detected.");
+      logInfo("No merge conflicts detected. Exiting early.");
       return;
     }
 
-    console.log(`Detected ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"}:`);
+    logInfo(`Detected ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"}`);
     for (const conflict of conflicts) {
-      console.log(`  • ${conflict.path}`);
+      logInfo(` └ ${conflict.path}`);
     }
 
+    logInfo(
+      `Comparing remotes ${this.options.originRef ?? "(none)"} and ${
+        this.options.upstreamRef ?? "(none)"
+      } for diverged commits`,
+    );
     this.remoteComparison = await this.git.compareRefs(this.options.originRef, this.options.upstreamRef);
     const snapshot = await this.buildSnapshot(conflicts, this.remoteComparison);
     await this.startCoordinator(snapshot);
@@ -408,31 +424,32 @@ class MergeConflictSolver {
     const reviewSummary = await this.runReviewer(outcomes, this.remoteComparison);
     const remaining = await this.git.listConflictPaths();
 
-    console.log("\n📋 Merge Summary");
+    logInfo("Summarizing per-file outcomes");
     for (const outcome of outcomes) {
       const icon = outcome.success ? "✅" : "⚠️";
-      console.log(`${icon} ${outcome.path}`);
+      logInfo(`${icon} ${outcome.path}`);
       if (outcome.summary) {
-        console.log(indent(outcome.summary.trim(), 4));
+        logInfo(indent(outcome.summary.trim(), 2));
       }
       if (outcome.error) {
-        console.log(indent(`Error: ${outcome.error}`, 4));
+        logWarn(indent(`Error: ${outcome.error}`, 2));
       }
     }
 
     if (reviewSummary) {
-      console.log("\n🔍 Final reviewer notes:\n" + reviewSummary);
+      logInfo("Reviewer summary emitted");
+      console.log(reviewSummary);
     }
 
     if (remaining.length > 0) {
-      console.warn(
-        `\n⚠️ Conflicts still present in ${remaining.length} file${remaining.length === 1 ? "" : "s"}:\n${remaining.join(
-          "\n",
+      logWarn(
+        `Conflicts still present in ${remaining.length} file${remaining.length === 1 ? "" : "s"}: ${remaining.join(
+          ", ",
         )}`,
       );
       process.exitCode = 1;
     } else {
-      console.log("\n🎉 All conflicts resolved according to git diff --name-only --diff-filter=U.");
+      logInfo("All conflicts resolved according to git diff --name-only --diff-filter=U");
     }
   }
 
@@ -459,11 +476,12 @@ class MergeConflictSolver {
   private async startCoordinator(snapshot: RepoSnapshot): Promise<void> {
     this.coordinatorThread = this.codex.startThread(this.coordinatorThreadOptions);
     const coordinatorPrompt = buildCoordinatorPrompt(snapshot);
-    console.log("\n🧠 Launching coordinator agent...");
+    logInfo("Launching coordinator agent for global merge plan");
     const turn = await this.coordinatorThread.run(coordinatorPrompt);
     this.coordinatorPlan = turn.finalResponse ?? null;
     if (this.coordinatorPlan) {
-      console.log("\nCoordinator plan:\n" + this.coordinatorPlan);
+      logInfo("Coordinator issued plan:");
+      console.log(this.coordinatorPlan);
     }
   }
 
