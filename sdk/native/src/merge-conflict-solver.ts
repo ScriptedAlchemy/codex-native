@@ -116,6 +116,10 @@ type SolverConfig = {
   workerModel: string;
   reviewerModel: string;
   supervisorModel?: string;
+  workerModelHigh?: string;
+  workerModelLow?: string;
+  highReasoningMatchers?: string[];
+  lowReasoningMatchers?: string[];
   sandboxMode: SandboxMode;
   approvalMode: ApprovalMode;
   baseUrl?: string;
@@ -131,6 +135,10 @@ const CONFIG: SolverConfig = {
   workerModel: DEFAULT_WORKER_MODEL,
   reviewerModel: DEFAULT_REVIEWER_MODEL,
   supervisorModel: "gpt-5-codex",
+  workerModelHigh: DEFAULT_REVIEWER_MODEL,
+  workerModelLow: DEFAULT_WORKER_MODEL,
+  highReasoningMatchers: ["^codex-rs/core/", "^codex-rs/app-server/", "^codex-rs/common/"],
+  lowReasoningMatchers: ["^\\.github/", "^docs/", "README\\.md$"],
   sandboxMode: DEFAULT_SANDBOX_MODE,
   approvalMode: DEFAULT_APPROVAL_MODE,
   baseUrl: process.env.CODEX_BASE_URL,
@@ -425,6 +433,7 @@ class MergeConflictSolver {
   private coordinatorThread: Thread | null = null;
   private coordinatorPlan: string | null = null;
   private remoteComparison: RemoteComparison | null = null;
+  private coordinatorUserMessageCount = 0;
 
   constructor(private readonly options: SolverConfig) {
     this.codex = new Codex({
@@ -619,6 +628,7 @@ class MergeConflictSolver {
     logInfo("coordinator", "Launching coordinator agent for global merge plan");
     const turn = await this.coordinatorThread.run(coordinatorPrompt);
     this.coordinatorPlan = turn.finalResponse ?? null;
+    this.coordinatorUserMessageCount += 1;
     if (this.coordinatorPlan) {
       logInfo("coordinator", "Coordinator issued plan:");
       console.log(this.coordinatorPlan);
@@ -627,7 +637,7 @@ class MergeConflictSolver {
 
   private async resolveConflict(conflict: ConflictContext): Promise<WorkerOutcome> {
     logInfo("worker", "Dispatching worker", conflict.path);
-    const workerThread = this.codex.startThread(this.workerThreadOptions);
+    const workerThread = await this.acquireWorkerThread(conflict.path);
     const prompt = buildWorkerPrompt(conflict, this.coordinatorPlan, {
       originRef: this.options.originRef,
       upstreamRef: this.options.upstreamRef,
@@ -642,16 +652,13 @@ class MergeConflictSolver {
       const turn = await workerThread.run(prompt);
       const remaining = await this.git.listConflictPaths();
       const stillConflicted = remaining.includes(conflict.path);
-      logInfo(
-        "worker",
-        stillConflicted ? "Conflict persists" : "File resolved",
-        conflict.path,
-      );
+      const summaryText = turn.finalResponse ?? "";
+      logInfo("worker", stillConflicted ? "Conflict persists" : "File resolved", conflict.path);
       this.approvalSupervisor?.setContext(null);
       return {
         path: conflict.path,
         success: !stillConflicted,
-        summary: turn.finalResponse ?? undefined,
+        summary: summaryText || undefined,
         threadId: workerThread.id ?? undefined,
         error: stillConflicted ? "File remains conflicted after worker turn." : undefined,
       };
@@ -718,6 +725,44 @@ class MergeConflictSolver {
       );
     }
     return validations;
+  }
+
+  private selectWorkerModel(filePath: string): string {
+    const matches = (patterns?: string[]) =>
+      patterns?.some((pattern) => {
+        try {
+          return new RegExp(pattern).test(filePath);
+        } catch {
+          return false;
+        }
+      }) ?? false;
+
+    if (matches(this.options.highReasoningMatchers) && this.options.workerModelHigh) {
+      return this.options.workerModelHigh;
+    }
+    if (matches(this.options.lowReasoningMatchers) && this.options.workerModelLow) {
+      return this.options.workerModelLow;
+    }
+    return this.options.workerModel;
+  }
+
+  private async acquireWorkerThread(filePath: string): Promise<Thread> {
+    const model = this.selectWorkerModel(filePath);
+    const threadOptions: ThreadOptions = {
+      ...this.workerThreadOptions,
+      model,
+    };
+    if (this.coordinatorThread) {
+      try {
+        return await this.coordinatorThread.fork({
+          nthUserMessage: this.coordinatorUserMessageCount,
+          threadOptions,
+        });
+      } catch (error) {
+        logWarn("worker", `Unable to fork coordinator for ${filePath}; starting standalone thread`, filePath);
+      }
+    }
+    return this.codex.startThread(threadOptions);
   }
 }
 
