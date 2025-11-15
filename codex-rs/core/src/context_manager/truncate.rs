@@ -2,12 +2,13 @@ use codex_protocol::models::FunctionCallOutputContentItem;
 use codex_utils_string::take_bytes_at_char_boundary;
 use codex_utils_string::take_last_bytes_at_char_boundary;
 
+use crate::util::error_or_panic;
+
 // Model-formatting limits: clients get full streams; only content sent to the model is truncated.
-pub(crate) const MODEL_FORMAT_MAX_BYTES: usize = 10 * 1024; // 10 KiB
-pub(crate) const MODEL_FORMAT_HEAD_LINES: usize = 128;
-pub(crate) const MODEL_FORMAT_TAIL_LINES: usize = 500;
-pub(crate) const MODEL_FORMAT_MAX_LINES: usize = MODEL_FORMAT_HEAD_LINES + MODEL_FORMAT_TAIL_LINES; // 628 lines
-pub(crate) const MODEL_FORMAT_HEAD_BYTES: usize = MODEL_FORMAT_MAX_BYTES / 2;
+pub const MODEL_FORMAT_MAX_BYTES: usize = 10 * 1024; // 10 KiB
+pub const MODEL_FORMAT_HEAD_LINES: usize = 128;
+pub const MODEL_FORMAT_TAIL_LINES: usize = 500;
+pub const MODEL_FORMAT_MAX_LINES: usize = MODEL_FORMAT_HEAD_LINES + MODEL_FORMAT_TAIL_LINES; // 628 lines
 
 pub(crate) fn globally_truncate_function_output_items(
     items: &[FunctionCallOutputContentItem],
@@ -56,21 +57,33 @@ pub(crate) fn globally_truncate_function_output_items(
     out
 }
 
-pub(crate) fn format_output_for_model_body(content: &str) -> String {
+pub(crate) fn format_output_for_model_body(
+    content: &str,
+    limit_bytes: usize,
+    limit_lines: usize,
+) -> String {
     // Head+tail truncation for the model: show the beginning and end with an elision.
     // Clients still receive full streams; only this formatted summary is capped.
     let total_lines = content.lines().count();
-    if content.len() <= MODEL_FORMAT_MAX_BYTES && total_lines <= MODEL_FORMAT_MAX_LINES {
+    if content.len() <= limit_bytes && total_lines <= limit_lines {
         return content.to_string();
     }
-    let output = truncate_formatted_exec_output(content, total_lines);
+    let output = truncate_formatted_exec_output(content, total_lines, limit_bytes, limit_lines);
     format!("Total output lines: {total_lines}\n\n{output}")
 }
 
-fn truncate_formatted_exec_output(content: &str, total_lines: usize) -> String {
+fn truncate_formatted_exec_output(
+    content: &str,
+    total_lines: usize,
+    limit_bytes: usize,
+    limit_lines: usize,
+) -> String {
+    debug_panic_on_double_truncation(content);
+    let (head_lines, tail_lines) = split_line_budget(limit_lines);
+    let head_bytes: usize = limit_bytes / 2;
     let segments: Vec<&str> = content.split_inclusive('\n').collect();
-    let head_take = MODEL_FORMAT_HEAD_LINES.min(segments.len());
-    let tail_take = MODEL_FORMAT_TAIL_LINES.min(segments.len().saturating_sub(head_take));
+    let head_take = head_lines.min(segments.len());
+    let tail_take = tail_lines.min(segments.len().saturating_sub(head_take));
     let omitted = segments.len().saturating_sub(head_take + tail_take);
 
     let head_slice_end: usize = segments
@@ -91,7 +104,7 @@ fn truncate_formatted_exec_output(content: &str, total_lines: usize) -> String {
     };
     let head_slice = &content[..head_slice_end];
     let tail_slice = &content[tail_slice_start..];
-    let truncated_by_bytes = content.len() > MODEL_FORMAT_MAX_BYTES;
+    let truncated_by_bytes = content.len() > limit_bytes;
     // this is a bit wrong. We are counting metadata lines and not just shell output lines.
     let marker = if omitted > 0 {
         Some(format!(
@@ -99,24 +112,24 @@ fn truncate_formatted_exec_output(content: &str, total_lines: usize) -> String {
         ))
     } else if truncated_by_bytes {
         Some(format!(
-            "\n[... output truncated to fit {MODEL_FORMAT_MAX_BYTES} bytes ...]\n\n"
+            "\n[... output truncated to fit {limit_bytes} bytes ...]\n\n"
         ))
     } else {
         None
     };
 
     let marker_len = marker.as_ref().map_or(0, String::len);
-    let base_head_budget = MODEL_FORMAT_HEAD_BYTES.min(MODEL_FORMAT_MAX_BYTES);
-    let head_budget = base_head_budget.min(MODEL_FORMAT_MAX_BYTES.saturating_sub(marker_len));
+    let base_head_budget = head_bytes.min(limit_bytes);
+    let head_budget = base_head_budget.min(limit_bytes.saturating_sub(marker_len));
     let head_part = take_bytes_at_char_boundary(head_slice, head_budget);
-    let mut result = String::with_capacity(MODEL_FORMAT_MAX_BYTES.min(content.len()));
+    let mut result = String::with_capacity(limit_bytes.min(content.len()));
 
     result.push_str(head_part);
     if let Some(marker_text) = marker.as_ref() {
         result.push_str(marker_text);
     }
 
-    let remaining = MODEL_FORMAT_MAX_BYTES.saturating_sub(result.len());
+    let remaining = limit_bytes.saturating_sub(result.len());
     if remaining == 0 {
         return result;
     }
@@ -125,4 +138,26 @@ fn truncate_formatted_exec_output(content: &str, total_lines: usize) -> String {
     result.push_str(tail_part);
 
     result
+}
+
+fn split_line_budget(limit_lines: usize) -> (usize, usize) {
+    if limit_lines == 0 {
+        return (0, 0);
+    }
+
+    let denom = MODEL_FORMAT_MAX_LINES;
+    let mut head =
+        ((limit_lines as u128 * MODEL_FORMAT_HEAD_LINES as u128) / denom as u128) as usize;
+    head = head.max(1).min(limit_lines);
+    let tail = limit_lines.saturating_sub(head);
+
+    (head, tail)
+}
+
+fn debug_panic_on_double_truncation(content: &str) {
+    if content.contains("Total output lines:") && content.contains("omitted") {
+        error_or_panic(format!(
+            "FunctionCallOutput content was already truncated before ContextManager::record_items; this would cause double truncation {content}"
+        ));
+    }
 }

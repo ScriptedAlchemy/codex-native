@@ -8,7 +8,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use codex_protocol::models::ResponseInputItem;
+use codex_utils_readiness::Readiness;
 use tracing::error;
+use tracing::trace;
 use tracing::warn;
 
 use crate::client_common::tools::ToolSpec;
@@ -144,6 +146,10 @@ pub trait ToolHandler: Send + Sync {
         )
     }
 
+    fn is_mutating(&self, _invocation: &ToolInvocation) -> bool {
+        false
+    }
+
     async fn handle(&self, invocation: ToolInvocation) -> Result<ToolOutput, FunctionCallError>;
 }
 
@@ -250,7 +256,10 @@ impl ToolRegistry {
                             async move {
                                 let next = move |inv: ToolInvocation| {
                                     let next_handler = next_handler.clone();
-                                    Box::pin(async move { next_handler.handle(inv).await })
+                                    Box::pin(async move {
+                                        wait_for_tool_gate_if_needed(&next_handler, &inv).await;
+                                        next_handler.handle(inv).await
+                                    })
                                         as Pin<
                                             Box<
                                                 dyn Future<
@@ -280,6 +289,7 @@ impl ToolRegistry {
                         // We need to re-run the interceptor to actually get the ToolOutput to return.
                         // To avoid double-call, simply call the handler and ignore preview/success;
                         // The otel log already captured the metadata.
+                        wait_for_tool_gate_if_needed(&handler, &invocation).await;
                         let out = handler.handle(invocation).await?;
                         Ok(out.into_response(&call_id_owned, &payload_for_response))
                     }
@@ -301,6 +311,7 @@ impl ToolRegistry {
                     let output_cell = &output_cell;
                     let invocation = invocation;
                     async move {
+                        wait_for_tool_gate_if_needed(&handler, &invocation).await;
                         match handler.handle(invocation).await {
                             Ok(output) => {
                                 let preview = output.log_preview();
@@ -431,6 +442,14 @@ impl ToolRegistryBuilder {
     pub fn build(self) -> (Vec<ConfiguredToolSpec>, ToolRegistry) {
         let registry = ToolRegistry::new(self.handlers, self.interceptors);
         (self.specs, registry)
+    }
+}
+
+async fn wait_for_tool_gate_if_needed(handler: &Arc<dyn ToolHandler>, invocation: &ToolInvocation) {
+    if handler.is_mutating(invocation) {
+        trace!("waiting for tool gate");
+        invocation.turn.tool_call_gate.wait_ready().await;
+        trace!("tool gate released");
     }
 }
 

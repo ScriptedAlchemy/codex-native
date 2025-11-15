@@ -160,6 +160,8 @@ const CONFIG: SolverConfig = {
   skipGitRepoCheck: false,
   originRef: "HEAD",
   upstreamRef: "origin/main",
+  originRef: "origin/main",
+  upstreamRef: "upstream/main",
 };
 
 type RepoSnapshot = {
