@@ -67,6 +67,7 @@ export class MergeConflictSolver {
   private coordinatorUserMessageCount = 0;
   private readonly workerThreads = new Map<string, Thread>();
   private readonly ciThreads = new Map<string, Thread>();
+  private conflicts: ConflictContext[] = [];
 
   constructor(private readonly options: SolverConfig) {
     this.codex = new Codex({
@@ -126,6 +127,7 @@ export class MergeConflictSolver {
       return;
     }
 
+    this.conflicts = conflicts;
     logInfo("merge", `Detected ${conflicts.length} conflict${conflicts.length === 1 ? "" : "s"}`);
     for (const conflict of conflicts) {
       logInfo("worker", `Queued ${conflict.path}`, conflict.path);
@@ -140,6 +142,7 @@ export class MergeConflictSolver {
     this.remoteComparison = await this.git.compareRefs(this.options.originRef, this.options.upstreamRef);
     const snapshot = await this.buildSnapshot(conflicts, this.remoteComparison);
     await this.startCoordinator(snapshot);
+    this.syncCoordinatorBoard([]);
 
     const outcomes: WorkerOutcome[] = [];
     for (const conflict of conflicts) {
@@ -157,6 +160,7 @@ export class MergeConflictSolver {
           `Status update for ${conflict.path} from worker thread ${outcome.threadId ?? "n/a"}:\n${update}`,
         );
       }
+      this.syncCoordinatorBoard(outcomes);
     }
 
     const reviewSummary = await this.runReviewer(outcomes, this.remoteComparison);
@@ -284,6 +288,7 @@ export class MergeConflictSolver {
     logInfo("worker", "Dispatching worker", conflict.path);
     const workerModel = this.selectWorkerModelForConflict(conflict);
     const workerThread = await this.acquireWorkerThread(conflict.path, workerModel);
+    this.setWorkerPlan(workerThread, conflict.path);
     const prompt = buildWorkerPrompt(conflict, this.coordinatorPlan, {
       originRef: this.options.originRef,
       upstreamRef: this.options.upstreamRef,
@@ -301,6 +306,7 @@ export class MergeConflictSolver {
       const summaryText = turn.finalResponse ?? "";
       logInfo("worker", stillConflicted ? "Conflict persists" : "File resolved", conflict.path);
       this.approvalSupervisor?.setContext(null);
+      this.finalizeWorkerPlan(workerThread, conflict.path, !stillConflicted);
       return {
         path: conflict.path,
         success: !stillConflicted,
@@ -310,6 +316,7 @@ export class MergeConflictSolver {
       };
     } catch (error: any) {
       this.approvalSupervisor?.setContext(null);
+      this.finalizeWorkerPlan(workerThread, conflict.path, false);
       logWarn("worker", `Worker failed: ${error}`, conflict.path);
       return {
         path: conflict.path,
@@ -611,6 +618,97 @@ export class MergeConflictSolver {
     thread = this.codex.startThread(threadOptions);
     this.ciThreads.set(label, thread);
     return thread;
+  }
+
+  private syncCoordinatorBoard(outcomes: WorkerOutcome[]): void {
+    if (!this.coordinatorThread?.id || this.conflicts.length === 0) {
+      return;
+    }
+    const completed = new Set<string>();
+    const failed = new Set<string>();
+    for (const outcome of outcomes) {
+      if (outcome.success) {
+        completed.add(outcome.path);
+      } else if (outcome.error) {
+        failed.add(outcome.path);
+      }
+    }
+    const active = new Set<string>(Array.from(this.workerThreads.keys()));
+    const plan = this.conflicts.map((conflict) => {
+      let status: "pending" | "in_progress" | "completed" = "pending";
+      if (completed.has(conflict.path)) {
+        status = "completed";
+      } else if (active.has(conflict.path) || failed.has(conflict.path)) {
+        status = "in_progress";
+      }
+      return {
+        step: `Resolve ${conflict.path}`,
+        status,
+      };
+    });
+    try {
+      this.coordinatorThread.updatePlan({
+        explanation: "Merge resolution task board",
+        plan,
+      });
+    } catch {
+      // plan updates are best-effort; ignore binding limitations
+    }
+  }
+
+  private setWorkerPlan(thread: Thread, path: string): void {
+    if (!thread.id) {
+      return;
+    }
+    try {
+      thread.updatePlan({
+        explanation: `Plan for ${path}`,
+        plan: [
+          {
+            step: "Compare base → ours → theirs diffs and write a triage summary",
+            status: "in_progress",
+          },
+          {
+            step: "Integrate both intents and describe kept/dropped changes",
+            status: "pending",
+          },
+          {
+            step: "Remove markers, stage file, list validation steps",
+            status: "pending",
+          },
+        ],
+      });
+    } catch {
+      // noop
+    }
+  }
+
+  private finalizeWorkerPlan(thread: Thread, path: string, success: boolean): void {
+    if (!thread.id) {
+      return;
+    }
+    const status: "completed" | "in_progress" = success ? "completed" : "in_progress";
+    try {
+      thread.updatePlan({
+        explanation: `Plan for ${path}`,
+        plan: [
+          {
+            step: "Compare base → ours → theirs diffs and write a triage summary",
+            status,
+          },
+          {
+            step: "Integrate both intents and describe kept/dropped changes",
+            status,
+          },
+          {
+            step: "Remove markers, stage file, list validation steps",
+            status,
+          },
+        ],
+      });
+    } catch {
+      // noop
+    }
   }
 }
 

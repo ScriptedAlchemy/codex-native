@@ -1,11 +1,5 @@
 import { HISTORICAL_PLAYBOOK } from "./constants.js";
-import type {
-  ConflictContext,
-  RemoteComparison,
-  RemoteRefs,
-  WorkerOutcome,
-  SolverConfig,
-} from "./types.js";
+import type { ConflictContext, RemoteComparison, RemoteRefs, WorkerOutcome } from "./types.js";
 import { limitText } from "./git.js";
 
 export function buildCoordinatorPrompt(snapshot: {
@@ -111,7 +105,7 @@ export function buildWorkerPrompt(
     .join("\n\n");
   const combinedContext = [sections, remoteSections].filter((chunk) => chunk && chunk.length).join("\n\n");
   const researchResources = [
-    analysisSections,
+    analysisSections ? `## Three-way diff snapshots\n${analysisSections}` : null,
     conflict.localIntentLog
       ? `### Local intent commits (not in upstream)\n${conflict.localIntentLog}`
       : null,
@@ -132,6 +126,8 @@ ${coordinatorPlan ?? "(coordinator has not provided additional notes)"}
 Constraints:
 - Operate ONLY on ${conflict.path} unless you must touch closely linked files (explain if so).
 - Understand our branch vs upstream intent using git show :2:${conflict.path} / :3:${conflict.path} / :1:${conflict.path} before editing.
+- Use \`read_file_v2\` / \`read_file\` for large sections instead of manual sed dumps so you can quote precise hunks in your reasoning.
+- Start by writing a short \"Three-way summary\" that contrasts Base → Ours, Base → Theirs, and Ours ↔ Theirs; note what each side was trying to achieve and whether they can coexist.
 - Preserve intentional local increases (buffer sizes, limits, config tweaks).
 - Mirror sdk/typescript → sdk/native implications if this file participates.
 - After resolving the conflict, run rg '<<<<<<<' ${conflict.path} to ensure markers are gone, then git add ${conflict.path}.
@@ -148,11 +144,12 @@ ${combinedContext || "(no file excerpts available)"}
 ${researchResources}
 
 Deliverables:
-1. Describe the conflicting intents you observed.
-2. Explain the final merged solution and why it's safe.
-3. Provide the research summary (key insights from diffs/logs) before detailing edits.
-4. List the commands you executed (shell/apply_patch/etc.).
-5. Recommend validation steps (e.g., targeted tests) referencing pnpm build/ci expectations when relevant.`;
+1. **Three-way summary** – bullet the important hunks from Base→Ours, Base→Theirs, and Ours↔Theirs, and call out why each change mattered.
+2. **Decision log** – explain how you reconciled the intents, what you kept/removed, and mention any trade-offs or TODOs for follow-up.
+3. **Command log** – list every tool/shell/apply_patch invocation you used during this turn.
+4. **Validation plan** – recommend targeted tests or checks (cargo/pnpm/etc.) that should run once the conflict is resolved.
+5. Confirm that \`git status --short ${conflict.path}\` is staged/clean and rg finds no conflict markers.
+6. Use concise diff excerpts when quoting code (prefer read_file output over huge sed dumps).`;
 }
 
 export function buildReviewerPrompt(input: {
