@@ -346,7 +346,7 @@ async fn test_reverie_search_semantic_respects_reranker_hook() {
     batch_size: None,
     normalize: Some(true),
     cache: Some(true),
-    reranker_model: Some("BAAI/bge-reranker-v2-m3".to_string()),
+    reranker_model: Some("rozgo/bge-reranker-v2-m3".to_string()),
     reranker_batch_size: Some(4),
     reranker_top_k: Some(1),
     ..Default::default()
@@ -410,7 +410,7 @@ async fn test_reverie_search_semantic_reranker_failure_falls_back() {
     batch_size: None,
     normalize: Some(true),
     cache: Some(true),
-    reranker_model: Some("BAAI/bge-reranker-v2-m3".to_string()),
+    reranker_model: Some("rozgo/bge-reranker-v2-m3".to_string()),
     reranker_batch_size: Some(4),
     reranker_top_k: Some(2),
     ..Default::default()

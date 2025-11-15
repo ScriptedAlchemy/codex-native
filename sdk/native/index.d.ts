@@ -318,6 +318,12 @@ export interface ReverieSearchResult {
 
 export declare function reverieSearchSemantic(codexHomePath: string, contextText: string, options?: ReverieSemanticSearchOptions | undefined | null): Promise<Array<ReverieSearchResult>>
 
+export type FastEmbedRerankerModelCode =
+  | "BAAI/bge-reranker-base"
+  | "rozgo/bge-reranker-v2-m3"
+  | "jinaai/jina-reranker-v1-turbo-en"
+  | "jinaai/jina-reranker-v2-base-multilingual";
+
 export interface ReverieSemanticIndexStats {
   conversationsIndexed: number
   documentsEmbedded: number
@@ -331,7 +337,7 @@ export interface ReverieSemanticSearchOptions {
   batchSize?: number
   normalize?: boolean
   cache?: boolean
-  rerankerModel?: string
+  rerankerModel?: FastEmbedRerankerModelCode
   rerankerCacheDir?: string
   rerankerMaxLength?: number
   rerankerShowProgress?: boolean

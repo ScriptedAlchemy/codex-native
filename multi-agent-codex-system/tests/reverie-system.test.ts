@@ -54,7 +54,7 @@ test("ReverieSystem search & warm indexing uses embedder hooks", async () => {
     },
     reverieIndexLimit: 10,
     reverieIndexMaxCandidates: 20,
-    reverieRerankerModel: "BAAI/bge-reranker-v2-m3",
+    reverieRerankerModel: "rozgo/bge-reranker-v2-m3",
     reverieRerankerBatchSize: 4,
   };
 

@@ -1,4 +1,11 @@
-import type { FastEmbedEmbedRequest, FastEmbedInitOptions, Thread, SandboxMode, ApprovalMode } from "@codex-native/sdk";
+import type {
+  FastEmbedEmbedRequest,
+  FastEmbedInitOptions,
+  Thread,
+  SandboxMode,
+  ApprovalMode,
+  FastEmbedRerankerModelCode,
+} from "@codex-native/sdk";
 import type { CiFix, CiIssue, Intention, Recommendation } from "./schemas.js";
 
 export type CiCheckKind = "lint" | "tests" | "build" | "security";
@@ -42,7 +49,7 @@ export type MultiAgentConfig = {
   reverieWarmIndexOnStart?: boolean;
   reverieIndexLimit?: number;
   reverieIndexMaxCandidates?: number;
-  reverieRerankerModel?: string;
+  reverieRerankerModel?: FastEmbedRerankerModelCode;
   reverieRerankerBatchSize?: number;
   reverieRerankerTopK?: number;
   reverieMiniAcceptThreshold?: number;

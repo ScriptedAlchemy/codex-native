@@ -17,6 +17,7 @@ import {
   type RepoDiffFileChange,
   type ReverieSemanticSearchOptions,
 } from "@codex-native/sdk";
+import type { FastEmbedRerankerModelCode } from "@codex-native/sdk";
 import { createDefaultSolverConfig, MergeConflictSolver } from "./merge-conflict-solver.js";
 
 type BranchIntentPlan = {
@@ -67,7 +68,7 @@ const DEFAULT_MAX_FILES = 12;
 const DEFAULT_REVERIE_LIMIT = 6;
 const DEFAULT_REVERIE_MAX_CANDIDATES = 80;
 const REVERIE_EMBED_MODEL = "BAAI/bge-large-en-v1.5";
-const REVERIE_RERANKER_MODEL = "BAAI/bge-reranker-v2-m3";
+const REVERIE_RERANKER_MODEL: FastEmbedRerankerModelCode = "rozgo/bge-reranker-v2-m3";
 const LOG_LABEL = "[DiffAgent]";
 const MAX_DIAGNOSTICS_PER_FILE = 4;
 let reverieReady = false;

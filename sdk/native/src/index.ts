@@ -136,6 +136,7 @@ export type { GraphNode, GraphEdge, RenderOptions } from "./gitGraphRenderer";
 export type {
   ReverieSemanticSearchOptions,
   ReverieSemanticIndexStats,
+  FastEmbedRerankerModelCode,
 } from "./nativeBinding";
 
 export function evCompleted(id: string): string {
