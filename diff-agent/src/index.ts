@@ -176,6 +176,7 @@ void main().catch((error) => {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  log.info(`Starting diff-agent (args: ${args.join(' ') || 'none'})`);
 
   if (args.includes("--merge")) {
     const mergeRepo = assertRepo(process.cwd());
@@ -199,6 +200,7 @@ async function main(): Promise<void> {
   }
 
   const resolvedRepo = assertRepo(repoPath);
+  log.info(`Collecting diff summary for ${resolvedRepo}...`);
   const context = await collectRepoDiffSummary({
     cwd: resolvedRepo,
     baseBranchOverride: baseOverride,
@@ -209,8 +211,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  log.info(`Found ${context.changedFiles.length} changed files`);
   const runner = createRunner(resolvedRepo, { model, baseUrl, apiKey });
+  log.info(`Collecting reverie context...`);
   const reverieContext = await collectReverieContext(context);
+  log.info(`Analyzing branch intent...`);
   const branchPlan = await analyzeBranchIntent(runner, context, reverieContext.branch);
 
   renderBranchReport(context, branchPlan, reverieContext.branch);
