@@ -117,9 +117,19 @@ export class EnhancedCiOrchestrator {
 
       if (ciResult.success) {
         logInfo("coordinator", "✅ CI passed successfully!");
-        await this.runFinalReview(snapshot, true);
+
+        // Only run final review if we actually fixed things
+        if (this.fixAgents.size > 0) {
+          await this.runFinalReview(snapshot, true);
+        } else {
+          logInfo("coordinator", "No fixes were needed - CI passed on first run!");
+        }
+
         this.displayFinalStats();
         await this.cleanup();
+
+        logInfo("coordinator", "✅ CI Orchestrator completed successfully");
+        process.exitCode = 0;
         return;
       }
 
@@ -946,7 +956,13 @@ Please provide:
 2. Any remaining issues that need manual attention
 3. Confidence assessment of the fixes`;
 
-    await reviewThread.run(prompt);
+    logInfo("coordinator", "\n📝 Running final review...");
+    const review = await reviewThread.run(prompt);
+
+    if (review.finalResponse) {
+      logInfo("coordinator", "\n📋 Final Review:");
+      console.log(review.finalResponse);
+    }
   }
 
   private displayFinalStats(): void {
