@@ -3,7 +3,7 @@
  * Dual-Agent Collaboration with Intelligent Approvals
  *
  * This example demonstrates:
- * - Claude Agent (Executor) that performs work and requests approvals
+ * - Claude Thread (Executor) that performs work and requests approvals
  * - Codex Agent (Manager/Approver) that intelligently reviews and approves/denies
  * - Real-time approval flow using Thread.onApprovalRequest() callback
  *
@@ -20,11 +20,11 @@
  * - Yellow: System messages
  *
  * Usage:
- *   tsx examples/dual-agent-with-approvals.ts --prompt "Create a test file and add some content"
+ *   tsx examples/dual-agent-with-approvals.ts --prompt "Create a test file"
  */
 
 import { Agent, Runner } from "@openai/agents";
-import { ClaudeAgent, CodexProvider, type ApprovalRequest } from "../src/index.js";
+import { Codex, CodexProvider, type ApprovalRequest } from "../src/index.js";
 
 // ANSI color codes
 const colors = {
@@ -127,6 +127,7 @@ Safe actions to APPROVE:
 - Build commands (npm run build, cargo build)
 - File writes to standard directories (src/, tests/, docs/, /tmp)
 - Creating test files
+- Echo commands
 
 Actions requiring careful review:
 - File deletion
@@ -168,8 +169,9 @@ Response format:
   }
 
   async review(request: ApprovalRequest): Promise<boolean> {
-    this.logger.approval(`Request: ${request.type}`);
+    this.logger.approval(`\n📋 New Approval Request`);
     this.logger.pushIndent();
+    this.logger.approval(`Type: ${request.type}`);
     this.logger.approval(`Details: ${JSON.stringify(request.details, null, 2)}`);
     this.logger.popIndent();
 
@@ -256,43 +258,39 @@ Format your plan as numbered steps with clear actions.`,
 
     // Create approval handler
     const approvalHandler = async (request: ApprovalRequest): Promise<boolean> => {
-      logger.approval("\n📋 New Approval Request");
       const approved = await approvalAgent.review(request);
       return approved;
     };
 
-    // Create Claude agent with approval callback
+    // Create Claude thread with approval callback
     logger.claude("Starting execution with approval flow...");
-    const claudeAgent = new ClaudeAgent({
-      model: "claude-sonnet-4-5-20250929",
+    const codex = new Codex();
+    const thread = codex.startThread({
+      model: "gpt-5-codex",
       workingDirectory: process.cwd(),
       approvalMode: "on-request",
       sandboxMode: "workspace-write",
-      onApprovalRequest: approvalHandler,
     });
+
+    // Register approval callback
+    thread.onApprovalRequest(approvalHandler);
 
     const executionPrompt = `Execute this plan:
 
 ${plan}
 
-Work through each step carefully. Request approval when needed.`;
+Work through each step carefully.`;
 
-    const executionResult = await claudeAgent.delegate(executionPrompt);
+    const result = await thread.run(executionPrompt);
 
-    if (executionResult.success) {
-      logger.pushIndent();
-      logger.claude("Result:");
-      logger.pushIndent();
-      executionResult.output.split("\n").slice(0, 10).forEach((line) => {
-        if (line.trim()) logger.claude(line);
-      });
-      logger.popIndent();
-      logger.popIndent();
-    } else {
-      logger.pushIndent();
-      logger.claude(`Error: ${executionResult.error}`);
-      logger.popIndent();
-    }
+    logger.pushIndent();
+    logger.claude("Result:");
+    logger.pushIndent();
+    result.finalResponse.split("\n").slice(0, 10).forEach((line) => {
+      if (line.trim()) logger.claude(line);
+    });
+    logger.popIndent();
+    logger.popIndent();
 
     logger.header("WORKFLOW COMPLETE");
     logger.system("Dual-agent collaboration with approvals finished");
@@ -320,7 +318,7 @@ ${colors.yellow}Usage:${colors.reset}
 ${colors.yellow}Examples:${colors.reset}
   tsx examples/dual-agent-with-approvals.ts --prompt "Create a test file with sample data"
   tsx examples/dual-agent-with-approvals.ts --prompt "Run tests and report results"
-  tsx examples/dual-agent-with-approvals.ts --prompt "Analyze code and suggest improvements"
+  tsx examples/dual-agent-with-approvals.ts --prompt "Echo hello world"
 
 ${colors.yellow}Features:${colors.reset}
   ${colors.blue}• Codex${colors.reset} creates plans and intelligently approves/denies actions

@@ -335,8 +335,8 @@ await server.connect(transport);
     let mcpConfigPath: string | undefined;
 
     try {
-      // Start approval server if handler is configured
-      if (this.approvalHandler && !this.approvalServer) {
+      // Start approval server if handler is configured AND we're not bypassing permissions
+      if (this.approvalHandler && !this.approvalServer && this.options.approvalMode !== "never") {
         mcpConfigPath = await this.startApprovalServer();
         serverStarted = true;
       }
@@ -344,11 +344,19 @@ await server.connect(transport);
       for (let attempt = 0; attempt <= this.options.maxRetries; attempt++) {
         try {
           // Build Claude CLI command
+          // Escape prompt for shell: replace quotes and newlines
+          const escapedPrompt = prompt
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+
           let command: string;
           if (sessionId) {
-            command = `claude --resume ${sessionId} "${prompt.replace(/"/g, '\\"')}" --output-format json`;
+            command = `claude --resume ${sessionId} "${escapedPrompt}" --output-format json`;
           } else {
-            command = `claude -p "${prompt.replace(/"/g, '\\"')}" --output-format json`;
+            command = `claude -p "${escapedPrompt}" --output-format json`;
           }
 
           // Add model if specified
@@ -356,18 +364,43 @@ await server.connect(transport);
             command += ` --model ${this.options.model}`;
           }
 
-          // Add MCP config for approval server
-          if (mcpConfigPath) {
+          // Add approval mode
+          if (this.options.approvalMode === "never") {
+            command += ` --dangerously-skip-permissions`;
+          }
+
+          // Add MCP config for approval server (if callback provided)
+          if (mcpConfigPath && this.approvalHandler) {
             command += ` --mcp-config "${mcpConfigPath}" --strict-mcp-config`;
             command += ` --permission-prompt-tool mcp__codex-approval-server__approve`;
           }
 
           // Execute Claude CLI
-          const { stdout } = await execAsync(command, {
-            cwd: this.workingDirectory,
-            maxBuffer: 10 * 1024 * 1024,
-            timeout: this.options.timeout,
-          });
+          console.log(`[ClaudeAgent] Executing: ${command}`);
+
+          let stdout: string;
+          let stderr: string;
+
+          try {
+            const result = await execAsync(command, {
+              cwd: this.workingDirectory,
+              maxBuffer: 10 * 1024 * 1024,
+              timeout: this.options.timeout,
+              env: { ...process.env, FORCE_COLOR: "0" }, // Disable colors for JSON parsing
+            });
+            stdout = result.stdout;
+            stderr = result.stderr;
+          } catch (execError: any) {
+            console.error(`[ClaudeAgent] Execution error:`, execError.message);
+            throw new Error(`Claude CLI execution failed: ${execError.message}`);
+          }
+
+          if (stderr) {
+            console.error(`[ClaudeAgent] stderr: ${stderr}`);
+          }
+
+          console.log(`[ClaudeAgent] stdout length: ${stdout.length}`);
+          console.log(`[ClaudeAgent] stdout preview: ${stdout.substring(0, 200)}`);
 
           const response = JSON.parse(stdout) as ClaudeCLIResponse;
 
