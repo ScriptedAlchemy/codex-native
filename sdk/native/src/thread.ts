@@ -10,7 +10,7 @@ import { TurnOptions } from "./turnOptions";
 import { createOutputSchemaFile, normalizeOutputSchema } from "./outputSchemaFile";
 import { runTui, startTui } from "./tui";
 import { getNativeBinding } from "./nativeBinding";
-import type { NativeTuiRequest, NativeTuiExitInfo } from "./nativeBinding";
+import type { NativeTuiRequest, NativeTuiExitInfo, ApprovalRequest } from "./nativeBinding";
 import type { RunTuiOptions, TuiSession } from "./tui";
 import { attachLspDiagnostics } from "./lsp";
 
@@ -173,6 +173,7 @@ export class Thread {
   private _id: string | null;
   private _threadOptions: ThreadOptions;
   private _eventListeners: Array<(event: ThreadEvent) => void> = [];
+  private _approvalHandler: ((request: ApprovalRequest) => boolean | Promise<boolean>) | null = null;
 
   /** Returns the ID of the thread. Populated after the first turn starts. */
   public get id(): string | null {
@@ -202,6 +203,27 @@ export class Thread {
     const index = this._eventListeners.indexOf(listener);
     if (index !== -1) {
       this._eventListeners.splice(index, 1);
+    }
+  }
+
+  /**
+   * Register a callback to handle approval requests from the agent.
+   * The handler should return true to approve the action, false to deny it.
+   *
+   * @param handler Callback function that receives ApprovalRequest and returns approval decision
+   * @example
+   * ```typescript
+   * thread.onApprovalRequest(async (request) => {
+   *   console.log(`Approval requested for ${request.type}`);
+   *   return true; // Auto-approve
+   * });
+   * ```
+   */
+  onApprovalRequest(handler: (request: ApprovalRequest) => boolean | Promise<boolean>): void {
+    this._approvalHandler = handler;
+    const binding = getNativeBinding();
+    if (binding && typeof binding.registerApprovalCallback === "function") {
+      binding.registerApprovalCallback(handler);
     }
   }
 
