@@ -57,13 +57,14 @@ interface FixAgent {
   attempts: number;
   delegatedTo?: string;
   rejectionReasons: string[];
+  tokenTracker: TokenTracker;
 }
 
 export class EnhancedCiOrchestrator {
   private codex: Codex;
   private git: GitRepo;
   private lspManager?: LspManager;
-  private tokenTracker = new TokenTracker();
+  private tokenTracker: TokenTracker;
   private coordinatorThread?: Thread;
   private fixAgents = new Map<string, FixAgent>();
   private graphRenderer?: any; // AgentGraphRenderer instance
@@ -77,6 +78,7 @@ export class EnhancedCiOrchestrator {
       apiKey: config.apiKey,
     });
     this.git = new GitRepo(config.workingDirectory);
+    this.tokenTracker = new TokenTracker(config.coordinatorModel);
 
     if (config.visualize && AgentGraphRenderer) {
       this.graphRenderer = new (AgentGraphRenderer as any)();
@@ -189,7 +191,9 @@ Each agent will have full codebase access and can edit files.
 
 Ready to begin the automated fix process.`;
 
-    await this.coordinatorThread.run(prompt);
+    const initTurn = await this.coordinatorThread.run(prompt);
+    this.tokenTracker.record(initTurn.usage);
+    logInfo("coordinator", `Context usage: ${(this.tokenTracker.usagePercentage() * 100).toFixed(1)}%`);
 
     if (this.graphRenderer) {
       this.graphRenderer.addAgent({
@@ -282,23 +286,21 @@ Ready to begin the automated fix process.`;
     for (const failure of failures) {
       const agentId = `fix-${failure.label}-${Date.now()}`;
 
-      // Fork from coordinator for context sharing
-      const forkOptions: ForkOptions = {
-        nthUserMessage: 1,
-        threadOptions: {
-          model: this.config.fixerModel ?? "gpt-5.1-codex",
-          sandboxMode: "workspace-write",
-          approvalMode: "on-request",
-        },
+      // Create fresh thread with minimal context (don't fork to avoid context bloat)
+      // Fix agents only need to know about their specific failure, not the entire CI report
+      const fixerModel = this.config.fixerModel ?? "gpt-5.1-codex";
+      const threadOptions: ThreadOptions = {
+        model: fixerModel,
+        sandboxMode: "workspace-write",
+        approvalMode: "on-request",
       };
 
       let thread: Thread;
       try {
-        if (this.coordinatorThread) {
-          thread = await this.coordinatorThread.fork(forkOptions);
-        } else {
-          thread = this.codex.startThread(forkOptions.threadOptions!);
-        }
+        // Start fresh thread instead of forking from coordinator
+        // This prevents inheriting 1MB+ CI reports and full repo snapshots
+        thread = this.codex.startThread(threadOptions);
+        logInfo("coordinator", `Created fresh thread for ${failure.label} (avoiding context inheritance)`);
       } catch (error) {
         logWarn("coordinator", `Failed to create fix agent for ${failure.label}: ${error}`);
         continue;
@@ -312,6 +314,7 @@ Ready to begin the automated fix process.`;
         filesFixed: [],
         attempts: 0,
         rejectionReasons: [],
+        tokenTracker: new TokenTracker(fixerModel),
       };
 
       agents.push(agent);
@@ -379,8 +382,17 @@ Please provide:
 Respond with your assessment and recommendations.`;
 
     try {
-      const response = await this.coordinatorThread.run(rollupPrompt);
+      // Check if we should fork before running rollup
+      if (this.tokenTracker.shouldHandoff()) {
+        logWarn("coordinator", `Context ${(this.tokenTracker.usagePercentage() * 100).toFixed(1)}% full - forking coordinator before rollup`);
+        await this.forkCoordinator();
+      }
 
+      const response = await this.coordinatorThread.run(rollupPrompt);
+      this.tokenTracker.record(response.usage);
+
+      const usagePct = (this.tokenTracker.usagePercentage() * 100).toFixed(1);
+      logInfo("coordinator", `Context usage: ${usagePct}%`);
       logInfo("coordinator", "📊 Coordinator Rollup Assessment:");
       console.log(response.finalResponse);
 
@@ -414,6 +426,18 @@ Respond with your assessment and recommendations.`;
       this.updateAgentStatus(agent, "fixing");
 
       const turn = await agent.thread.run(prompt);
+
+      // Track token usage
+      agent.tokenTracker.record(turn.usage);
+      const usagePct = (agent.tokenTracker.usagePercentage() * 100).toFixed(1);
+      logInfo("worker", `Token usage: ${agent.tokenTracker.summary()} (${usagePct}% of context)`);
+
+      // Check if we should fork/handoff before continuing
+      if (agent.tokenTracker.shouldHandoff()) {
+        logWarn("worker", `Context ${usagePct}% full - approaching limit! Consider handoff.`);
+      } else if (agent.tokenTracker.shouldFork()) {
+        logInfo("worker", `Context ${usagePct}% full - may need to fork soon`);
+      }
 
       // Parse the response to extract fixed files
       const fixedFiles = this.parseFixedFiles(turn.finalResponse ?? "");
@@ -870,6 +894,41 @@ Please provide:
     if (this.graphRenderer) {
       console.log("\n🎯 Final Agent Graph:");
       console.log(this.graphRenderer.renderAscii());
+    }
+  }
+
+  /**
+   * Fork the coordinator thread to a fresh context when approaching limits
+   * This preserves continuity while avoiding context window errors
+   */
+  private async forkCoordinator(): Promise<void> {
+    if (!this.coordinatorThread) {
+      return;
+    }
+
+    try {
+      logInfo("coordinator", "Forking coordinator to fresh context...");
+
+      // Fork from a recent message to carry forward key context but drop older history
+      const newThread = await this.coordinatorThread.fork({
+        // Start from the last few messages instead of full history
+        nthUserMessage: -3, // Last 3 user messages
+        threadOptions: {
+          model: this.config.coordinatorModel ?? "gpt-5.1-codex",
+          sandboxMode: "workspace-write",
+          approvalMode: "on-request",
+        },
+      });
+
+      // Replace coordinator thread
+      this.coordinatorThread = newThread;
+
+      // Reset token tracker for new context
+      this.tokenTracker = new TokenTracker(this.config.coordinatorModel);
+
+      logInfo("coordinator", "✅ Coordinator forked successfully - context refreshed");
+    } catch (error) {
+      logWarn("coordinator", `Failed to fork coordinator: ${error}`);
     }
   }
 
