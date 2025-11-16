@@ -472,18 +472,41 @@ async function collectReverieContext(context: RepoDiffSummary, runner: Runner): 
     // Focus search on file path and key code symbols, not full diff
     const snippet = `File: ${change.path}\nImplementing changes related to: ${extractKeySymbols(change.diff)}`;
     const matches = await searchReveries(snippet, context.repoPath, DEFAULT_REVERIE_LIMIT, DEFAULT_REVERIE_MAX_CANDIDATES / 2);
+
     if (matches.length > 0) {
-      perFile.set(change.path, matches);
-      log.info(`  ${change.path}: ${matches.length} matches`);
-      // Log per-file reverie details
-      matches.slice(0, 3).forEach((match, idx) => {
-        const preview = truncateText(match.excerpt.replace(/\s+/g, " ").trim(), 80);
-        const insightText = match.insights[0] || "Context";
-        log.info(`    ${idx + 1}. [${match.relevance.toFixed(2)}] ${insightText}`);
-        log.info(`       "${preview}"`);
-      });
-      if (matches.length > 3) {
-        log.info(`    ... and ${matches.length - 3} more`);
+      // Apply same filtering as branch-level reveries
+      const basicFiltered = matches.filter(match => isValidReverieExcerpt(match.excerpt));
+      const highScoring = basicFiltered.filter(match => match.relevance >= 0.7);
+
+      log.info(`  ${change.path}: ${matches.length} matches, ${basicFiltered.length} pass basic quality, ${highScoring.length} high-scoring`);
+
+      if (highScoring.length > 0) {
+        log.info(`    Using LLM to grade ${highScoring.length} high-scoring reveries...`);
+
+        // LLM-based relevance grading
+        const gradingPromises = highScoring.map(insight =>
+          gradeReverieRelevance(runner, snippet, insight)
+            .then(isRelevant => ({ insight, isRelevant }))
+        );
+
+        const gradedResults = await Promise.all(gradingPromises);
+        const validFileInsights = gradedResults
+          .filter(r => r.isRelevant)
+          .map(r => r.insight);
+
+        log.info(`    LLM approved ${validFileInsights.length}/${highScoring.length} high-scoring reveries`);
+
+        if (validFileInsights.length > 0) {
+          perFile.set(change.path, validFileInsights);
+
+          // Log LLM-approved reveries with longer previews
+          validFileInsights.forEach((match, idx) => {
+            const preview = truncateText(match.excerpt.replace(/\s+/g, " ").trim(), 200);
+            const insightText = match.insights[0] || "Context";
+            log.info(`      ${idx + 1}. [${match.relevance.toFixed(2)}] ${insightText}`);
+            log.info(`         "${preview}"`);
+          });
+        }
       }
     }
   }
