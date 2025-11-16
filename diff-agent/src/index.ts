@@ -38,6 +38,18 @@ type FileAssessment = {
   risk_level: "info" | "low" | "medium" | "high";
 };
 
+type DiffComplexity = {
+  score: number; // 0-100 complexity score
+  reasoning_effort: "low" | "medium" | "high";
+  factors: {
+    lines_changed: number;
+    hunks_count: number;
+    is_core_file: boolean;
+    has_complex_logic: boolean;
+    urgency: "low" | "medium" | "high";
+  };
+};
+
 type ReverieInsight = {
   conversationId: string;
   timestamp: string;
@@ -558,6 +570,73 @@ async function analyzeBranchIntent(
   return parseStructuredOutput<BranchIntentPlan>(result.finalOutput, fallback);
 }
 
+/**
+ * Assess the complexity of a diff to determine appropriate reasoning effort
+ */
+function assessDiffComplexity(
+  change: RepoDiffFileChange,
+  urgency: "low" | "medium" | "high",
+): DiffComplexity {
+  // Count lines changed
+  const diffLines = change.diff.split("\n");
+  const addedLines = diffLines.filter(line => line.startsWith("+") && !line.startsWith("+++")).length;
+  const removedLines = diffLines.filter(line => line.startsWith("-") && !line.startsWith("---")).length;
+  const linesChanged = addedLines + removedLines;
+
+  // Count hunks (change chunks separated by @@)
+  const hunksCount = (change.diff.match(/^@@/gm) || []).length;
+
+  // Check if it's a core file (codex-rs/* is more critical than sdk/*)
+  const isCoreFile = change.path.includes("codex-rs/") ||
+                     change.path.includes("/rust-bindings/") ||
+                     change.path.includes("/native/src/");
+
+  // Detect complex logic patterns in the diff
+  const hasComplexLogic = /\b(if|else|for|while|match|async|await|unsafe|impl|trait)\b/.test(change.diff) &&
+                          linesChanged > 20;
+
+  // Calculate complexity score (0-100)
+  let score = 0;
+
+  // Lines changed contribution (0-40 points)
+  score += Math.min(40, (linesChanged / 200) * 40);
+
+  // Hunks contribution (0-20 points) - many hunks = scattered changes
+  score += Math.min(20, hunksCount * 4);
+
+  // Core file bonus (0-15 points)
+  if (isCoreFile) score += 15;
+
+  // Complex logic bonus (0-15 points)
+  if (hasComplexLogic) score += 15;
+
+  // Urgency contribution (0-10 points)
+  const urgencyPoints = { low: 0, medium: 5, high: 10 };
+  score += urgencyPoints[urgency];
+
+  // Determine reasoning effort based on score
+  let reasoning_effort: "low" | "medium" | "high";
+  if (score < 30) {
+    reasoning_effort = "low";
+  } else if (score < 60) {
+    reasoning_effort = "medium";
+  } else {
+    reasoning_effort = "high";
+  }
+
+  return {
+    score: Math.min(100, Math.round(score)),
+    reasoning_effort,
+    factors: {
+      lines_changed: linesChanged,
+      hunks_count: hunksCount,
+      is_core_file: isCoreFile,
+      has_complex_logic: hasComplexLogic,
+      urgency,
+    },
+  };
+}
+
 async function assessFileChange(
   runner: Runner,
   context: RepoDiffSummary,
@@ -565,10 +644,25 @@ async function assessFileChange(
   plan: BranchIntentPlan,
   insights: ReverieInsight[],
 ): Promise<FileAssessment> {
+  // Assess complexity to determine reasoning effort
+  const focusEntry = plan.file_focus.find((entry) => entry.file === change.path);
+  const urgency = focusEntry?.urgency || "medium";
+  const complexity = assessDiffComplexity(change, urgency);
+
+  log.info(
+    `  ${change.path}: complexity=${complexity.score}/100 (${complexity.reasoning_effort}) ` +
+    `[lines:${complexity.factors.lines_changed}, hunks:${complexity.factors.hunks_count}, ` +
+    `core:${complexity.factors.is_core_file}, complex:${complexity.factors.has_complex_logic}]`
+  );
+
   const reviewer = new Agent<unknown, JsonSchemaDefinition>({
     name: "FileChangeInspector",
     outputType: FILE_ASSESSMENT_OUTPUT_TYPE,
     instructions: `# File Diff Inspector\n\nYour role is to assess whether each file change aligns with the stated branch objectives and provides value.\n\nGuidelines:\n- Capture the developer's intent for this specific file change\n- Evaluate if the change is necessary (advances branch goals), questionable (unclear value), or unnecessary (doesn't contribute to objectives)\n- Assess if the change is minimally invasive - does it touch only what's needed, or does it include unrelated modifications?\n- Flag specific unnecessary chunks only when you spot clear scope creep or churn that doesn't serve the file's stated intent\n- Provide constructive recommendations for improvements, refactoring, or follow-up work\n- Consider that intentional improvements and style modernizations are often necessary for maintainability\n\nArchitectural Preferences:\n- PREFER changes in sdk/native/* over codex-rs/* to keep core changes minimal\n- When reviewing codex-rs/* changes, scrutinize whether they could be implemented in the SDK layer instead\n- Flag codex-rs/* modifications as "questionable" if the same functionality could be achieved via SDK wrappers or bindings\n- Mark codex-rs/* changes as "required" only when they genuinely need core functionality changes\n\nBe balanced and fair in your assessment. Changes that improve code quality, fix technical debt, or align with documented style guides should be marked as "required" even if not strictly necessary for the feature.\n\nRespond as JSON only.`,
+    // Configure reasoning effort based on complexity
+    ...(complexity.reasoning_effort !== "low" && {
+      reasoning: { effort: complexity.reasoning_effort },
+    }),
   });
   const input = buildFilePrompt(context, change, plan, insights);
   const fallback: FileAssessment = {
