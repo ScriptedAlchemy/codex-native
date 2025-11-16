@@ -1,6 +1,6 @@
 # Agent Approval Patterns for Claude Code
 
-This document explains how to handle approvals when one agent delegates work to Claude Code in headless mode.
+This document explains how to control permissions when one agent delegates work to Claude Code in headless mode.
 
 ## The Problem
 
@@ -9,13 +9,13 @@ When Claude Code runs in headless mode and needs to:
 - Write/modify files
 - Access network resources
 
-...it normally asks for user approval. In agent-to-agent scenarios, we need the **manager agent** to approve these requests instead of waiting for human input.
+...you need to configure permission policies to avoid interactive prompts that would hang in agent-to-agent scenarios.
 
 ## Solutions
 
-### 1. **Auto-Approval Modes** (Simplest)
+### 1. **Permission Modes** (Recommended)
 
-Use CLI flags to automatically approve certain actions:
+Use CLI flags to configure permission policies:
 
 ```bash
 claude -p "task" \
@@ -23,36 +23,56 @@ claude -p "task" \
   --allowedTools "Bash,Read,Write"
 ```
 
-**Flags:**
-- `--permission-mode acceptEdits` - Auto-approve file edits
-- `--allowedTools "Bash,Read"` - Only allow specific tools
-- `--disallowedTools "WebSearch"` - Block specific tools
+**Permission Modes:**
+- `default` - Interactive approval (hangs in headless!)
+- `acceptEdits` - Auto-approve file edits, ask for commands
+- `bypassPermissions` - Auto-approve everything (dangerous!)
+- `plan` - Planning mode with structured output
+
+**Tool Control:**
+- `--allowedTools "Bash,Read"` - Whitelist specific tools
+- `--allowedTools "Bash(git:*,npm:*)"` - Allow specific commands
+- `--disallowedTools "WebSearch"` - Blacklist tools
+- `--tools ""` - Disable all tools
+- `--dangerously-skip-permissions` - Bypass all checks
 
 **Use when:**
-- Worker agent is fully trusted
-- Task scope is limited and safe
-- Manager doesn't need fine-grained control
+- Worker agent is trusted
+- Task scope is well-defined
+- Security policy is static (no dynamic decisions)
 
 **Example:** See `agent-claude-worker.ts`
 
+**Pros:**
+✅ Simple to configure
+✅ No custom code needed
+✅ Works with all Claude CLI modes
+
+**Cons:**
+❌ No dynamic approval decisions
+❌ Can't approve/deny based on runtime context
+❌ All-or-nothing per tool type
+
 ---
 
-### 2. **Streaming JSON I/O** (Full Control)
+### 2. **Streaming JSON I/O** (Monitoring Only)
 
-Use bidirectional streaming to handle approval requests interactively:
+Use bidirectional streaming to monitor Claude's actions in real-time:
 
 ```bash
 claude -p \
   --output-format stream-json \
-  --input-format stream-json
+  --input-format stream-json \
+  --permission-mode acceptEdits
 ```
 
 **How it works:**
 1. Manager sends task via stdin (JSONL format)
 2. Claude streams events via stdout (JSONL format)
-3. When Claude needs approval, it emits an `approval_request` event
-4. Manager reviews request and sends `approval_response` via stdin
-5. Claude continues based on response
+3. Manager monitors tool use events to see what actions Claude is taking
+4. Permissions are still controlled via `--permission-mode` and `--allowedTools`
+
+**Note:** Interactive approval callbacks (approval_request/approval_response) are not currently supported in streaming mode. Use permission modes instead.
 
 **Message format:**
 
@@ -91,7 +111,7 @@ claude -p \
 
 ---
 
-### 3. **MCP Approval Tool** (Cleanest)
+### 3. **MCP Approval Tool** (Dynamic Approval)
 
 Provide an MCP server with an "approve" tool that Claude calls:
 
