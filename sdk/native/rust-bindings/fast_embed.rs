@@ -63,9 +63,9 @@ pub async fn fast_embed_init(opts: FastEmbedInitOptions) -> napi::Result<()> {
     init_options = init_options.with_show_download_progress(show_download_progress);
   }
 
-  // Configure CoreML execution provider for Metal/ANE acceleration (enabled by default on macOS)
+  // Configure CoreML execution provider for Metal/ANE acceleration (disabled - causes 10-30GB memory usage)
   #[cfg(target_os = "macos")]
-  if opts.use_coreml.unwrap_or(true) {
+  if opts.use_coreml.unwrap_or(false) {
     use ort::execution_providers::CoreMLExecutionProvider;
     use ort::execution_providers::coreml::CoreMLComputeUnits;
     let mut coreml = CoreMLExecutionProvider::default();

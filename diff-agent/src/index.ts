@@ -68,7 +68,7 @@ const DEFAULT_MODEL = "gpt-5.1-codex-mini";
 const DEFAULT_MAX_FILES = 12;
 const DEFAULT_REVERIE_LIMIT = 6;
 const DEFAULT_REVERIE_MAX_CANDIDATES = 80;
-const REVERIE_EMBED_MODEL = "BAAI/bge-small-en-v1.5"; // Large model uses 10-30GB RAM with CoreML!
+const REVERIE_EMBED_MODEL = "BAAI/bge-large-en-v1.5"; // Testing large model on CPU (CoreML disabled)
 const REVERIE_RERANKER_MODEL: FastEmbedRerankerModelCode = "rozgo/bge-reranker-v2-m3";
 const LOG_LABEL = "[DiffAgent]";
 const MAX_DIAGNOSTICS_PER_FILE = 4;
@@ -507,10 +507,10 @@ async function ensureReverieReady(): Promise<void> {
     await fastEmbedInit({
       model: REVERIE_EMBED_MODEL,
       showDownloadProgress: false, // Disable progress to reduce log noise
-      // Note: CoreML/Metal acceleration is enabled by default on macOS for memory efficiency
+      // Note: CoreML disabled - using CPU-only to avoid 10-30GB memory usage
     });
     reverieReady = true;
-    log.info(`Reverie embedding model ready (Metal/GPU acceleration active on macOS)`);
+    log.info(`Reverie embedding model ready (CPU-only, CoreML disabled)`);
   } catch (error) {
     log.warn(`Failed to initialize reverie embedder: ${error instanceof Error ? error.message : String(error)}`);
   }
