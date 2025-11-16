@@ -26,6 +26,8 @@
 import { Codex } from "../codex";
 import type { RunResult } from "../thread";
 import type { ThreadOptions, ApprovalMode, SandboxMode } from "../threadOptions";
+import type { ThreadItem } from "../items";
+import type { Usage } from "../events";
 
 export interface ClaudeAgentOptions {
   /**
@@ -64,6 +66,11 @@ export interface ClaudeAgentOptions {
   timeout?: number;
 }
 
+/**
+ * Result from delegating a task to Claude Code
+ *
+ * This is Thread-compatible and can be used by other agents.
+ */
 export interface DelegationResult {
   /**
    * Thread ID for resuming the conversation
@@ -71,7 +78,7 @@ export interface DelegationResult {
   threadId?: string;
 
   /**
-   * Output from Claude Code
+   * Final text response from Claude Code
    */
   output: string;
 
@@ -86,14 +93,21 @@ export interface DelegationResult {
   error?: string;
 
   /**
-   * Cost in USD
+   * Full items from the thread (includes tool calls, file changes, etc.)
+   * This allows other agents to see what actions were taken
    */
-  cost?: number;
+  items?: ThreadItem[];
 
   /**
-   * Duration in milliseconds
+   * Token usage information
    */
-  duration?: number;
+  usage?: Usage | null;
+
+  /**
+   * The raw Thread RunResult for full compatibility
+   * Use this to access all Thread-specific information
+   */
+  threadResult?: RunResult;
 }
 
 /**
@@ -157,10 +171,14 @@ export class ClaudeAgent {
 
         const result: RunResult = await thread.run(prompt);
 
+        // Return Thread-compatible result with full information
         return {
           threadId: thread.id || undefined,
           output: result.finalResponse || "",
           success: true,
+          items: result.items,
+          usage: result.usage,
+          threadResult: result,
         };
       } catch (error: any) {
         lastError = error;
@@ -200,5 +218,64 @@ export class ClaudeAgent {
     }
 
     return results;
+  }
+
+  /**
+   * Extract tool use items from a delegation result
+   * Useful for seeing what commands/tools Claude executed
+   */
+  static getToolUses(result: DelegationResult): Array<{ name: string; input: any }> {
+    if (!result.items) return [];
+
+    return result.items
+      .filter((item) => item.type === "command_execution" || item.type === "mcp_tool_call")
+      .map((item: any) => ({
+        name: item.command || item.tool_name || "unknown",
+        input: item.input || item.arguments || {},
+      }));
+  }
+
+  /**
+   * Extract file changes from a delegation result
+   * Useful for seeing what files Claude modified
+   */
+  static getFileChanges(result: DelegationResult): Array<{ path: string; status: string }> {
+    if (!result.items) return [];
+
+    return result.items
+      .filter((item) => item.type === "file_change")
+      .map((item: any) => ({
+        path: item.path || "unknown",
+        status: item.status || "modified",
+      }));
+  }
+
+  /**
+   * Get a summary of what actions were taken
+   */
+  static getSummary(result: DelegationResult): string {
+    const toolUses = ClaudeAgent.getToolUses(result);
+    const fileChanges = ClaudeAgent.getFileChanges(result);
+
+    const parts: string[] = [result.output];
+
+    if (toolUses.length > 0) {
+      parts.push(
+        `\nTools used: ${toolUses.map((t) => t.name).join(", ")}`
+      );
+    }
+
+    if (fileChanges.length > 0) {
+      parts.push(
+        `\nFiles modified: ${fileChanges.map((f) => f.path).join(", ")}`
+      );
+    }
+
+    if (result.usage) {
+      const tokens = result.usage.input_tokens + result.usage.output_tokens;
+      parts.push(`\nTokens: ${tokens}`);
+    }
+
+    return parts.join("");
   }
 }
