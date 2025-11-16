@@ -123,10 +123,14 @@ test("injectReverie posts formatted summary exactly once", async () => {
   };
   const reverie = new ReverieSystem(config);
   const runCalls: string[] = [];
+  const backgroundEvents: string[] = [];
   const mockThread = {
     async run(note: string) {
       runCalls.push(note);
       return { finalResponse: note };
+    },
+    async sendBackgroundEvent(message: string) {
+      backgroundEvents.push(message);
     },
   } as unknown as Thread;
 
@@ -147,9 +151,12 @@ test("injectReverie posts formatted summary exactly once", async () => {
   assert.equal(runCalls.length, 1, "thread.run should be called once for non-empty reveries");
   assert.ok(runCalls[0].includes("migration failures"));
   assert.ok(runCalls[0].includes("Re-run migrations"));
+  assert.equal(backgroundEvents.length, 1, "background event should be emitted for reverie hints");
+  assert.ok(backgroundEvents[0].includes("migration failures"));
 
   await reverie.injectReverie(mockThread, [], "noop");
   assert.equal(runCalls.length, 1, "empty reveries should not emit follow-up note");
+  assert.equal(backgroundEvents.length, 1, "no background events expected when reveries empty");
 });
 
 test("ReverieSystem does not set reranker options when not configured", async () => {

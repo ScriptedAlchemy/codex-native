@@ -12,6 +12,9 @@ const DEFAULT_REASONING_WEIGHT = 0.6;
 const DEFAULT_DIALOGUE_WEIGHT = 0.4;
 const DEFAULT_MIN_REASONING_CHARS = 120;
 const DEFAULT_MIN_DIALOGUE_CHARS = 160;
+const DEFAULT_HINT_TURN_GAP = 2;
+const DEFAULT_HINT_HELPFUL_SCORE = 0.65;
+const DEFAULT_CONVERSATION_COOLDOWN_TURNS = 3;
 const FALLBACK_CANDIDATE_CAP = 80;
 const SIGNATURE_CONTEXT_TAIL = 200;
 const FORMAT_CONTEXT_TAIL = 160;
@@ -38,11 +41,17 @@ class ReverieHintManager {
   private readonly useMiniModel: boolean;
   private readonly hintModel: string;
   private readonly config: MultiAgentConfig;
+  private readonly minTurnGap: number;
+  private readonly helpfulScore: number;
+  private readonly conversationCooldown: number;
   private unsubscribe?: () => void;
   private pending = false;
   private disposed = false;
   private lastHintAt = 0;
   private lastSignature?: string;
+  private turnCounter = 0;
+  private lastHintTurn = 0;
+  private recentConversationTurns = new Map<string, number>();
 
   constructor(
     private readonly thread: Thread,
@@ -70,6 +79,10 @@ class ReverieHintManager {
     this.minDialogueChars = Math.max(40, config.reverieHintMinDialogueChars ?? DEFAULT_MIN_DIALOGUE_CHARS);
     this.useMiniModel = config.reverieHintUseMiniModel ?? true;
     this.hintModel = config.reverieHintModel ?? DEFAULT_MINI_MODEL;
+    this.minTurnGap = Math.max(1, config.reverieHintTurnGap ?? DEFAULT_HINT_TURN_GAP);
+    const helpful = config.reverieHintHelpfulScore ?? DEFAULT_HINT_HELPFUL_SCORE;
+    this.helpfulScore = Math.min(0.99, Math.max(helpful, this.minScore));
+    this.conversationCooldown = Math.max(1, config.reverieHintConversationCooldown ?? DEFAULT_CONVERSATION_COOLDOWN_TURNS);
   }
 
   attach(): () => void {
@@ -89,6 +102,12 @@ class ReverieHintManager {
 
   private handleEvent(event: ThreadEvent): void {
     if (this.disposed) {
+      return;
+    }
+
+    if (event.type === "turn.completed") {
+      this.turnCounter += 1;
+      this.maybeEmitHint();
       return;
     }
 
@@ -158,14 +177,27 @@ class ReverieHintManager {
     if (this.pending) {
       return;
     }
+    if (this.turnCounter < this.minTurnGap) {
+      return;
+    }
+    if (this.turnCounter - this.lastHintTurn < this.minTurnGap) {
+      return;
+    }
     const now = Date.now();
     if (now - this.lastHintAt < this.intervalMs) {
       return;
     }
     this.pending = true;
-    void this.emitHint().finally(() => {
-      this.pending = false;
-    });
+    void this.emitHint()
+      .then((emitted) => {
+        if (emitted) {
+          this.lastHintTurn = this.turnCounter;
+          this.lastHintAt = Date.now();
+        }
+      })
+      .finally(() => {
+        this.pending = false;
+      });
   }
 
   private buildContext(buffer: string[]): string | null {
@@ -176,30 +208,60 @@ class ReverieHintManager {
     return combined.slice(-this.contextChars).trim();
   }
 
-  private async emitHint(): Promise<void> {
+  private async emitHint(): Promise<boolean> {
     const reasoningContext = this.buildContext(this.reasoningBuffer);
     const dialogueContext = this.buildContext(this.dialogueBuffer);
     if (!reasoningContext && !dialogueContext) {
-      return;
+      return false;
     }
 
     try {
       const aggregated = await this.collectMatches(reasoningContext, dialogueContext);
       if (aggregated.length === 0) {
-        return;
+        return false;
       }
-      const limited = aggregated.slice(0, this.maxMatches);
+      const topRelevance = computeMaxRelevance(aggregated);
+      if (topRelevance < this.helpfulScore) {
+        return false;
+      }
+      const cooled = aggregated.filter((match) => this.isConversationAllowed(match.result.conversationId));
+      if (cooled.length === 0) {
+        return false;
+      }
+      const limited = cooled.slice(0, this.maxMatches);
       const signature = this.buildSignature(reasoningContext, dialogueContext, limited);
       if (signature === this.lastSignature) {
-        return;
+        return false;
       }
       this.lastSignature = signature;
       const fallback = this.formatHintMessage(reasoningContext, dialogueContext, limited);
       const message = await this.composeHintMessage(reasoningContext, dialogueContext, limited, fallback);
       await this.thread.sendBackgroundEvent(message);
-      this.lastHintAt = Date.now();
+      this.recordServedConversations(limited.map((entry) => entry.result.conversationId));
+      return true;
     } catch (error) {
       console.warn("Failed to emit reverie hint:", error);
+    }
+    return false;
+  }
+
+  private isConversationAllowed(conversationId: string): boolean {
+    if (!conversationId) {
+      return false;
+    }
+    const lastTurn = this.recentConversationTurns.get(conversationId);
+    if (lastTurn === undefined) {
+      return true;
+    }
+    return this.turnCounter - lastTurn >= this.conversationCooldown;
+  }
+
+  private recordServedConversations(conversationIds: string[]): void {
+    for (const id of conversationIds) {
+      if (!id) {
+        continue;
+      }
+      this.recentConversationTurns.set(id, this.turnCounter);
     }
   }
 
@@ -382,6 +444,10 @@ function formatTimestamp(value: string): string {
 }
 
 type Channel = "reasoning" | "dialogue";
+
+export function computeMaxRelevance(matches: AggregatedMatch[]): number {
+  return matches.reduce((acc, match) => Math.max(acc, match.bestRelevance), 0);
+}
 
 type AggregatedMatch = {
   result: ReverieResult;

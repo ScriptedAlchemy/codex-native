@@ -141,12 +141,67 @@ class ReverieSystem {
   }
 
   async injectReverie(thread: Thread, reveries: ReverieResult[], query: string): Promise<void> {
-    if (reveries.length === 0) return;
-    const note = `Injecting reverie learnings for '${query}':\n${reveries
-      .map((r, idx) => `#${idx + 1} (${Math.round(r.relevance * 100)}%): ${r.insights.join("; ")}`)
-      .join("\n")}`;
-    await thread.run(note);
+    if (reveries.length === 0) {
+      return;
+    }
+
+    await this.emitBackgroundHint(thread, reveries, query);
+
+    const systemNote = this.buildSystemReverieNote(reveries, query);
+    await thread.run(systemNote);
+  }
+
+  private async emitBackgroundHint(thread: Thread, reveries: ReverieResult[], query: string): Promise<void> {
+    if (typeof thread.sendBackgroundEvent !== "function") {
+      return;
+    }
+
+    const hint = this.buildBackgroundHint(reveries, query);
+    if (!hint) {
+      return;
+    }
+
+    try {
+      await thread.sendBackgroundEvent(hint);
+    } catch (error) {
+      console.warn("Failed to emit reverie background hint:", error);
+    }
+  }
+
+  private buildBackgroundHint(reveries: ReverieResult[], query: string): string | null {
+    const limited = reveries.slice(0, 2);
+    if (limited.length === 0) {
+      return null;
+    }
+    const lines = limited.map((r, idx) => {
+      const score = `${Math.round(r.relevance * 100)}%`;
+      const summary = r.insights[0] ?? r.excerpt ?? "(no excerpt)";
+      return `#${idx + 1} (${score}) ${truncate(summary, 200)}`;
+    });
+    return `Reverie scan for "${query}":\n${lines.join("\n")}`;
+  }
+
+  private buildSystemReverieNote(reveries: ReverieResult[], query: string): string {
+    const entries = reveries
+      .map((r, idx) => {
+        const header = `## Match ${idx + 1} — ${Math.round(r.relevance * 100)}% similar`;
+        const excerpt = r.excerpt ? `Excerpt: ${truncate(r.excerpt, 320)}` : null;
+        const insightText = r.insights.length
+          ? `Insights: ${r.insights.map((text) => truncate(text, 320)).join(" | ")}`
+          : null;
+        return [header, excerpt, insightText].filter(Boolean).join("\n");
+      })
+      .join("\n\n");
+
+    return `<system>\n# Reverie Context — ${query}\n${entries}\n</system>`;
   }
 }
 
 export { ReverieSystem };
+
+function truncate(value: string, limit: number): string {
+  if (!value) {
+    return "";
+  }
+  return value.length > limit ? `${value.slice(0, limit)}…` : value;
+}

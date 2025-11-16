@@ -46,6 +46,9 @@ export type MultiAgentConfig = {
   reverieHintMinDialogueChars?: number;
   reverieHintUseMiniModel?: boolean;
   reverieHintModel?: string;
+  reverieHintTurnGap?: number;
+  reverieHintHelpfulScore?: number;
+  reverieHintConversationCooldown?: number;
   reverieWarmIndexOnStart?: boolean;
   reverieIndexLimit?: number;
   reverieIndexMaxCandidates?: number;
