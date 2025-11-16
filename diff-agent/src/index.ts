@@ -396,20 +396,19 @@ async function gradeReverieRelevance(
 ): Promise<boolean> {
   const graderAgent = new Agent({
     name: "ReverieGrader",
-    instructions: `You evaluate whether conversation history excerpts are relevant.
-Respond with ONLY "yes" or "no" - nothing else.`
+    instructions: `You are a STRICT filter for conversation excerpts. Only approve excerpts with SPECIFIC technical details.
+REJECT: greetings, thinking markers (**, ##), JSON objects, generic phrases, metadata.
+APPROVE: Only excerpts with specific code details, file paths, error messages, implementation discussions.
+Respond with ONLY "yes" or "no".`
   });
 
-  const prompt = `SEARCH CONTEXT:
-${searchContext}
+  const prompt = `Context: ${searchContext}
 
-REVERIE EXCERPT:
-${insight.excerpt.slice(0, 400)}
+Excerpt: "${insight.excerpt.slice(0, 400)}"
 
-Is this reverie relevant and useful? Consider:
-- Technical context about files/changes?
-- Substantive (not greetings/generic)?
-- Helps understand intent/implementation?
+Does this excerpt contain SPECIFIC technical details relevant to the work?
+Must have: actual code/file references, technical decisions, error details, implementation specifics.
+Reject if: greeting, thinking marker, JSON object, generic phrase ("Context from past work"), metadata.
 
 Answer: `;
 
@@ -436,11 +435,15 @@ async function collectReverieContext(context: RepoDiffSummary, runner: Runner): 
   // Basic quality filter first
   const basicFiltered = branchInsights.filter(match => isValidReverieExcerpt(match.excerpt));
 
-  log.info(`Found ${branchInsights.length} matches, ${basicFiltered.length} pass basic quality checks`);
-  log.info(`Using LLM to grade relevance...`);
+  // Only LLM-grade high-scoring candidates (relevance >= 0.7) to save API calls
+  const highScoring = basicFiltered.filter(match => match.relevance >= 0.7);
+  const lowScoring = basicFiltered.filter(match => match.relevance < 0.7);
 
-  // LLM-based relevance grading
-  const gradingPromises = basicFiltered.map(insight =>
+  log.info(`Found ${branchInsights.length} matches, ${basicFiltered.length} pass basic quality, ${highScoring.length} high-scoring`);
+  log.info(`Using LLM to grade ${highScoring.length} high-scoring reveries...`);
+
+  // LLM-based relevance grading (only for high-scoring candidates)
+  const gradingPromises = highScoring.map(insight =>
     gradeReverieRelevance(runner, branchContext, insight)
       .then(isRelevant => ({ insight, isRelevant }))
   );
@@ -450,7 +453,7 @@ async function collectReverieContext(context: RepoDiffSummary, runner: Runner): 
     .filter(r => r.isRelevant)
     .map(r => r.insight);
 
-  log.info(`LLM approved ${validBranchInsights.length}/${basicFiltered.length} reveries as relevant`);
+  log.info(`LLM approved ${validBranchInsights.length}/${highScoring.length} high-scoring reveries`);
 
   // Log only the LLM-approved reveries (with longer previews)
   if (validBranchInsights.length > 0) {
