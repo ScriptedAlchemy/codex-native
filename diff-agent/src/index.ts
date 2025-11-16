@@ -290,22 +290,46 @@ async function main(): Promise<void> {
   const resolvedRepo = assertRepo(repoPath);
   log.info(`Collecting diff summary for ${resolvedRepo}...`);
 
-  // First try to get uncommitted/unstaged changes
+  // Determine base branch for comparison - use explicit override or default to main
+  const effectiveBaseBranch = baseOverride || "main";
+
+  // Collect diff context
   const context = await collectRepoDiffSummary({
     cwd: resolvedRepo,
-    baseBranchOverride: baseOverride,
+    baseBranchOverride: effectiveBaseBranch,
     maxFiles,
   });
 
-  // If no uncommitted changes, we already have the branch diff in context
-  // (collectRepoDiffSummary compares HEAD with merge-base, not just uncommitted changes)
+  // If no changes found
   if (context.changedFiles.length === 0) {
-    log.info(`No changes found in branch ${context.branch} vs ${context.baseBranch} (merge-base: ${context.mergeBase})`);
-    log.info(`This means your branch is up-to-date with the base or you're on the base branch`);
+    // Check if we're on the base branch (main/master)
+    const isOnBaseBranch = context.branch === effectiveBaseBranch ||
+                           context.branch === "main" ||
+                           context.branch === "master";
+
+    if (isOnBaseBranch) {
+      log.info(`Currently on base branch ${context.branch} with no uncommitted changes`);
+      log.info(`Nothing to review - branch is clean`);
+      return;
+    }
+
+    // Feature branch with no changes vs base - already merged or empty branch
+    log.info(`No changes found in branch ${context.branch} vs ${context.baseBranch}`);
+    log.info(`Branch appears to be up-to-date with or already merged into ${context.baseBranch}`);
     return;
   }
 
-  log.info(`Found ${context.changedFiles.length} uncommitted changes`);
+  // Determine review mode based on changes
+  const hasUncommittedChanges = context.statusSummary.includes("modified:") ||
+                                 context.statusSummary.includes("new file:") ||
+                                 context.statusSummary.includes("deleted:");
+
+  if (hasUncommittedChanges) {
+    log.info(`Found ${context.changedFiles.length} files with uncommitted changes`);
+  } else {
+    log.info(`PR-style review: Found ${context.changedFiles.length} committed files vs ${context.baseBranch}`);
+  }
+
   const runner = createRunner(resolvedRepo, { model, baseUrl, apiKey });
   log.info(`Using model: ${model}`);
 
