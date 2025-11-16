@@ -72,7 +72,6 @@ class CICheckerSystem {
     return fixes
       .map((fix, idx) => {
         const detailParts = [
-          fix.owner && `Owner: ${fix.owner}`,
           fix.steps?.length ? `Steps: ${fix.steps.join(" | ")}` : null,
           fix.commands?.length ? `Commands: ${fix.commands.join(" | ")}` : null,
           typeof fix.etaHours === "number" ? `ETA: ${fix.etaHours}h` : null,

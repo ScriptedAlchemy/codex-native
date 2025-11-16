@@ -67,9 +67,7 @@ class CodeImplementer {
     const fixesBlock = ciResult.fixes
       .map(
         (fix, idx) =>
-          `#${idx + 1} [${fix.priority}] ${fix.title} — Owner: ${fix.owner ?? "unassigned"} — Steps: ${fix.steps.join(
-            " | ",
-          )}`,
+          `#${idx + 1} [${fix.priority}] ${fix.title} — Steps: ${fix.steps.join(" | ")}`,
       )
       .join("\n");
     return `You are a CI fixer agent operating in ${repoContext.cwd}.
