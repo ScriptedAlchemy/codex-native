@@ -3,19 +3,19 @@
  * Dual-Agent Collaboration with Intelligent Approvals
  *
  * This example demonstrates:
- * - Claude Thread (Executor) that performs work and requests approvals
- * - Codex Agent (Manager/Approver) that intelligently reviews and approves/denies
+ * - Claude Executor that performs work and requests approvals
+ * - Claude Approver that intelligently reviews and approves/denies
  * - Real-time approval flow using Thread.onApprovalRequest() callback
  *
  * Approval Flow:
- * 1. Claude requests permission for actions (shell, file_write, network_access)
- * 2. Codex Agent reviews the request using AI
+ * 1. Executor requests permission for actions (shell, file_write, network_access)
+ * 2. Approver Agent reviews the request using AI
  * 3. Decision: APPROVE or DENY with reasoning
- * 4. Claude receives decision and proceeds accordingly
+ * 4. Executor receives decision and proceeds accordingly
  *
  * Color Guide:
- * - Blue: Codex (Manager/Approver)
- * - Green: Claude (Executor)
+ * - Blue: Approver (Manager/Decider)
+ * - Green: Executor (Worker)
  * - Magenta: Approval Requests
  * - Yellow: System messages
  *
@@ -45,11 +45,11 @@ class ApprovalLogger {
   private indent = 0;
 
   codex(message: string) {
-    console.log(`${colors.blue}[Codex]${colors.reset} ${this.getIndent()}${message}`);
+    console.log(`${colors.blue}[Approver]${colors.reset} ${this.getIndent()}${message}`);
   }
 
   claude(message: string) {
-    console.log(`${colors.green}[Claude]${colors.reset} ${this.getIndent()}${message}`);
+    console.log(`${colors.green}[Executor]${colors.reset} ${this.getIndent()}${message}`);
   }
 
   approval(message: string) {
@@ -106,7 +106,7 @@ class ApprovalAgent {
 
     this.agent = new Agent({
       name: "ApprovalDecider",
-      model: codexProvider.getModel("gpt-5-codex"),
+      model: codexProvider.getModel("claude-sonnet-4-5-20250929"),
       instructions: `You are an intelligent approval agent that reviews permission requests.
 
 Your role:
@@ -213,9 +213,9 @@ async function runApprovalWorkflow(prompt: string) {
   logger.header("DUAL-AGENT COLLABORATION WITH INTELLIGENT APPROVALS");
   logger.system(`User request: ${prompt}`);
 
-  // Initialize Codex for approver
+  // Initialize Codex provider for approver (using Claude Sonnet)
   const codexProvider = new CodexProvider({
-    defaultModel: "gpt-5-codex",
+    defaultModel: "claude-sonnet-4-5-20250929",
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });
@@ -223,10 +223,10 @@ async function runApprovalWorkflow(prompt: string) {
   const approvalAgent = new ApprovalAgent(codexProvider, logger);
   const runner = new Runner({ modelProvider: codexProvider });
 
-  // Create planner
+  // Create planner (using Claude Sonnet)
   const plannerAgent = new Agent({
-    name: "CodexPlanner",
-    model: codexProvider.getModel("gpt-5-codex"),
+    name: "ClaudePlanner",
+    model: codexProvider.getModel("claude-sonnet-4-5-20250929"),
     instructions: `You are an expert planning agent. Create detailed, actionable plans.
 Format your plan as numbered steps with clear actions.`,
   });
@@ -262,10 +262,10 @@ Format your plan as numbered steps with clear actions.`,
       return approved;
     };
 
-    // Create Claude agent with approval callback
+    // Create Claude agent with approval callback (uses Claude Sonnet by default)
     logger.claude("Starting execution with approval flow...");
     const claudeAgent = new ClaudeAgent({
-      model: "gpt-5-codex",
+      model: "claude-sonnet-4-5-20250929",
       workingDirectory: process.cwd(),
       approvalMode: "on-request",
       sandboxMode: "workspace-write",
@@ -324,15 +324,15 @@ ${colors.yellow}Examples:${colors.reset}
   tsx examples/dual-agent-with-approvals.ts --prompt "Echo hello world"
 
 ${colors.yellow}Features:${colors.reset}
-  ${colors.blue}• Codex${colors.reset} creates plans and intelligently approves/denies actions
-  ${colors.green}• Claude${colors.reset} executes work and requests approvals
+  ${colors.blue}• Approver${colors.reset} creates plans and intelligently approves/denies actions
+  ${colors.green}• Executor${colors.reset} executes work and requests approvals
   ${colors.magenta}• Real-time${colors.reset} approval flow with AI decision-making
 
 ${colors.yellow}Approval Flow:${colors.reset}
-  1. ${colors.green}Claude${colors.reset} requests permission for actions
-  2. ${colors.magenta}Approval${colors.reset} request sent to Codex
-  3. ${colors.blue}Codex${colors.reset} reviews using AI (approve/deny)
-  4. ${colors.green}Claude${colors.reset} receives decision and proceeds
+  1. ${colors.green}Executor${colors.reset} requests permission for actions
+  2. ${colors.magenta}Approval${colors.reset} request sent to Approver
+  3. ${colors.blue}Approver${colors.reset} reviews using AI (approve/deny)
+  4. ${colors.green}Executor${colors.reset} receives decision and proceeds
 `);
   process.exit(1);
 }

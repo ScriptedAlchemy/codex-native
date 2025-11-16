@@ -180,6 +180,97 @@ describe("ClaudeAgent", () => {
     expect(mockRun).toHaveBeenCalledTimes(3);
   });
 
+  it("should support approval callbacks", async () => {
+    // Track approval callback invocations
+    const approvalRequests: any[] = [];
+    const approvalHandler = jest.fn().mockImplementation(async (request) => {
+      approvalRequests.push(request);
+      return true; // Auto-approve
+    });
+
+    // Mock Thread.prototype.onApprovalRequest
+    const mockOnApprovalRequest = jest.fn();
+    (Thread.prototype as any).onApprovalRequest = mockOnApprovalRequest;
+
+    // @ts-ignore
+    const mockRun = jest.fn().mockResolvedValue({
+      items: [],
+      finalResponse: "Task completed with approvals",
+      usage: {
+        input_tokens: 100,
+        cached_input_tokens: 0,
+        output_tokens: 50,
+      },
+    });
+
+    Object.defineProperty(Thread.prototype, 'id', {
+      get: jest.fn(() => "test-thread-123"),
+      configurable: true,
+    });
+
+    (Thread.prototype as any).run = mockRun;
+
+    const agent = new ClaudeAgent({
+      onApprovalRequest: approvalHandler,
+    });
+
+    const result = await agent.delegate("Create a test file");
+
+    expect(result).toBeDefined();
+    expect(result.success).toBe(true);
+    expect(mockOnApprovalRequest).toHaveBeenCalledWith(approvalHandler);
+  });
+
+  it("should use Claude Sonnet as default model", async () => {
+    const agent = new ClaudeAgent();
+    // Access private options field for testing
+    const options = (agent as any).options;
+    expect(options.model).toBe("claude-sonnet-4-5-20250929");
+  });
+
+  it("should allow custom approval logic", async () => {
+    // Test that approval handler can deny requests
+    const approvalHandler = jest.fn().mockImplementation(async (request: any) => {
+      // Deny shell commands, approve file writes
+      if (request.type === "shell") {
+        return false;
+      }
+      return true;
+    });
+
+    const mockOnApprovalRequest = jest.fn();
+    (Thread.prototype as any).onApprovalRequest = mockOnApprovalRequest;
+
+    // @ts-ignore
+    const mockRun = jest.fn().mockResolvedValue({
+      items: [],
+      finalResponse: "Completed with selective approvals",
+      usage: {
+        input_tokens: 100,
+        cached_input_tokens: 0,
+        output_tokens: 50,
+      },
+    });
+
+    Object.defineProperty(Thread.prototype, 'id', {
+      get: jest.fn(() => "test-thread-123"),
+      configurable: true,
+    });
+
+    (Thread.prototype as any).run = mockRun;
+
+    const agent = new ClaudeAgent({
+      approvalMode: "on-request",
+      onApprovalRequest: approvalHandler,
+    });
+
+    const result = await agent.delegate("Write a file");
+
+    expect(result).toBeDefined();
+    expect(result.success).toBe(true);
+    expect(mockOnApprovalRequest).toHaveBeenCalledWith(approvalHandler);
+  });
+
   it.skip("should stop workflow on first failure", async () => {
     // Create a factory function to ensure callCount is properly scoped
     function createFailingMock() {

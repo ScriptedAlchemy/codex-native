@@ -269,18 +269,25 @@ function validateModel(model: string | undefined, oss: boolean): void {
     return;
   }
   const allowed = new Set([
+    // GPT models
     "gpt-5",
     "gpt-5-codex",
     "gpt-5-codex-mini",
     "gpt-5.1",
     "gpt-5.1-codex",
     "gpt-5.1-codex-mini",
+    // Claude models
+    "claude-sonnet-4-5-20250929",
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
   ]);
-  if (!allowed.has(trimmed)) {
+
+  // Allow any claude- or gpt- prefixed model (flexible for future models)
+  if (!allowed.has(trimmed) && !trimmed.startsWith("claude-") && !trimmed.startsWith("gpt-")) {
     throw new Error(
-      `Invalid model "${trimmed}". Supported models are ${Array.from(allowed)
+      `Invalid model "${trimmed}". Supported models: ${Array.from(allowed)
         .map((m) => `"${m}"`)
-        .join(", " )}.`,
+        .join(", " )}, or any model starting with "claude-" or "gpt-".`,
     );
   }
 }
