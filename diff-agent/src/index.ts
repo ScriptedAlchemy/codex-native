@@ -399,13 +399,18 @@ async function collectReverieContext(context: RepoDiffSummary): Promise<ReverieC
 
   log.info(`Searching reverie for branch context...`);
   const branchInsights = await searchReveries(branchContext, context.repoPath);
-  log.info(`Found ${branchInsights.length} relevant reverie matches for branch`);
 
-  // Log branch reverie details
-  if (branchInsights.length > 0) {
-    log.info(`  Branch reverie context:`);
-    branchInsights.forEach((insight, idx) => {
-      const preview = truncateText(insight.excerpt.replace(/\s+/g, " ").trim(), 80);
+  // Filter to only valid insights that will actually be sent to the agent
+  const validBranchInsights = branchInsights.filter(match => isValidReverieExcerpt(match.excerpt));
+
+  log.info(`Found ${branchInsights.length} matches, ${validBranchInsights.length} valid for agent context`);
+
+  // Log only the winning reveries that will be sent to the agent (with longer previews)
+  if (validBranchInsights.length > 0) {
+    log.info(`  Reveries sent to agent:`);
+    validBranchInsights.forEach((insight, idx) => {
+      // Show longer preview (200 chars) since these are the important ones
+      const preview = truncateText(insight.excerpt.replace(/\s+/g, " ").trim(), 200);
       const insightText = insight.insights[0] || "Context from past work";
       log.info(`    ${idx + 1}. [${insight.relevance.toFixed(2)}] ${insightText}`);
       log.info(`       "${preview}"`);
@@ -434,7 +439,7 @@ async function collectReverieContext(context: RepoDiffSummary): Promise<ReverieC
     }
   }
   log.info(`Reverie context collection complete (${perFile.size} files with context)`);
-  return { branch: branchInsights, perFile };
+  return { branch: validBranchInsights, perFile };
 }
 
 /**
