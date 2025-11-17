@@ -68,66 +68,103 @@ export function isValidReverieExcerpt(excerpt: string): boolean {
     return false;
   }
 
-  // Skip excerpts that are primarily system prompts or boilerplate
-  const skipPatterns = [
-    "# AGENTS.md instructions",
-    "AGENTS.md instructions for",
-    "<INSTRUCTIONS>",
-    "<environment_context>",
-    "<system>",
-    "Sandbox env vars",
-    "Tool output:",
-    "approval_policy",
-    "sandbox_mode",
-    "network_access",
-    "<cwd>",
-    "</cwd>",
-    "CODEX_SAN",
-    "# Codex Workspace Agent Guide",
-    "## Core Expectations",
-    "Crates in `codex-rs` use the `codex-` prefix",
-    "Install repo helpers",
-    "CI Fix Orchestrator",
-    "CI Remediation Orchestrator",
-    "Branch Intent Analyst",
-    "File Diff Inspector",
-    "You are coordinating an automated",
-    "Respond strictly with JSON",
-    "Judge whether each change",
-    "Multi-Agent Codex System",
-    "orchestrator pattern",
-    "<claude_background_info>",
-    "</claude_background_info>",
-    "function_calls",
-    "<invoke",
-  ];
+  const trimmed = excerpt.trim();
+  const normalized = trimmed.toLowerCase();
+  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const rawTokens = trimmed.split(/\s+/).filter(Boolean);
+  const tokens = rawTokens.map((token) => token.toLowerCase());
 
-  const normalized = excerpt.toLowerCase();
-
-  // Check if excerpt is mostly boilerplate
-  const boilerplateCount = skipPatterns.filter((pattern) =>
-    normalized.includes(pattern.toLowerCase())
-  ).length;
-
-  // If ANY boilerplate patterns found, skip this excerpt (stricter filtering)
-  if (boilerplateCount >= 1) {
+  if (rawTokens.length === 0) {
     return false;
   }
 
-  // Skip excerpts with weird percentage indicators that appear in tool outputs
-  // (like "(130%)" or "(89%)" at the end)
-  if (/\(\d{2,3}%\)\s*$/.test(excerpt.trim())) {
+  const uppercaseTokens = rawTokens.filter((token) => {
+    const alphabetic = token.replace(/[^a-z]/gi, "");
+    return alphabetic.length >= 3 && alphabetic === alphabetic.toUpperCase();
+  });
+  const uppercaseRatio = uppercaseTokens.length / rawTokens.length;
+
+  const snakeTokens = rawTokens.filter((token) => token.includes("_"));
+  const underscoreRatio = snakeTokens.length / rawTokens.length;
+
+  const headingLines = lines.filter((line) => /^#{1,6}\s/.test(line));
+  const bulletLines = lines.filter((line) => /^([\-\*]|\d+\.)\s/.test(line));
+  const colonLabelLines = lines.filter((line) => /^[A-Za-z0-9 _-]{1,24}:/.test(line));
+
+  const headingRatio = headingLines.length / Math.max(lines.length, 1);
+  const bulletRatio = bulletLines.length / Math.max(lines.length, 1);
+  const colonLabelRatio = colonLabelLines.length / Math.max(lines.length, 1);
+
+  const initialTitleCaseRun = (() => {
+    let run = 0;
+    for (const token of rawTokens) {
+      const cleaned = token.replace(/[^a-z]/gi, "");
+      if (cleaned.length === 0) {
+        break;
+      }
+      const rest = cleaned.slice(1);
+      const isTitleCase = cleaned[0]?.toUpperCase() === cleaned[0] && rest === rest.toLowerCase();
+      const isAllCaps = cleaned.length >= 2 && cleaned === cleaned.toUpperCase();
+      if (isTitleCase || isAllCaps) {
+        run += 1;
+      } else {
+        break;
+      }
+    }
+    return run;
+  })();
+
+  const tokenFrequencies = tokens.reduce((map, token) => map.set(token, (map.get(token) ?? 0) + 1), new Map<string, number>());
+  const frequencyValues = Array.from(tokenFrequencies.values());
+  const mostCommonTokenCount = Math.max(...frequencyValues);
+  const repeatedWordRatio = mostCommonTokenCount / tokens.length;
+
+  if (snakeTokens.length >= 2 && underscoreRatio > 0.15) {
     return false;
   }
 
-  // Skip excerpts that look like JSON output
-  if (excerpt.trim().startsWith("{") && excerpt.includes('"file"')) {
+  if (headingRatio > 0.6 && lines.length <= 4) {
     return false;
   }
 
-  // Skip excerpts that are mostly XML/HTML tags
-  const tagCount = (excerpt.match(/<[^>]+>/g) || []).length;
-  if (tagCount > 3) {
+  if (initialTitleCaseRun >= 3 && rawTokens.length <= 20) {
+    return false;
+  }
+
+  const metadataScore = [
+    uppercaseRatio > 0.45,
+    underscoreRatio > 0.2,
+    bulletRatio > 0.7,
+    colonLabelRatio > 0.6 || (lines.length <= 2 && colonLabelRatio > 0),
+    initialTitleCaseRun >= 3,
+    repeatedWordRatio > 0.45 && tokens.length > 15,
+    rawTokens.length < 12 && colonLabelRatio > 0,
+  ].filter(Boolean).length;
+
+  if (metadataScore >= 2) {
+    return false;
+  }
+
+  const tagMatches = trimmed.match(/<[^>]+>/g) || [];
+  if (tagMatches.length > 3) {
+    return false;
+  }
+
+  const blockTagMatch = trimmed.match(/^<([a-z0-9_\-]+)>[\s\S]*<\/\1>$/i);
+  if (blockTagMatch) {
+    const tagName = blockTagMatch[1]?.toLowerCase() ?? "";
+    const looksLikeSystem = tagName.includes("system") || tagName.includes("context") || tagName.includes("env");
+    if (tagName.includes("_") || looksLikeSystem) {
+      return false;
+    }
+  }
+
+  if (/\(\d{2,3}%\)\s*$/.test(trimmed)) {
+    return false;
+  }
+
+  const looksJsonLike = (/^\{[\s\S]*\}$/.test(trimmed) || /^\[[\s\S]*\]$/.test(trimmed)) && /"\w+"\s*:/.test(trimmed);
+  if (looksJsonLike) {
     return false;
   }
 

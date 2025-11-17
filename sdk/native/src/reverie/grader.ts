@@ -11,6 +11,7 @@
  * - Strict filtering to reject boilerplate and generic content
  */
 
+import { Agent } from "@openai/agents";
 import type { ReverieInsight, GradingOptions } from "./types.js";
 
 /**
@@ -19,7 +20,13 @@ import type { ReverieInsight, GradingOptions } from "./types.js";
  */
 export interface AgentRunner {
   run(
-    agent: { name: string; instructions: string; outputType?: unknown },
+    agent: {
+      name: string;
+      instructions: string | ((...args: any[]) => any);
+      outputType?: unknown;
+      getEnabledHandoffs?: (...args: any[]) => Promise<unknown> | unknown;
+      getAllTools?: (...args: any[]) => Promise<unknown> | unknown;
+    },
     prompt: string
   ): Promise<{ finalOutput?: unknown }>;
 }
@@ -92,7 +99,7 @@ export async function gradeReverieRelevance(
   searchContext: string,
   insight: ReverieInsight
 ): Promise<boolean> {
-  const graderAgent = {
+  const graderAgent = new Agent({
     name: "ReverieGrader",
     instructions: `You are a STRICT filter for conversation excerpts. Only approve excerpts with SPECIFIC technical details.
 
@@ -120,7 +127,7 @@ Return a JSON object with:
       name: "ReverieGrading",
       strict: true,
     },
-  };
+  });
 
   const prompt = `Context: ${searchContext}
 
