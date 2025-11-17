@@ -284,18 +284,30 @@ ${plan}
 
 Work through each step carefully.`;
 
-    const result = await claudeAgent.delegate(executionPrompt);
+    // Use streaming to show real-time progress
+    logger.pushIndent();
+    let streamedText = "";
 
-    if (result.success) {
-      logger.pushIndent();
-      logger.claude("Result:");
-      logger.pushIndent();
-      result.output.split("\n").slice(0, 10).forEach((line) => {
-        if (line.trim()) logger.claude(line);
-      });
-      logger.popIndent();
-      logger.popIndent();
-    } else {
+    const result = await claudeAgent.delegateStreaming(
+      executionPrompt,
+      (event) => {
+        // Show items as they complete
+        if (event.type === "item.completed" && (event as any).item?.type === "agent_message") {
+          const text = (event as any).item?.text || "";
+          if (text && !streamedText) {
+            logger.claude("Response:");
+            logger.pushIndent();
+            logger.claude(text);
+            logger.popIndent();
+            streamedText = text;
+          }
+        }
+      }
+    );
+
+    logger.popIndent();
+
+    if (!result.success) {
       logger.pushIndent();
       logger.claude(`Error: ${result.error}`);
       logger.popIndent();

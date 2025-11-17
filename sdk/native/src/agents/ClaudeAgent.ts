@@ -199,6 +199,30 @@ export class ClaudeAgent {
   }
 
   /**
+   * Delegate a task with streaming output
+   *
+   * @param task - The task description or prompt
+   * @param onEvent - Optional callback for streaming events
+   * @returns Promise resolving to the delegation result
+   *
+   * @example
+   * ```typescript
+   * const result = await agent.delegateStreaming('Create a test file', (event) => {
+   *   if (event.type === 'output_text_delta') {
+   *     process.stdout.write(event.delta);
+   *   }
+   * });
+   * ```
+   */
+  async delegateStreaming(
+    task: string,
+    onEvent?: (event: any) => void,
+    threadId?: string
+  ): Promise<DelegationResult> {
+    return this.executeTaskStreaming(task, onEvent, threadId);
+  }
+
+  /**
    * Execute a task with retry logic
    */
   private async executeTask(prompt: string, threadId?: string): Promise<DelegationResult> {
@@ -236,6 +260,89 @@ export class ClaudeAgent {
           items: result.items,
           usage: result.usage,
           threadResult: result,
+        };
+      } catch (error: any) {
+        lastError = error;
+        if (attempt < this.options.maxRetries) {
+          // Wait before retry with exponential backoff
+          await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+        }
+      }
+    }
+
+    return {
+      output: "",
+      success: false,
+      error: lastError?.message || "Unknown error",
+    };
+  }
+
+  /**
+   * Execute a task with streaming and retry logic
+   */
+  private async executeTaskStreaming(
+    prompt: string,
+    onEvent?: (event: any) => void,
+    threadId?: string
+  ): Promise<DelegationResult> {
+    let lastError: Error | undefined;
+
+    for (let attempt = 0; attempt <= this.options.maxRetries; attempt++) {
+      try {
+        const threadOptions: ThreadOptions = {
+          model: this.options.model,
+          approvalMode: this.options.approvalMode,
+          sandboxMode: this.options.sandboxMode,
+        };
+
+        if (this.workingDirectory) {
+          threadOptions.workingDirectory = this.workingDirectory;
+        }
+
+        // Create or resume thread
+        const thread = threadId
+          ? this.codex.resumeThread(threadId, threadOptions)
+          : this.codex.startThread(threadOptions);
+
+        // Register approval handler if provided
+        if (this.approvalHandler) {
+          thread.onApprovalRequest(this.approvalHandler);
+        }
+
+        const { events } = await thread.runStreamed(prompt);
+
+        let finalResponse = "";
+        const items: any[] = [];
+        let usage: any = null;
+
+        // Stream events to callback and collect final result
+        for await (const event of events) {
+          if (onEvent) {
+            onEvent(event);
+          }
+
+          // Collect items as they complete
+          if (event.type === "item.completed") {
+            items.push(event.item);
+            if (event.item.type === "agent_message") {
+              finalResponse = event.item.text || "";
+            }
+          }
+
+          // Collect usage from turn.completed event
+          if (event.type === "turn.completed") {
+            usage = event.usage || null;
+          }
+        }
+
+        // Return Thread-compatible result with full information
+        return {
+          threadId: thread.id || undefined,
+          output: finalResponse,
+          success: true,
+          items,
+          usage,
+          threadResult: { items, finalResponse, usage },
         };
       } catch (error: any) {
         lastError = error;
