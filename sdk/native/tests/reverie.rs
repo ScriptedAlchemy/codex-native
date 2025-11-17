@@ -142,6 +142,8 @@ async fn test_reverie_search_semantic_matches_context() {
     cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
     max_length: Some(512),
     show_download_progress: Some(false),
+    use_coreml: Some(false),
+    coreml_ane_only: Some(false),
   })
   .await
   .unwrap();
@@ -172,8 +174,10 @@ async fn test_reverie_index_semantic_populates_cache() {
   fast_embed_init(FastEmbedInitOptions {
     model: Some("BAAI/bge-small-en-v1.5".to_string()),
     cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
-    max_length: Some(256),
+    max_length: Some(512),
     show_download_progress: Some(false),
+    use_coreml: Some(false),
+    coreml_ane_only: Some(false),
   })
   .await
   .unwrap();
@@ -223,6 +227,8 @@ async fn test_reverie_search_semantic_filters_project_root() {
     cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
     max_length: Some(512),
     show_download_progress: Some(false),
+    use_coreml: Some(false),
+    coreml_ane_only: Some(false),
   })
   .await
   .unwrap();
@@ -301,6 +307,8 @@ async fn test_reverie_search_semantic_respects_reranker_hook() {
     cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
     max_length: Some(512),
     show_download_progress: Some(false),
+    use_coreml: Some(false),
+    coreml_ane_only: Some(false),
   })
   .await
   .unwrap();
@@ -386,6 +394,8 @@ async fn test_reverie_search_semantic_reranker_failure_falls_back() {
     cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
     max_length: Some(512),
     show_download_progress: Some(false),
+    use_coreml: Some(false),
+    coreml_ane_only: Some(false),
   })
   .await
   .unwrap();

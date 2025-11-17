@@ -434,6 +434,7 @@ export type NativeForkResult = {
 export type ApprovalRequest = {
   type: "shell" | "file_write" | "network_access";
   details?: unknown;
+  context?: string;
 };
 
 type NativeRepoDiffOptions = {

@@ -4,23 +4,23 @@
  *
  * This example demonstrates:
  * - GPT Codex (Manager) creates plans and approves/denies requests
- * - Claude (Executor) performs work and requests approvals
- * - Real-time approval flow using Thread.onApprovalRequest() callback
+ * - OpenCode (Executor) drives the opencode CLI via the official SDK
+ * - Real-time approval flow streaming OpenCode events while approvals run through Codex
  *
  * Architecture:
  * - Planner: GPT Codex creates execution plans
  * - Approver: GPT Codex reviews and approves/denies actions
- * - Executor: Claude performs work with approval requests
+ * - Executor: OpenCode performs work with approval requests
  *
  * Approval Flow:
- * 1. Claude Executor requests permission for actions (shell, file_write, network_access)
+ * 1. OpenCode Executor requests permission for actions (shell, file_write, network_access)
  * 2. GPT Codex Approver reviews the request using AI
  * 3. Decision: APPROVE or DENY with reasoning
- * 4. Claude Executor receives decision and proceeds accordingly
+ * 4. OpenCode Executor receives decision via the SDK and proceeds accordingly
  *
  * Color Guide:
  * - Blue: GPT Codex (Manager/Approver)
- * - Green: Claude (Executor)
+ * - Green: OpenCode (Executor)
  * - Magenta: Approval Requests
  * - Yellow: System messages
  *
@@ -29,13 +29,15 @@
  */
 
 import { Agent, Runner } from "@openai/agents";
-import { ClaudeAgent, CodexProvider, type ApprovalRequest } from "../src/index.js";
+import type { Event as OpencodeEvent } from "@opencode-ai/sdk";
+import { CodexProvider, OpenCodeAgent, type PermissionRequest } from "../src/index.js";
+import path from "node:path";
 
 // ANSI color codes
 const colors = {
   reset: "\x1b[0m",
   blue: "\x1b[34m",      // Codex
-  green: "\x1b[32m",     // Claude
+  green: "\x1b[32m",     // OpenCode
   magenta: "\x1b[35m",   // Approvals
   yellow: "\x1b[33m",    // System
   cyan: "\x1b[36m",      // Headers
@@ -54,7 +56,7 @@ class ApprovalLogger {
   }
 
   claude(message: string) {
-    console.log(`${colors.green}[Claude]${colors.reset} ${this.getIndent()}${message}`);
+    console.log(`${colors.green}[OpenCode]${colors.reset} ${this.getIndent()}${message}`);
   }
 
   approval(message: string) {
@@ -173,11 +175,13 @@ Response format:
     this.plan = plan;
   }
 
-  async review(request: ApprovalRequest): Promise<boolean> {
+  async review(request: PermissionRequest): Promise<boolean> {
+    console.error(`[DEBUG] review() called - type: ${request.type}, title: ${request.title}`);
     this.logger.approval(`\n📋 New Approval Request`);
     this.logger.pushIndent();
     this.logger.approval(`Type: ${request.type}`);
-    this.logger.approval(`Details: ${JSON.stringify(request.details, null, 2)}`);
+    this.logger.approval(`Title: ${request.title}`);
+    this.logger.approval(`Details: ${JSON.stringify(request.metadata, null, 2)}`);
     this.logger.popIndent();
     this.logger.codex(`Reviewing approval request...`);
 
@@ -207,6 +211,46 @@ Should this action be approved? Consider safety, alignment with plan, and necess
       // Fail closed - deny on error
       return false;
     }
+  }
+}
+
+function logOpenCodeEvent(event: OpencodeEvent, logger: ApprovalLogger): void {
+  const props = (event as any)?.properties ?? {};
+  switch (event.type) {
+    case "message.part.updated": {
+      const part = props.info as { type: string; text?: string };
+      if (!part || typeof part.type !== "string" || typeof part.text !== "string") {
+        return;
+      }
+      if (part.type === "reasoning") {
+        logger.claude(`Reasoning: ${part.text.trim()}`);
+      } else if (part.type === "text") {
+        logger.claude(`Response: ${part.text.trim()}`);
+      }
+      break;
+    }
+    case "command.executed": {
+      const command = props as { name?: string; arguments?: string };
+      const summary = [command.name, command.arguments].filter(Boolean).join(" ");
+      logger.claude(`Command executed: ${summary || "(unknown)"}`);
+      break;
+    }
+    case "permission.updated": {
+      logger.approval(`Permission requested: ${props.title || props.type}`);
+      break;
+    }
+    case "session.error": {
+      const detail = props.error?.message ?? "Unknown session error";
+      logger.denied(`Session error: ${detail}`);
+      break;
+    }
+    case "todo.updated": {
+      const todos = props.todos ?? [];
+      todos.forEach((todo: any) => logger.claude(`TODO: ${todo.title ?? JSON.stringify(todo)}`));
+      break;
+    }
+    default:
+      break;
   }
 }
 
@@ -263,19 +307,24 @@ Format your plan as numbered steps with clear actions.`,
     logger.section("Phase 2: Execution with Approvals");
 
     // Create approval handler
-    const approvalHandler = async (request: ApprovalRequest): Promise<boolean> => {
+    const approvalHandler = async (request: PermissionRequest): Promise<boolean> => {
       const approved = await approvalAgent.review(request);
       return approved;
     };
 
-    // Create Claude agent with approval callback (uses GPT Codex backend)
+    // Create OpenCode agent with approval callback
     logger.claude("Starting execution with approval flow...");
-    const claudeAgent = new ClaudeAgent({
-      model: "gpt-5-codex",
-      workingDirectory: process.cwd(),
-      approvalMode: "on-request",
-      sandboxMode: "workspace-write",
+
+    // Find monorepo root (2 levels up from sdk/native)
+    const monorepoRoot = path.resolve(process.cwd(), "../..");
+    logger.system(`Working directory: ${monorepoRoot}`);
+
+    const opencodeAgent = new OpenCodeAgent({
+      model: "anthropic/claude-sonnet-4-5-20250929",
       onApprovalRequest: approvalHandler,
+      config: {
+        workingDirectory: monorepoRoot,
+      },
     });
 
     const executionPrompt = `Execute this plan:
@@ -286,56 +335,17 @@ Work through each step carefully.`;
 
     // Use streaming to show real-time progress
     logger.pushIndent();
-    let streamedText = "";
-
-    const result = await claudeAgent.delegateStreaming(
-      executionPrompt,
-      (event) => {
-        // Show all progress events
-        if (event.type === "item.started") {
-          const item = (event as any).item;
-          if (item?.type === "command_execution") {
-            logger.claude(`Executing: ${item.command || 'command'}`);
-          } else if (item?.type === "reasoning") {
-            logger.claude("Thinking...");
-          } else if (item?.type === "agent_message") {
-            logger.claude("Generating response...");
-          }
-        } else if (event.type === "item.completed") {
-          const item = (event as any).item;
-
-          if (item?.type === "command_execution") {
-            const cmd = item.command || "command";
-            const output = item.output ? ` → ${item.output.substring(0, 100)}${item.output.length > 100 ? '...' : ''}` : '';
-            logger.claude(`✓ Executed: ${cmd}${output}`);
-          } else if (item?.type === "file_change") {
-            logger.claude(`✓ File: ${item.path} (${item.status || 'modified'})`);
-          } else if (item?.type === "mcp_tool_call") {
-            logger.claude(`✓ Tool: ${item.tool_name || 'tool'}`);
-          } else if (item?.type === "reasoning") {
-            const text = item.text?.substring(0, 150) || "";
-            if (text) {
-              logger.claude(`Reasoning: ${text}${item.text?.length > 150 ? '...' : ''}`);
-            }
-          } else if (item?.type === "agent_message") {
-            const text = item.text || "";
-            if (text && !streamedText) {
-              logger.claude("Final response:");
-              logger.pushIndent();
-              logger.claude(text);
-              logger.popIndent();
-              streamedText = text;
-            }
-          }
-        }
-      }
-    );
-
+    const result = await opencodeAgent.delegateStreaming(executionPrompt, (event) => logOpenCodeEvent(event, logger));
     logger.popIndent();
 
     if (!result.success) {
       logger.pushIndent();
       logger.claude(`Error: ${result.error}`);
+      logger.popIndent();
+    } else {
+      logger.claude("Final response:");
+      logger.pushIndent();
+      logger.claude(result.output || "(no response)" );
       logger.popIndent();
     }
 
@@ -369,14 +379,14 @@ ${colors.yellow}Examples:${colors.reset}
 
 ${colors.yellow}Architecture:${colors.reset}
   ${colors.blue}• GPT Codex${colors.reset} creates plans and intelligently approves/denies actions
-  ${colors.green}• Claude${colors.reset} executes work and requests approvals
+  ${colors.green}• OpenCode${colors.reset} executes work and requests approvals
   ${colors.magenta}• Real-time${colors.reset} approval flow with AI decision-making
 
 ${colors.yellow}Approval Flow:${colors.reset}
-  1. ${colors.green}Claude${colors.reset} requests permission for actions
+  1. ${colors.green}OpenCode${colors.reset} requests permission for actions
   2. ${colors.magenta}Approval${colors.reset} request sent to GPT Codex
   3. ${colors.blue}GPT Codex${colors.reset} reviews using AI (approve/deny)
-  4. ${colors.green}Claude${colors.reset} receives decision and proceeds
+  4. ${colors.green}OpenCode${colors.reset} receives decision and proceeds
 `);
   process.exit(1);
 }

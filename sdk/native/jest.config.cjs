@@ -1,6 +1,6 @@
 const config = {
   testEnvironment: "node",
-  testMatch: ["**/tests/**/*.test.ts"],
+  testMatch: ["**/tests/**/*.test.ts", "**/tests/**/*.test.mjs"],
   preset: "ts-jest/presets/default-esm",
   transform: {
     "^.+\\.(ts|tsx)$": ["ts-jest", {

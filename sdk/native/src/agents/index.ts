@@ -32,8 +32,8 @@ export { codexTool } from "./codexTool";
 export type { CodexToolOptions } from "./codexTool";
 export { formatStream } from "./streamFormatter";
 export type { FormattedStream, FormatStreamOptions, ToolCallEvent } from "./streamFormatter";
-export { ClaudeAgent } from "./ClaudeAgent";
-export type { ClaudeAgentOptions, DelegationResult } from "./ClaudeAgent";
+export { OpenCodeAgent } from "./OpenCodeAgent";
+export type { OpenCodeAgentOptions, DelegationResult, PermissionDecision, PermissionRequest } from "./OpenCodeAgent";
 
 // Re-export types for convenience
 export type {

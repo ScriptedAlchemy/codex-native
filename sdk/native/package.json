@@ -22,6 +22,8 @@
     "*.node"
   ],
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "@opencode-ai/sdk": "^1.0.68",
     "@toon-format/toon": "^1.0.0",
     "pyright": "^1.1.386",
     "typescript-language-server": "^4.3.3",
