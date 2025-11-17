@@ -291,15 +291,41 @@ Work through each step carefully.`;
     const result = await claudeAgent.delegateStreaming(
       executionPrompt,
       (event) => {
-        // Show items as they complete
-        if (event.type === "item.completed" && (event as any).item?.type === "agent_message") {
-          const text = (event as any).item?.text || "";
-          if (text && !streamedText) {
-            logger.claude("Response:");
-            logger.pushIndent();
-            logger.claude(text);
-            logger.popIndent();
-            streamedText = text;
+        // Show all progress events
+        if (event.type === "item.started") {
+          const item = (event as any).item;
+          if (item?.type === "command_execution") {
+            logger.claude(`Executing: ${item.command || 'command'}`);
+          } else if (item?.type === "reasoning") {
+            logger.claude("Thinking...");
+          } else if (item?.type === "agent_message") {
+            logger.claude("Generating response...");
+          }
+        } else if (event.type === "item.completed") {
+          const item = (event as any).item;
+
+          if (item?.type === "command_execution") {
+            const cmd = item.command || "command";
+            const output = item.output ? ` → ${item.output.substring(0, 100)}${item.output.length > 100 ? '...' : ''}` : '';
+            logger.claude(`✓ Executed: ${cmd}${output}`);
+          } else if (item?.type === "file_change") {
+            logger.claude(`✓ File: ${item.path} (${item.status || 'modified'})`);
+          } else if (item?.type === "mcp_tool_call") {
+            logger.claude(`✓ Tool: ${item.tool_name || 'tool'}`);
+          } else if (item?.type === "reasoning") {
+            const text = item.text?.substring(0, 150) || "";
+            if (text) {
+              logger.claude(`Reasoning: ${text}${item.text?.length > 150 ? '...' : ''}`);
+            }
+          } else if (item?.type === "agent_message") {
+            const text = item.text || "";
+            if (text && !streamedText) {
+              logger.claude("Final response:");
+              logger.pushIndent();
+              logger.claude(text);
+              logger.popIndent();
+              streamedText = text;
+            }
           }
         }
       }
