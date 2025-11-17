@@ -11,7 +11,7 @@
  * @example
  * ```typescript
  * const agent = new ClaudeAgent({
- *   model: 'claude-sonnet-4-5-20250929',
+ *   model: 'gpt-5-codex',
  *   workingDirectory: './workspace',
  *   onApprovalRequest: async (request) => {
  *     console.log(`Approval needed for ${request.type}`);
@@ -38,7 +38,8 @@ import type { ApprovalRequest } from "../nativeBinding";
 
 export interface ClaudeAgentOptions {
   /**
-   * Model to use (e.g., 'claude-sonnet-4-5-20250929', 'claude-opus-4-20250514', 'gpt-5-codex')
+   * Model to use (e.g., 'gpt-5-codex', 'gpt-5.1-codex')
+   * Note: ClaudeAgent uses Codex backend which supports GPT models
    */
   model?: string;
 
@@ -152,7 +153,7 @@ export class ClaudeAgent {
   constructor(options: ClaudeAgentOptions = {}) {
     this.codex = new Codex();
     this.options = {
-      model: options.model || "claude-sonnet-4-5-20250929",
+      model: options.model || "gpt-5-codex",
       approvalMode: options.approvalMode || "on-request",
       sandboxMode: options.sandboxMode || "workspace-write",
       maxRetries: options.maxRetries || 1,

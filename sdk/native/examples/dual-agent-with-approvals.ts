@@ -3,19 +3,24 @@
  * Dual-Agent Collaboration with Intelligent Approvals
  *
  * This example demonstrates:
- * - Claude Executor that performs work and requests approvals
- * - Claude Approver that intelligently reviews and approves/denies
+ * - GPT Codex (Manager) creates plans and approves/denies requests
+ * - Claude (Executor) performs work and requests approvals
  * - Real-time approval flow using Thread.onApprovalRequest() callback
  *
+ * Architecture:
+ * - Planner: GPT Codex creates execution plans
+ * - Approver: GPT Codex reviews and approves/denies actions
+ * - Executor: Claude performs work with approval requests
+ *
  * Approval Flow:
- * 1. Executor requests permission for actions (shell, file_write, network_access)
- * 2. Approver Agent reviews the request using AI
+ * 1. Claude Executor requests permission for actions (shell, file_write, network_access)
+ * 2. GPT Codex Approver reviews the request using AI
  * 3. Decision: APPROVE or DENY with reasoning
- * 4. Executor receives decision and proceeds accordingly
+ * 4. Claude Executor receives decision and proceeds accordingly
  *
  * Color Guide:
- * - Blue: Approver (Manager/Decider)
- * - Green: Executor (Worker)
+ * - Blue: GPT Codex (Manager/Approver)
+ * - Green: Claude (Executor)
  * - Magenta: Approval Requests
  * - Yellow: System messages
  *
@@ -45,11 +50,11 @@ class ApprovalLogger {
   private indent = 0;
 
   codex(message: string) {
-    console.log(`${colors.blue}[Approver]${colors.reset} ${this.getIndent()}${message}`);
+    console.log(`${colors.blue}[GPT Codex]${colors.reset} ${this.getIndent()}${message}`);
   }
 
   claude(message: string) {
-    console.log(`${colors.green}[Executor]${colors.reset} ${this.getIndent()}${message}`);
+    console.log(`${colors.green}[Claude]${colors.reset} ${this.getIndent()}${message}`);
   }
 
   approval(message: string) {
@@ -106,7 +111,7 @@ class ApprovalAgent {
 
     this.agent = new Agent({
       name: "ApprovalDecider",
-      model: codexProvider.getModel("claude-sonnet-4-5-20250929"),
+      model: codexProvider.getModel("gpt-5-codex"),
       instructions: `You are an intelligent approval agent that reviews permission requests.
 
 Your role:
@@ -174,6 +179,7 @@ Response format:
     this.logger.approval(`Type: ${request.type}`);
     this.logger.approval(`Details: ${JSON.stringify(request.details, null, 2)}`);
     this.logger.popIndent();
+    this.logger.codex(`Reviewing approval request...`);
 
     const prompt = `Review this approval request:
 
@@ -213,9 +219,9 @@ async function runApprovalWorkflow(prompt: string) {
   logger.header("DUAL-AGENT COLLABORATION WITH INTELLIGENT APPROVALS");
   logger.system(`User request: ${prompt}`);
 
-  // Initialize Codex provider for approver (using Claude Sonnet)
+  // Initialize GPT Codex provider for planning and approvals
   const codexProvider = new CodexProvider({
-    defaultModel: "claude-sonnet-4-5-20250929",
+    defaultModel: "gpt-5-codex",
     workingDirectory: process.cwd(),
     skipGitRepoCheck: true,
   });
@@ -223,10 +229,10 @@ async function runApprovalWorkflow(prompt: string) {
   const approvalAgent = new ApprovalAgent(codexProvider, logger);
   const runner = new Runner({ modelProvider: codexProvider });
 
-  // Create planner (using Claude Sonnet)
+  // Create planner using GPT Codex (manager)
   const plannerAgent = new Agent({
-    name: "ClaudePlanner",
-    model: codexProvider.getModel("claude-sonnet-4-5-20250929"),
+    name: "CodexPlanner",
+    model: codexProvider.getModel("gpt-5-codex"),
     instructions: `You are an expert planning agent. Create detailed, actionable plans.
 Format your plan as numbered steps with clear actions.`,
   });
@@ -262,10 +268,10 @@ Format your plan as numbered steps with clear actions.`,
       return approved;
     };
 
-    // Create Claude agent with approval callback (uses Claude Sonnet by default)
+    // Create Claude agent with approval callback (uses GPT Codex backend)
     logger.claude("Starting execution with approval flow...");
     const claudeAgent = new ClaudeAgent({
-      model: "claude-sonnet-4-5-20250929",
+      model: "gpt-5-codex",
       workingDirectory: process.cwd(),
       approvalMode: "on-request",
       sandboxMode: "workspace-write",
@@ -323,16 +329,16 @@ ${colors.yellow}Examples:${colors.reset}
   tsx examples/dual-agent-with-approvals.ts --prompt "Run tests and report results"
   tsx examples/dual-agent-with-approvals.ts --prompt "Echo hello world"
 
-${colors.yellow}Features:${colors.reset}
-  ${colors.blue}• Approver${colors.reset} creates plans and intelligently approves/denies actions
-  ${colors.green}• Executor${colors.reset} executes work and requests approvals
+${colors.yellow}Architecture:${colors.reset}
+  ${colors.blue}• GPT Codex${colors.reset} creates plans and intelligently approves/denies actions
+  ${colors.green}• Claude${colors.reset} executes work and requests approvals
   ${colors.magenta}• Real-time${colors.reset} approval flow with AI decision-making
 
 ${colors.yellow}Approval Flow:${colors.reset}
-  1. ${colors.green}Executor${colors.reset} requests permission for actions
-  2. ${colors.magenta}Approval${colors.reset} request sent to Approver
-  3. ${colors.blue}Approver${colors.reset} reviews using AI (approve/deny)
-  4. ${colors.green}Executor${colors.reset} receives decision and proceeds
+  1. ${colors.green}Claude${colors.reset} requests permission for actions
+  2. ${colors.magenta}Approval${colors.reset} request sent to GPT Codex
+  3. ${colors.blue}GPT Codex${colors.reset} reviews using AI (approve/deny)
+  4. ${colors.green}Claude${colors.reset} receives decision and proceeds
 `);
   process.exit(1);
 }

@@ -221,11 +221,11 @@ describe("ClaudeAgent", () => {
     expect(mockOnApprovalRequest).toHaveBeenCalledWith(approvalHandler);
   });
 
-  it("should use Claude Sonnet as default model", async () => {
+  it("should use GPT Codex as default model", async () => {
     const agent = new ClaudeAgent();
     // Access private options field for testing
     const options = (agent as any).options;
-    expect(options.model).toBe("claude-sonnet-4-5-20250929");
+    expect(options.model).toBe("gpt-5-codex");
   });
 
   it("should allow custom approval logic", async () => {
