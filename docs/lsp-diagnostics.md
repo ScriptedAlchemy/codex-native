@@ -28,7 +28,7 @@ Notes:
 
 ### TUI visualization of diagnostics
 
-When running the Codex TUI (via the native SDK or the CLI) *or* the `codex-native run` command, Codex listens for background events that carry LSP diagnostics:
+When running the Codex TUI (via the native SDK or the CLI) _or_ the `codex-native run` command, Codex listens for background events that carry LSP diagnostics:
 
 - The Native SDK’s `LspDiagnosticsBridge` watches:
   - File changes emitted as `file_change` items (e.g., after `apply_patch`).
