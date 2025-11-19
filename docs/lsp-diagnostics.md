@@ -28,7 +28,7 @@ Notes:
 
 ### TUI visualization of diagnostics
 
-When running the Codex TUI (via the native SDK or the CLI), Codex listens for background events that carry LSP diagnostics:
+When running the Codex TUI (via the native SDK or the CLI) *or* the `codex-native run` command, Codex listens for background events that carry LSP diagnostics:
 
 - The Native SDK’s `LspDiagnosticsBridge` watches:
   - File changes emitted as `file_change` items (e.g., after `apply_patch`).
@@ -48,6 +48,7 @@ In the TUI:
 
 - Background events are rendered in the history as informational cells.
 - Messages starting with `LSP diagnostics` (or the bridged `📟 LSP diagnostics` prefix) are highlighted in red, so diagnostics stand out visually in the transcript.
+- The Rust TUI (`codex-rs/tui`) also posts a desktop notification when these diagnostics arrive, so you get an OS-level nudge even if the terminal is unfocused.
 
 ### Behavior and limitations
 

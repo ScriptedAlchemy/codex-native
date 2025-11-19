@@ -732,6 +732,9 @@ impl ChatWidget {
         let trimmed = message.trim_start();
         if trimmed.starts_with("LSP diagnostics") || trimmed.starts_with("📟 LSP diagnostics") {
             self.add_to_history(history_cell::new_diagnostic_event(trimmed.to_string()));
+            self.notify(Notification::LspDiagnostics {
+                summary: trimmed.to_string(),
+            });
             self.request_redraw();
         } else if !trimmed.is_empty() {
             self.add_to_history(history_cell::new_background_event(trimmed.to_string()));
@@ -2802,6 +2805,7 @@ enum Notification {
     AgentTurnComplete { response: String },
     ExecApprovalRequested { command: String },
     EditApprovalRequested { cwd: PathBuf, changes: Vec<PathBuf> },
+    LspDiagnostics { summary: String },
 }
 
 impl Notification {
@@ -2825,6 +2829,9 @@ impl Notification {
                     }
                 )
             }
+            Notification::LspDiagnostics { summary } => {
+                Notification::lsp_diagnostic_preview(summary)
+            }
         }
     }
 
@@ -2833,6 +2840,7 @@ impl Notification {
             Notification::AgentTurnComplete { .. } => "agent-turn-complete",
             Notification::ExecApprovalRequested { .. }
             | Notification::EditApprovalRequested { .. } => "approval-requested",
+            Notification::LspDiagnostics { .. } => "lsp-diagnostics",
         }
     }
 
@@ -2858,9 +2866,52 @@ impl Notification {
             Some(truncate_text(trimmed, AGENT_NOTIFICATION_PREVIEW_GRAPHEMES))
         }
     }
+
+    fn lsp_diagnostic_preview(summary: &str) -> String {
+        let mut lines = summary.lines();
+        let header = lines
+            .next()
+            .unwrap_or("LSP diagnostics detected")
+            .trim_start_matches('📟')
+            .trim()
+            .trim_end_matches(':')
+            .to_string();
+        let detail = lines.find_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if trimmed.starts_with('•') || trimmed.starts_with('-') || trimmed.starts_with('–')
+            {
+                let content = trimmed
+                    .trim_start_matches(|c: char| {
+                        matches!(c, '•' | '-' | '–' | '—' | '*' | ' ' | '\t')
+                    })
+                    .trim();
+                if content.is_empty() {
+                    None
+                } else {
+                    Some(content.to_string())
+                }
+            } else {
+                None
+            }
+        });
+
+        if let Some(detail) = detail {
+            format!(
+                "{}: {}",
+                header,
+                truncate_text(&detail, LSP_NOTIFICATION_PREVIEW_GRAPHEMES)
+            )
+        } else {
+            header
+        }
+    }
 }
 
 const AGENT_NOTIFICATION_PREVIEW_GRAPHEMES: usize = 200;
+const LSP_NOTIFICATION_PREVIEW_GRAPHEMES: usize = 120;
 
 const EXAMPLE_PROMPTS: [&str; 6] = [
     "Explain this codebase",

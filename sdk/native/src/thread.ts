@@ -3,6 +3,7 @@ import * as path from "node:path";
 
 import { CodexOptions } from "./codexOptions";
 import { ThreadEvent, ThreadError, Usage } from "./events";
+import { convertRustEventToThreadEvent } from "./events/convert";
 import { CodexExec, CodexForkArgs } from "./exec";
 import { ThreadItem } from "./items";
 import { ThreadOptions } from "./threadOptions";
@@ -13,86 +14,6 @@ import { getNativeBinding } from "./nativeBinding";
 import type { NativeTuiRequest, NativeTuiExitInfo, ApprovalRequest } from "./nativeBinding";
 import type { RunTuiOptions, TuiSession } from "./tui";
 import { attachLspDiagnostics } from "./lsp";
-
-/**
- * Convert Rust event format to ThreadEvent format.
- * Rust sends events like { "TurnStarted": {} } but we expect { "type": "turn.started" }
- */
-function convertRustEventToThreadEvent(rustEvent: any): ThreadEvent {
-  if (rustEvent.ThreadStarted) {
-    return {
-      type: "thread.started",
-      thread_id: rustEvent.ThreadStarted.thread_id,
-    };
-  }
-  if (rustEvent.TurnStarted) {
-    return { type: "turn.started" };
-  }
-  if (rustEvent.TurnCompleted) {
-    return {
-      type: "turn.completed",
-      usage: rustEvent.TurnCompleted.usage,
-    };
-  }
-  if (rustEvent.TurnFailed) {
-    return {
-      type: "turn.failed",
-      error: rustEvent.TurnFailed.error,
-    };
-  }
-  if (rustEvent.ItemStarted) {
-    return {
-      type: "item.started",
-      item: rustEvent.ItemStarted.item,
-    };
-  }
-  if (rustEvent.ItemUpdated) {
-    return {
-      type: "item.updated",
-      item: rustEvent.ItemUpdated.item,
-    };
-  }
-  if (rustEvent.ItemCompleted) {
-    return {
-      type: "item.completed",
-      item: rustEvent.ItemCompleted.item,
-    };
-  }
-  if (rustEvent.Error) {
-    return {
-      type: "error",
-      message: rustEvent.Error.message,
-    };
-  }
-  if (rustEvent.type === "background_event" && typeof rustEvent.message === "string") {
-    return {
-      type: "background_event",
-      message: rustEvent.message,
-    };
-  }
-  // Handle plan_update_scheduled synthetic event
-  if (rustEvent.type === "plan_update_scheduled" && rustEvent.plan) {
-    const planData = rustEvent.plan;
-    const planItems = planData.plan || [];
-    return {
-      type: "item.completed",
-      item: {
-        id: `plan-${Date.now()}`,
-        type: "todo_list",
-        items: planItems.map((item: any) => ({
-          text: item.step,
-          completed: item.status === "completed",
-        })),
-      },
-    };
-  }
-  // If it's already in the correct format, return as-is
-  if (rustEvent.type) {
-    return rustEvent;
-  }
-  // Unknown format - return as-is and let the consumer handle it
-  return rustEvent;
-}
 
 /** Completed turn. */
 export type Turn = {

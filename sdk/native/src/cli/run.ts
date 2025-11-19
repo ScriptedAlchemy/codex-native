@@ -4,6 +4,8 @@ import path from "node:path";
 import process from "node:process";
 
 import { type NativeRunRequest, getNativeBinding } from "../nativeBinding";
+import type { ThreadEvent } from "../events";
+import { convertRustEventToThreadEvent } from "../events/convert";
 import { parseApprovalModeFlag, parseSandboxModeFlag } from "./optionParsers";
 import { emitWarnings, runBeforeStartHooks, runEventHooks } from "./hooks";
 import { applyElevatedRunDefaults } from "./elevatedDefaults";
@@ -12,6 +14,7 @@ import type {
   CommandName,
   RunCommandOptions,
 } from "./types";
+import { createRunCommandLspBridge } from "./lspBridge";
 
 export async function executeRunCommand(
   argv: RunCommandOptions,
@@ -50,6 +53,12 @@ export async function executeRunCommand(
 
   const queue = new AsyncQueue<string>();
   let conversationId: string | null = null;
+  const lspBridge = createRunCommandLspBridge({
+    binding,
+    workingDirectory: request.workingDirectory ?? context.cwd,
+    initialThreadId: request.threadId,
+  });
+
   const handleEvent = async (eventJson: string | null | undefined) => {
     if (!eventJson) {
       return;
@@ -65,6 +74,10 @@ export async function executeRunCommand(
     }
 
     conversationId ??= extractConversationId(eventPayload);
+    const threadEvent = toThreadEvent(eventPayload);
+    if (threadEvent && lspBridge) {
+      lspBridge.handleEvent(threadEvent);
+    }
     await runEventHooks(
       combinedConfig.onEventHooks,
       eventPayload,
@@ -109,6 +122,9 @@ export async function executeRunCommand(
     if (loopError) {
       await runPromise.catch(() => {});
     }
+    if (lspBridge) {
+      lspBridge.dispose();
+    }
   }
 
   if (conversationId) {
@@ -116,6 +132,17 @@ export async function executeRunCommand(
   }
 
   emitWarnings(combinedConfig.warnings, warningCount);
+}
+
+function toThreadEvent(payload: unknown): ThreadEvent | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  try {
+    return convertRustEventToThreadEvent(payload);
+  } catch {
+    return null;
+  }
 }
 
 async function resolvePrompt(

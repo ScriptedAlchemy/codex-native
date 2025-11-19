@@ -254,6 +254,28 @@ fn background_events_render_in_history() {
     assert!(last.contains("Subsystem warmed up"));
 }
 
+#[test]
+fn lsp_background_events_emit_notifications() {
+    let (mut chat, mut rx, _ops) = make_chatwidget_manual();
+    chat.config.tui_notifications = Notifications::Enabled(true);
+
+    chat.handle_codex_event(Event {
+        id: "bg-lsp".into(),
+        msg: EventMsg::BackgroundEvent(BackgroundEventEvent {
+            message: "LSP diagnostics detected:\n• src/lib.rs\n  - [ERROR] Missing semicolon"
+                .to_string(),
+        }),
+    });
+
+    let cells = drain_insert_history(&mut rx);
+    let last = lines_to_single_string(cells.last().expect("diagnostic cell"));
+    assert!(last.contains("LSP diagnostics detected"));
+    assert!(matches!(
+        chat.pending_notification,
+        Some(Notification::LspDiagnostics { .. })
+    ));
+}
+
 /// Completing review with findings shows the selection popup and finishes with
 /// the closing banner while clearing review mode state.
 #[test]
