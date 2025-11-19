@@ -97,7 +97,7 @@ jobs:
     env:
       # Speed up repeated builds across CI runs by caching compiled objects (non-Windows).
       USE_SCCACHE: ${{ startsWith(matrix.runner, 'windows') && 'false' || 'true' }}
-      RUSTC_WRAPPER: ${{ startsWith(matrix.runner, 'windows') && '' || 'sccache' }}
+      RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
       SCCACHE_CACHE_SIZE: 10G
 
@@ -149,6 +149,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+      - name: Disable sccache on Windows
+        if: ${{ env.USE_SCCACHE == 'false' }}
+        shell: pwsh
+        run: "echo 'RUSTC_WRAPPER=' >> $env:GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.90
         with:
           targets: ${{ matrix.target }}
@@ -339,7 +343,7 @@ jobs:
     env:
       # Speed up repeated builds across CI runs by caching compiled objects (non-Windows).
       USE_SCCACHE: ${{ startsWith(matrix.runner, 'windows') && 'false' || 'true' }}
-      RUSTC_WRAPPER: ${{ startsWith(matrix.runner, 'windows') && '' || 'sccache' }}
+      RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
       SCCACHE_CACHE_SIZE: 10G
 
@@ -365,6 +369,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+      - name: Disable sccache on Windows
+        if: ${{ env.USE_SCCACHE == 'false' }}
+        shell: pwsh
+        run: "echo 'RUSTC_WRAPPER=' >> $env:GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.90
         with:
           targets: ${{ matrix.target }}
