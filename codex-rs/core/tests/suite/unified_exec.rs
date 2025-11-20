@@ -744,7 +744,7 @@ async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()>
 
     let open_call_id = "uexec-open-session";
     let open_args = json!({
-        "cmd": "/bin/sh -c echo ready".to_string(),
+        "cmd": "/bin/sh -c 'sleep 1; echo ready'".to_string(),
         "yield_time_ms": 250,
     });
 
@@ -824,7 +824,7 @@ async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()>
         vec![
             "/bin/bash".to_string(),
             "-lc".to_string(),
-            "/bin/sh -c echo ready".to_string()
+            "/bin/sh -c 'sleep 1; echo ready'".to_string()
         ]
     );
     assert!(
@@ -842,7 +842,7 @@ async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()>
         vec![
             "/bin/bash".to_string(),
             "-lc".to_string(),
-            "/bin/sh -c echo ready".to_string()
+            "/bin/sh -c 'sleep 1; echo ready'".to_string()
         ]
     );
     assert!(
