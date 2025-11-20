@@ -16,7 +16,7 @@ jobs:
     env:
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
-      SCCACHE_CACHE_SIZE: 10G
+      SCCACHE_CACHE_SIZE: 5G
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -137,10 +137,17 @@ jobs:
     env:
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
-      SCCACHE_CACHE_SIZE: 10G
+      SCCACHE_CACHE_SIZE: 5G
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Free disk space for build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet /opt/hostedtoolcache/CodeQL || true
+          df -h
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
