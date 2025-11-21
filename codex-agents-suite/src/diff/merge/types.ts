@@ -10,6 +10,7 @@ export type SolverConfig = {
   workerModelLow?: string;
   highReasoningMatchers?: string[];
   lowReasoningMatchers?: string[];
+  reasoningEffort?: "minimal" | "low" | "medium" | "high";
   sandboxMode: SandboxMode;
   approvalMode: ApprovalMode;
   baseUrl?: string;
