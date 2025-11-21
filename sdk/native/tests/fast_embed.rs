@@ -16,6 +16,8 @@ async fn fast_embed_small_model_produces_normalized_vectors() {
     cache_dir: Some(cache_dir.path().to_string_lossy().into_owned()),
     max_length: Some(512),
     show_download_progress: Some(false),
+    use_coreml: Some(false),
+    coreml_ane_only: Some(false),
   })
   .await
   .expect("fast_embed_init failed");

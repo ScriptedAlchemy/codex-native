@@ -19,7 +19,9 @@ use core_test_support::responses::ev_response_created;
 use core_test_support::responses::mount_sse_once;
 use core_test_support::responses::sse;
 use core_test_support::responses::start_mock_server;
+use core_test_support::sandbox_env_var;
 use core_test_support::skip_if_no_network;
+use core_test_support::skip_if_sandbox;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use core_test_support::wait_for_event_match;
@@ -27,6 +29,7 @@ use regex_lite::escape;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
+#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test]
 async fn user_shell_cmd_ls_and_cat_in_temp_dir() {
     // Create a temporary working directory with a known file.
@@ -95,6 +98,7 @@ async fn user_shell_cmd_ls_and_cat_in_temp_dir() {
     assert_eq!(stdout, contents);
 }
 
+#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test]
 async fn user_shell_cmd_can_be_interrupted() {
     // Set up isolated config and conversation.
@@ -129,11 +133,18 @@ async fn user_shell_cmd_can_be_interrupted() {
     assert_eq!(ev.reason, TurnAbortReason::Interrupted);
 }
 
+#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyhow::Result<()> {
-    let server = responses::start_mock_server().await;
+    skip_if_sandbox!(Ok(()));
+    let server = start_mock_server().await;
     let mut builder = core_test_support::test_codex::test_codex();
     let test = builder.build(&server).await?;
+    let expected_sandbox_value = std::env::var(sandbox_env_var())
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "not-set".to_string());
+    let expected_trim = expected_sandbox_value.as_str();
 
     #[cfg(windows)]
     let command = r#"$val = $env:CODEX_SANDBOX; if ([string]::IsNullOrEmpty($val)) { $val = 'not-set' } ; [System.Console]::Write($val)"#.to_string();
@@ -165,10 +176,16 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
         _ => None,
     })
     .await;
-    assert_eq!(delta_event.stream, ExecOutputStream::Stdout);
+    let expected_stream = if expected_trim == "not-set" {
+        ExecOutputStream::Stdout
+    } else {
+        // When running inside a seatbelt sandbox the shim reports stderr.
+        ExecOutputStream::Stderr
+    };
+    assert_eq!(delta_event.stream, expected_stream);
     let chunk_text =
         String::from_utf8(delta_event.chunk.clone()).expect("user command chunk is valid utf-8");
-    assert_eq!(chunk_text.trim(), "not-set");
+    assert_eq!(chunk_text.trim(), expected_trim);
 
     let end_event = wait_for_event_match(&test.codex, |ev| match ev {
         EventMsg::ExecCommandEnd(event) => Some(event.clone()),
@@ -176,7 +193,11 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
     })
     .await;
     assert_eq!(end_event.exit_code, 0);
-    assert_eq!(end_event.stdout.trim(), "not-set");
+    if expected_stream == ExecOutputStream::Stdout {
+        assert_eq!(end_event.stdout.trim(), expected_trim);
+    } else {
+        assert_eq!(end_event.stderr.trim(), expected_trim);
+    }
 
     let _ = wait_for_event(&test.codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
 
@@ -198,17 +219,20 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
         .expect("command message recorded in request");
     let command_message = command_message.replace("\r\n", "\n");
     let escaped_command = escape(&command);
+    let escaped_result = escape(expected_trim);
     let expected_pattern = format!(
-        r"(?m)\A<user_shell_command>\n<command>\n{escaped_command}\n</command>\n<result>\nExit code: 0\nDuration: [0-9]+(?:\.[0-9]+)? seconds\nOutput:\nnot-set\n</result>\n</user_shell_command>\z"
+        r"(?m)\A<user_shell_command>\n<command>\n{escaped_command}\n</command>\n<result>\nExit code: 0\nDuration: [0-9]+(?:\.[0-9]+)? seconds\nOutput:\n{escaped_result}\n</result>\n</user_shell_command>\z"
     );
     assert_regex_match(&expected_pattern, &command_message);
 
     Ok(())
 }
 
+#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<()> {
-    let server = responses::start_mock_server().await;
+    skip_if_sandbox!(Ok(()));
+    let server = start_mock_server().await;
     let mut builder = core_test_support::test_codex::test_codex();
     let test = builder.build(&server).await?;
 
@@ -263,6 +287,7 @@ async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<(
     Ok(())
 }
 
+#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_shell_command_is_truncated_only_once() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));

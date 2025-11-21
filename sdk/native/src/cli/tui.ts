@@ -1,9 +1,12 @@
 import process from "node:process";
 
-import { getNativeBinding, type NativeTuiRequest } from "../nativeBinding";
+import { Codex } from "../codex";
+import type { ThreadOptions } from "../threadOptions";
+import type { NativeTuiRequest } from "../nativeBinding";
 import { emitWarnings, runBeforeStartHooks } from "./hooks";
 import { parseApprovalModeFlag, parseSandboxModeFlag } from "./optionParsers";
 import type { CliContext, CommandName, TuiCommandOptions } from "./types";
+import { applyElevatedTuiDefaults } from "./elevatedDefaults";
 
 export async function executeTuiCommand(
   argv: TuiCommandOptions,
@@ -17,10 +20,13 @@ export async function executeTuiCommand(
   emitWarnings(combinedConfig.warnings);
   const warningCount = combinedConfig.warnings.length;
 
-  const request = buildTuiRequest({
+  const { request, thread: threadOptions } = buildTuiConfig({
     argv,
     defaults: combinedConfig.tuiDefaults,
+    cwd: context.cwd,
   });
+
+  applyElevatedTuiDefaults({ request, thread: threadOptions, cwd: context.cwd });
 
   const hookContext = {
     command: "tui" as CommandName,
@@ -30,12 +36,14 @@ export async function executeTuiCommand(
 
   await runBeforeStartHooks(combinedConfig.beforeStartHooks, hookContext, combinedConfig.warnings);
 
-  const binding = getNativeBinding();
-  if (!binding || typeof binding.runTui !== "function") {
-    throw new Error("Native binding does not expose runTui.");
-  }
+  const codex = new Codex({
+    baseUrl: request.baseUrl,
+    apiKey: request.apiKey,
+    preserveRegisteredTools: true,
+  });
+  const thread = codex.startThread(threadOptions);
 
-  const exitInfo = await binding.runTui(request);
+  const exitInfo = await thread.tui(request);
   if (exitInfo.conversationId) {
     process.stdout.write(`\nConversation ID: ${exitInfo.conversationId}\n`);
   }
@@ -48,11 +56,12 @@ export async function executeTuiCommand(
   emitWarnings(combinedConfig.warnings, warningCount);
 }
 
-function buildTuiRequest(params: {
+function buildTuiConfig(params: {
   argv: TuiCommandOptions;
   defaults: Partial<NativeTuiRequest>;
-}): NativeTuiRequest {
-  const { argv, defaults } = params;
+  cwd: string;
+}): { request: NativeTuiRequest; thread: ThreadOptions } {
+  const { argv, defaults, cwd } = params;
   const request: NativeTuiRequest = {
     ...(defaults as NativeTuiRequest),
   };
@@ -76,7 +85,7 @@ function buildTuiRequest(params: {
   if (argv.dangerouslyBypassApprovalsAndSandbox !== undefined) {
     request.dangerouslyBypassApprovalsAndSandbox = argv.dangerouslyBypassApprovalsAndSandbox;
   }
-  if (argv.workingDirectory !== undefined) request.workingDirectory = argv.workingDirectory;
+  if (argv.cd !== undefined) request.workingDirectory = argv.cd;
   if (argv.configProfile !== undefined) request.configProfile = argv.configProfile;
   if (argv.webSearch !== undefined) request.webSearch = argv.webSearch;
   if (argv.linuxSandboxPath !== undefined) request.linuxSandboxPath = argv.linuxSandboxPath;
@@ -100,6 +109,14 @@ function buildTuiRequest(params: {
     request.images = [...defaultsImages, ...argv.image];
   }
 
-  return request;
-}
+  const thread: ThreadOptions = {
+    model: request.model,
+    oss: request.oss,
+    sandboxMode: request.sandboxMode,
+    approvalMode: request.approvalMode,
+    workingDirectory: request.workingDirectory ?? cwd,
+    skipGitRepoCheck: false,
+  };
 
+  return { request, thread };
+}

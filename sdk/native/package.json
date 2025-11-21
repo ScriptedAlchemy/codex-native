@@ -21,6 +21,15 @@
     "npm",
     "*.node"
   ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "@opencode-ai/sdk": "^1.0.68",
+    "@toon-format/toon": "^1.0.0",
+    "pyright": "^1.1.386",
+    "typescript-language-server": "^4.3.3",
+    "vscode-jsonrpc": "^8.2.1",
+    "vscode-languageserver-types": "^3.17.5"
+  },
   "scripts": {
     "clean": "rm -rf dist *.node npm target/release/*.node && cargo clean --release",
     "clean:all": "rm -rf dist *.node npm target node_modules && cargo clean",

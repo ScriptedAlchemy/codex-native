@@ -12,6 +12,7 @@ use core_test_support::responses::mount_sse_once;
 use core_test_support::responses::mount_sse_sequence;
 use core_test_support::responses::sse;
 use core_test_support::responses::start_mock_server;
+use core_test_support::skip_if_sandbox;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use regex_lite::Regex;
@@ -21,6 +22,7 @@ use serde_json::json;
 /// function call, then interrupt the session and expect TurnAborted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interrupt_long_running_tool_emits_turn_aborted() {
+    skip_if_sandbox!();
     let command = vec![
         "bash".to_string(),
         "-lc".to_string(),
@@ -67,6 +69,7 @@ async fn interrupt_long_running_tool_emits_turn_aborted() {
 /// responses server, and ensures the model receives the synthesized abort.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interrupt_tool_records_history_entries() {
+    skip_if_sandbox!();
     let command = vec![
         "bash".to_string(),
         "-lc".to_string(),

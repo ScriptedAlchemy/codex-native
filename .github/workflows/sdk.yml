@@ -16,7 +16,7 @@ jobs:
     env:
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
-      SCCACHE_CACHE_SIZE: 10G
+      SCCACHE_CACHE_SIZE: 5G
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -137,10 +137,17 @@ jobs:
     env:
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
-      SCCACHE_CACHE_SIZE: 10G
+      SCCACHE_CACHE_SIZE: 5G
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Free disk space for build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet /opt/hostedtoolcache/CodeQL || true
+          df -h
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -182,7 +189,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/.sccache/
-          key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
+          key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-
             sccache-${{ runner.os }}-
@@ -206,7 +213,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: codex-rs/target/
-          key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+          key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}
           restore-keys: |
             cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
             cargo-target-${{ runner.os }}-
@@ -233,7 +240,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ github.workspace }}/.sccache/
-          key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
+          key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: sccache stats
         if: always()
@@ -258,7 +265,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: codex-rs/target/
-          key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
+          key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}
 
   sdks:
     name: SDK results (required)

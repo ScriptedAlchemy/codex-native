@@ -4,13 +4,17 @@ import path from "node:path";
 import process from "node:process";
 
 import { type NativeRunRequest, getNativeBinding } from "../nativeBinding";
+import type { ThreadEvent } from "../events";
+import { convertRustEventToThreadEvent } from "../events/convert";
 import { parseApprovalModeFlag, parseSandboxModeFlag } from "./optionParsers";
 import { emitWarnings, runBeforeStartHooks, runEventHooks } from "./hooks";
+import { applyElevatedRunDefaults } from "./elevatedDefaults";
 import type {
   CliContext,
   CommandName,
   RunCommandOptions,
 } from "./types";
+import { createRunCommandLspBridge } from "./lspBridge";
 
 export async function executeRunCommand(
   argv: RunCommandOptions,
@@ -25,6 +29,7 @@ export async function executeRunCommand(
     prompt,
     argv,
     combinedDefaults: combinedConfig.runDefaults,
+    cwd: context.cwd,
   });
 
   if (!request.skipGitRepoCheck) {
@@ -48,6 +53,12 @@ export async function executeRunCommand(
 
   const queue = new AsyncQueue<string>();
   let conversationId: string | null = null;
+  const lspBridge = createRunCommandLspBridge({
+    binding,
+    workingDirectory: request.workingDirectory ?? context.cwd,
+    initialThreadId: request.threadId,
+  });
+
   const handleEvent = async (eventJson: string | null | undefined) => {
     if (!eventJson) {
       return;
@@ -63,6 +74,10 @@ export async function executeRunCommand(
     }
 
     conversationId ??= extractConversationId(eventPayload);
+    const threadEvent = toThreadEvent(eventPayload);
+    if (threadEvent && lspBridge) {
+      lspBridge.handleEvent(threadEvent);
+    }
     await runEventHooks(
       combinedConfig.onEventHooks,
       eventPayload,
@@ -107,6 +122,9 @@ export async function executeRunCommand(
     if (loopError) {
       await runPromise.catch(() => {});
     }
+    if (lspBridge) {
+      lspBridge.dispose();
+    }
   }
 
   if (conversationId) {
@@ -114,6 +132,17 @@ export async function executeRunCommand(
   }
 
   emitWarnings(combinedConfig.warnings, warningCount);
+}
+
+function toThreadEvent(payload: unknown): ThreadEvent | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  try {
+    return convertRustEventToThreadEvent(payload);
+  } catch {
+    return null;
+  }
 }
 
 async function resolvePrompt(
@@ -149,8 +178,9 @@ async function buildRunRequest(params: {
   prompt: string;
   argv: RunCommandOptions;
   combinedDefaults: Partial<NativeRunRequest>;
+  cwd: string;
 }): Promise<NativeRunRequest> {
-  const { prompt, argv, combinedDefaults } = params;
+  const { prompt, argv, combinedDefaults, cwd } = params;
   const request: NativeRunRequest = {
     ...(combinedDefaults as NativeRunRequest),
     prompt,
@@ -180,7 +210,7 @@ async function buildRunRequest(params: {
   if (argv.linuxSandboxPath !== undefined) request.linuxSandboxPath = argv.linuxSandboxPath;
   if (argv.fullAuto !== undefined) request.fullAuto = argv.fullAuto;
   if (argv.skipGitRepoCheck !== undefined) request.skipGitRepoCheck = argv.skipGitRepoCheck;
-  if (argv.workingDirectory !== undefined) request.workingDirectory = argv.workingDirectory;
+  if (argv.cd !== undefined) request.workingDirectory = argv.cd;
   if (argv.reviewMode !== undefined) request.reviewMode = argv.reviewMode;
   if (argv.reviewHint !== undefined) request.reviewHint = argv.reviewHint;
 
@@ -194,6 +224,7 @@ async function buildRunRequest(params: {
     request.outputSchema = await readJsonFile(argv.schema);
   }
 
+  applyElevatedRunDefaults(request, cwd);
   return request;
 }
 
@@ -264,9 +295,26 @@ function validateModel(model: string | undefined, oss: boolean): void {
     }
     return;
   }
-  if (trimmed !== "gpt-5" && trimmed !== "gpt-5-codex") {
+  const allowed = new Set([
+    // GPT models
+    "gpt-5",
+    "gpt-5-codex",
+    "gpt-5-codex-mini",
+    "gpt-5.1",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-mini",
+    // Claude models
+    "claude-sonnet-4-5-20250929",
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
+  ]);
+
+  // Allow any claude- or gpt- prefixed model (flexible for future models)
+  if (!allowed.has(trimmed) && !trimmed.startsWith("claude-") && !trimmed.startsWith("gpt-")) {
     throw new Error(
-      `Invalid model "${trimmed}". Supported models are "gpt-5" or "gpt-5-codex".`,
+      `Invalid model "${trimmed}". Supported models: ${Array.from(allowed)
+        .map((m) => `"${m}"`)
+        .join(", " )}, or any model starting with "claude-" or "gpt-".`,
     );
   }
 }
@@ -367,4 +415,3 @@ class AsyncQueue<T> implements AsyncIterable<T> {
     return this;
   }
 }
-

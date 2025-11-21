@@ -1,8 +1,14 @@
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
+use tokio::sync::Mutex;
 use tokio::sync::Notify;
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio::time::Duration;
 use tokio::time::Instant;
 
@@ -72,18 +78,32 @@ impl UnifiedExecSessionManager {
         let text = String::from_utf8_lossy(&collected).to_string();
         let (output, original_token_count) = truncate_output_to_tokens(&text, max_tokens);
         let chunk_id = generate_chunk_id();
-        let has_exited = session.has_exited();
-        let stored_id = self
-            .store_session(session, context, &request.command, cwd.clone(), start)
-            .await;
-        let exit_code = self
-            .sessions
-            .lock()
-            .await
-            .get(&stored_id)
-            .map(|entry| entry.session.exit_code());
-        // Only include a session_id in the response if the process is still alive.
-        let session_id = if has_exited { None } else { Some(stored_id) };
+        let exit_rx = session.take_exit_receiver().await;
+
+        let mut exit_code = session.exit_code();
+        let mut retries = 0;
+        while exit_code.is_none() && retries < 5 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            exit_code = session.exit_code();
+            retries += 1;
+        }
+
+        let has_exited = exit_code.is_some();
+        let session_id = if has_exited {
+            None
+        } else {
+            Some(
+                self.store_session(
+                    session,
+                    context,
+                    &request.command,
+                    cwd.clone(),
+                    start,
+                    exit_rx,
+                )
+                .await,
+            )
+        };
 
         let response = UnifiedExecResponse {
             event_call_id: context.call_id.clone(),
@@ -91,7 +111,7 @@ impl UnifiedExecSessionManager {
             wall_time,
             output,
             session_id,
-            exit_code: exit_code.flatten(),
+            exit_code,
             original_token_count,
             session_command: Some(request.command.clone()),
         };
@@ -123,6 +143,11 @@ impl UnifiedExecSessionManager {
     ) -> Result<UnifiedExecResponse, UnifiedExecError> {
         let session_id = request.session_id;
 
+        match self.refresh_session_state(session_id).await {
+            SessionStatus::Alive { .. } => {}
+            _ => return Err(UnifiedExecError::UnknownSessionId { session_id }),
+        }
+
         let (
             writer_tx,
             output_buffer,
@@ -131,7 +156,9 @@ impl UnifiedExecSessionManager {
             turn_ref,
             session_command,
             session_cwd,
+            write_guard,
         ) = self.prepare_session_handles(session_id).await?;
+        let _write_guard = write_guard;
 
         let interaction_emitter = ToolEmitter::unified_exec(
             &session_command,
@@ -267,13 +294,15 @@ impl UnifiedExecSessionManager {
             Arc<TurnContext>,
             Vec<String>,
             PathBuf,
+            PendingWriteGuard,
         ),
         UnifiedExecError,
     > {
-        let sessions = self.sessions.lock().await;
-        let (output_buffer, output_notify, writer_tx, session, turn, command, cwd) =
-            if let Some(entry) = sessions.get(&session_id) {
+        let mut guard = self.sessions.lock().await;
+        let (output_buffer, output_notify, writer_tx, session, turn, command, cwd, write_guard) =
+            if let Some(entry) = guard.get_mut(&session_id) {
                 let (buffer, notify) = entry.session.output_handles();
+                entry.pending_writes.fetch_add(1, Ordering::SeqCst);
                 (
                     buffer,
                     notify,
@@ -282,10 +311,16 @@ impl UnifiedExecSessionManager {
                     Arc::clone(&entry.turn_ref),
                     entry.command.clone(),
                     entry.cwd.clone(),
+                    PendingWriteGuard::new(
+                        Arc::clone(&entry.pending_writes),
+                        Arc::clone(&entry.write_notify),
+                    ),
                 )
             } else {
                 return Err(UnifiedExecError::UnknownSessionId { session_id });
             };
+
+        drop(guard);
 
         Ok((
             writer_tx,
@@ -295,6 +330,7 @@ impl UnifiedExecSessionManager {
             turn,
             command,
             cwd,
+            write_guard,
         ))
     }
 
@@ -315,6 +351,7 @@ impl UnifiedExecSessionManager {
         command: &[String],
         cwd: PathBuf,
         started_at: Instant,
+        exit_rx: Option<oneshot::Receiver<i32>>,
     ) -> i32 {
         let session_id = self
             .next_session_id
@@ -327,9 +364,63 @@ impl UnifiedExecSessionManager {
             command: command.to_vec(),
             cwd,
             started_at,
+            pending_writes: Arc::new(AtomicUsize::new(0)),
+            write_notify: Arc::new(Notify::new()),
         };
+
+        let still_running = !entry.session.has_exited();
         self.sessions.lock().await.insert(session_id, entry);
+        if still_running && let Some(exit_rx) = exit_rx {
+            self.spawn_exit_watcher(session_id, exit_rx);
+        }
+
         session_id
+    }
+
+    fn spawn_exit_watcher(&self, session_id: i32, exit_rx: oneshot::Receiver<i32>) {
+        let sessions = Arc::clone(&self.sessions);
+        tokio::spawn(async move {
+            let _ = exit_rx.await;
+            Self::exit_watcher_loop(sessions, session_id).await;
+        });
+    }
+
+    async fn exit_watcher_loop(sessions: Arc<Mutex<HashMap<i32, SessionEntry>>>, session_id: i32) {
+        loop {
+            let notify = {
+                let mut guard = sessions.lock().await;
+                match guard.entry(session_id) {
+                    Entry::Occupied(entry) => {
+                        if entry.get().pending_writes.load(Ordering::SeqCst) == 0 {
+                            let entry = entry.remove();
+                            drop(guard);
+                            Self::emit_watcher_end(entry).await;
+                            return;
+                        }
+                        Some(Arc::clone(&entry.get().write_notify))
+                    }
+                    Entry::Vacant(_) => return,
+                }
+            };
+
+            if let Some(notify) = notify {
+                notify.notified().await;
+            } else {
+                return;
+            }
+        }
+    }
+
+    async fn emit_watcher_end(entry: SessionEntry) {
+        let collected_chunks = entry.session.snapshot_output().await;
+        let mut aggregated_bytes = Vec::new();
+        for chunk in collected_chunks {
+            aggregated_bytes.extend(chunk);
+        }
+        let aggregated_output = String::from_utf8_lossy(&aggregated_bytes).to_string();
+        let exit_code = entry.session.exit_code().unwrap_or(-1);
+        let duration = Instant::now().saturating_duration_since(entry.started_at);
+        Self::emit_exec_end_from_entry(entry, aggregated_output, exit_code, duration).await;
     }
 
     async fn emit_exec_end_from_entry(
@@ -486,7 +577,10 @@ impl UnifiedExecSessionManager {
                     break;
                 }
 
-                let notified = wait_for_output.unwrap_or_else(|| output_notify.notified());
+                let notified = match wait_for_output {
+                    Some(notified) => notified,
+                    None => output_notify.notified(),
+                };
                 tokio::pin!(notified);
                 tokio::select! {
                     _ = &mut notified => {}
@@ -518,4 +612,26 @@ enum SessionStatus {
         entry: Box<SessionEntry>,
     },
     Unknown,
+}
+
+struct PendingWriteGuard {
+    pending_writes: Arc<AtomicUsize>,
+    notify: Arc<Notify>,
+}
+
+impl PendingWriteGuard {
+    fn new(pending_writes: Arc<AtomicUsize>, notify: Arc<Notify>) -> Self {
+        Self {
+            pending_writes,
+            notify,
+        }
+    }
+}
+
+impl Drop for PendingWriteGuard {
+    fn drop(&mut self) {
+        if self.pending_writes.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.notify.notify_waiters();
+        }
+    }
 }

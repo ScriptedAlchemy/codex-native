@@ -12,6 +12,7 @@ use crate::exec_env::create_env;
 use crate::function_tool::FunctionCallError;
 use crate::is_safe_command::is_known_safe_command;
 use crate::protocol::ExecCommandSource;
+use crate::protocol::SandboxPolicy;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
@@ -194,6 +195,8 @@ impl ShellHandler {
         call_id: String,
         is_user_shell_command: bool,
     ) -> Result<ToolOutput, FunctionCallError> {
+        let sandbox_allows_writes = sandbox_policy_allows_writes(&turn.sandbox_policy);
+
         // Approval policy guard for explicit escalation in non-OnRequest modes.
         if exec_params.with_escalated_permissions.unwrap_or(false)
             && !matches!(
@@ -208,6 +211,7 @@ impl ShellHandler {
         }
 
         // Intercept apply_patch if present.
+        let mut remind_apply_patch = false;
         match codex_apply_patch::maybe_parse_apply_patch_verified(
             &exec_params.command,
             &exec_params.cwd,
@@ -281,8 +285,17 @@ impl ShellHandler {
                 // Fall through to regular shell execution.
             }
             codex_apply_patch::MaybeApplyPatchVerified::NotApplyPatch => {
+                if sandbox_allows_writes && command_likely_edits_files(&exec_params.command) {
+                    remind_apply_patch = true;
+                }
                 // Fall through to regular shell execution.
             }
+        }
+
+        if remind_apply_patch {
+            session
+                .notify_background_event(turn.as_ref(), APPLY_PATCH_REMINDER)
+                .await;
         }
 
         // Regular shell execution path.
@@ -323,6 +336,72 @@ impl ShellHandler {
             success: Some(true),
         })
     }
+}
+
+const APPLY_PATCH_REMINDER: &str = "Heads up: this shell command looks like it edits files directly. Prefer using `apply_patch` for reproducible edits and better diagnostics.";
+
+fn sandbox_policy_allows_writes(policy: &SandboxPolicy) -> bool {
+    matches!(
+        policy,
+        SandboxPolicy::DangerFullAccess | SandboxPolicy::WorkspaceWrite { .. }
+    )
+}
+
+fn command_likely_edits_files(command: &[String]) -> bool {
+    if command.is_empty() {
+        return false;
+    }
+
+    let joined = command.join(" ").to_lowercase();
+    if joined.contains("apply_patch") {
+        return false;
+    }
+
+    if joined.contains("cat <<") && joined.contains('>') {
+        return true;
+    }
+
+    if joined.contains(" tee ") || joined.contains("| tee") {
+        return true;
+    }
+
+    if joined.contains("sed -i") {
+        return true;
+    }
+
+    if joined.contains("perl -pi") || joined.contains("perl -0pi") {
+        return true;
+    }
+
+    if joined.contains("python") && joined.contains("open(") && joined.contains("write") {
+        return true;
+    }
+
+    if joined.contains("ruby") && joined.contains("file.open") {
+        return true;
+    }
+
+    if joined.contains("node")
+        && (joined.contains("fs.writefile") || joined.contains("fs.createwritestream"))
+    {
+        return true;
+    }
+
+    if joined.contains(">>") {
+        return true;
+    }
+
+    let first = command
+        .first()
+        .map(|s| s.to_lowercase())
+        .unwrap_or_default();
+    if (first == "cat" || first == "tee" || first == "printf" || first == "echo")
+        && (joined.contains('>') || joined.contains(">>"))
+    {
+        return true;
+    }
+
+    false
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ async function main() {
   const codex = new Codex();
 
   const thread = codex.startThread({
-    model: "gpt-5-codex-mini",
+    model: "tub 5.1 mini",
     sandboxMode: "workspace-write",
     approvalMode: "on-request",
     skipGitRepoCheck: true,
@@ -29,7 +29,7 @@ async function main() {
   const forked = await thread.fork({
     nthUserMessage: 1, // Fork before the second user message (0-based index)
     threadOptions: {
-      model: "gpt-5-codex",
+      model: "gpt-5.1-codex",
     },
   });
 

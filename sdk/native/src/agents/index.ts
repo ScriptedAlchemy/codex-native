@@ -10,7 +10,7 @@
  * import { Agent, Runner } from '@openai/agents';
  *
  * const provider = new CodexProvider({
- *   defaultModel: 'gpt-5-codex'
+ *   defaultModel: 'gpt-5.1-codex'
  * });
  *
  * const agent = new Agent({
@@ -32,6 +32,8 @@ export { codexTool } from "./codexTool";
 export type { CodexToolOptions } from "./codexTool";
 export { formatStream } from "./streamFormatter";
 export type { FormattedStream, FormatStreamOptions, ToolCallEvent } from "./streamFormatter";
+export { OpenCodeAgent } from "./OpenCodeAgent";
+export type { OpenCodeAgentOptions, DelegationResult, PermissionDecision, PermissionRequest } from "./OpenCodeAgent";
 
 // Re-export types for convenience
 export type {

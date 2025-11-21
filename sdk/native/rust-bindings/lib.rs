@@ -14,54 +14,96 @@
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::OnceLock;
-use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
-use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
-use sha1::{Digest, Sha1};
+use codex_arg0::prepend_path_entry_for_codex_aliases;
+use fastembed::EmbeddingModel;
+use fastembed::RerankInitOptions;
+use fastembed::RerankResult;
+use fastembed::RerankerModel;
+use fastembed::TextEmbedding;
+use fastembed::TextInitOptions;
+use fastembed::TextRerank;
+use sha1::Digest;
+use sha1::Sha1;
 
 use async_trait::async_trait;
 use codex_cloud_tasks_client as cloud;
-use codex_common::{ApprovalModeCliArg, CliConfigOverrides, SandboxModeCliArg};
+use codex_common::ApprovalModeCliArg;
+use codex_common::CliConfigOverrides;
+use codex_common::SandboxModeCliArg;
+use codex_core::AuthManager;
 use codex_core::BUILT_IN_OSS_MODEL_PROVIDER_ID;
-use codex_core::config::{Config, ConfigOverrides, find_codex_home};
+use codex_core::ConversationItem;
+use codex_core::ConversationManager;
+use codex_core::ExternalInterceptorRegistration;
+use codex_core::ExternalToolRegistration;
+use codex_core::FunctionCallError;
+use codex_core::RolloutRecorder;
+use codex_core::ToolHandler;
+use codex_core::ToolInterceptor;
+use codex_core::ToolInvocation;
+use codex_core::ToolKind;
+use codex_core::ToolOutput;
+use codex_core::ToolPayload;
+use codex_core::config::Config;
+use codex_core::config::ConfigOverrides;
+use codex_core::config::find_codex_home;
+use codex_core::create_function_tool_spec_from_schema;
 use codex_core::default_client;
 use codex_core::find_conversation_path_by_id_str;
 use codex_core::git_info::get_git_repo_root;
-use codex_core::protocol::{AskForApproval, SessionSource, TokenUsage};
-use codex_core::{AuthManager, ConversationItem, ConversationManager, RolloutRecorder};
-use codex_core::{
-  ExternalInterceptorRegistration, ExternalToolRegistration, FunctionCallError, ToolHandler,
-  ToolInterceptor, ToolInvocation, ToolKind, ToolOutput, ToolPayload,
-  create_function_tool_spec_from_schema, set_pending_external_interceptors,
-  set_pending_external_tools,
-};
-use codex_exec::exec_events::{BackgroundEventEvent, ThreadEvent as ExecThreadEvent};
+use codex_core::protocol::AskForApproval;
+use codex_core::protocol::SessionSource;
+use codex_core::protocol::TokenUsage;
+use codex_core::set_pending_external_interceptors;
+use codex_core::set_pending_external_tools;
+use codex_exec::Cli;
+use codex_exec::Color;
+use codex_exec::Command;
+use codex_exec::ResumeArgs;
+use codex_exec::exec_events::BackgroundEventEvent;
+use codex_exec::exec_events::ThreadEvent as ExecThreadEvent;
 use codex_exec::run_with_thread_event_callback;
-use codex_exec::{Cli, Color, Command, ResumeArgs};
+use codex_protocol::config_types::ReasoningEffort;
+use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::config_types::SandboxMode;
 use codex_tui::AppExitInfo;
 use codex_tui::Cli as TuiCli;
 use codex_tui::update_action::UpdateAction;
-use codex_utils_tokenizer::{EncodingKind, Tokenizer, TokenizerError};
-use napi::bindgen_prelude::{Env, Function, Status};
-use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use codex_utils_tokenizer::EncodingKind;
+use codex_utils_tokenizer::Tokenizer;
+use codex_utils_tokenizer::TokenizerError;
+use napi::bindgen_prelude::Env;
+use napi::bindgen_prelude::Function;
+use napi::bindgen_prelude::Status;
+use napi::threadsafe_function::ThreadsafeFunction;
+use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use napi_derive::napi;
-use ratatui::backend::{Backend, ClearType, WindowSize};
+use ratatui::backend::Backend;
+use ratatui::backend::ClearType;
+use ratatui::backend::WindowSize;
 use ratatui::buffer::Cell;
-use ratatui::layout::{Position, Size};
+use ratatui::layout::Position;
+use ratatui::layout::Size;
 use ratatui::prelude::CrosstermBackend;
 use serde_json::Map as JsonMap;
 use serde_json::Value as JsonValue;
 use serde_json::json;
 use serde_json::json as serde_json_json;
 use std::fmt;
-use std::io::{self, Write};
+use std::io::Write;
+use std::io::{self};
 use tempfile::NamedTempFile;
+use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 use toml::Value as TomlValue;
 use uuid::Uuid;
@@ -125,6 +167,28 @@ const EMBEDDED_LINUX_SANDBOX_BYTES: &[u8] = include_bytes!(env!("CODEX_LINUX_SAN
 const ORIGINATOR_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 const NATIVE_ORIGINATOR: &str = "codex_sdk_native";
 
+static APPLY_PATCH_TEMP_DIR: OnceLock<Mutex<TempDir>> = OnceLock::new();
+
+fn ensure_apply_patch_aliases() -> napi::Result<()> {
+  if APPLY_PATCH_TEMP_DIR.get().is_some() {
+    return Ok(());
+  }
+
+  let temp_dir = prepend_path_entry_for_codex_aliases().map_err(|err| {
+    napi::Error::from_reason(format!("Failed to prepare apply_patch helper: {err}"))
+  })?;
+
+  if APPLY_PATCH_TEMP_DIR.set(Mutex::new(temp_dir)).is_err() {
+    // Another thread initialized it first; that's fine.
+  }
+
+  Ok(())
+}
+
+// ============================================================================
+// Additional Sections (included from sibling files)
+// ============================================================================
+
 // ============================================================================
 // Additional Sections (included from sibling files)
 // ============================================================================
@@ -132,8 +196,11 @@ const NATIVE_ORIGINATOR: &str = "codex_sdk_native";
 include!("tools.rs");
 include!("run.rs");
 include!("tui.rs");
+include!("tui_components.rs");
+include!("git.rs");
 include!("cloud_tasks.rs");
 include!("events.rs");
 include!("reverie.rs");
 include!("fast_embed.rs");
 include!("tokenizer.rs");
+include!("toon.rs");

@@ -5,7 +5,7 @@ packages:
   - codex-rs/responses-api-proxy/npm
   - sdk/typescript
   - sdk/native
-  - multi-agent-codex-system
+  - codex-agents-suite
 
 ignoredBuiltDependencies:
   - esbuild

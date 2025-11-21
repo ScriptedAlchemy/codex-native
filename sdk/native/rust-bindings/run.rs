@@ -1,3 +1,4 @@
+
 // Section 3: Run Request Handling (Thread Execution)
 // ============================================================================
 //
@@ -20,6 +21,8 @@ pub struct RunRequest {
   pub thread_id: Option<String>,
   pub images: Option<Vec<String>>,
   pub model: Option<String>,
+  #[napi(js_name = "modelProvider")]
+  pub model_provider: Option<String>,
   #[napi(js_name = "oss")]
   pub oss: Option<bool>,
   #[napi(js_name = "sandboxMode")]
@@ -44,6 +47,10 @@ pub struct RunRequest {
   pub api_key: Option<String>,
   #[napi(js_name = "linuxSandboxPath")]
   pub linux_sandbox_path: Option<String>,
+  #[napi(js_name = "reasoningEffort")]
+  pub reasoning_effort: Option<String>,
+  #[napi(js_name = "reasoningSummary")]
+  pub reasoning_summary: Option<String>,
   #[napi(js_name = "fullAuto")]
   pub full_auto: Option<bool>,
 }
@@ -56,6 +63,8 @@ pub struct ForkRequest {
   pub nth_user_message: Option<u32>,
   #[napi(js_name = "model")]
   pub model: Option<String>,
+  #[napi(js_name = "modelProvider")]
+  pub model_provider: Option<String>,
   #[napi(js_name = "oss")]
   pub oss: Option<bool>,
   #[napi(js_name = "sandboxMode")]
@@ -74,6 +83,10 @@ pub struct ForkRequest {
   pub api_key: Option<String>,
   #[napi(js_name = "linuxSandboxPath")]
   pub linux_sandbox_path: Option<String>,
+  #[napi(js_name = "reasoningEffort")]
+  pub reasoning_effort: Option<String>,
+  #[napi(js_name = "reasoningSummary")]
+  pub reasoning_summary: Option<String>,
   #[napi(js_name = "fullAuto")]
   pub full_auto: Option<bool>,
 }
@@ -83,6 +96,91 @@ pub struct InternalForkRequest {
   pub thread_id: String,
   pub nth_user_message: usize,
   pub run_options: InternalRunRequest,
+}
+
+#[derive(Default)]
+#[napi(object)]
+pub struct ConversationConfigRequest {
+  #[napi(js_name = "model")]
+  pub model: Option<String>,
+  #[napi(js_name = "modelProvider")]
+  pub model_provider: Option<String>,
+  #[napi(js_name = "oss")]
+  pub oss: Option<bool>,
+  #[napi(js_name = "sandboxMode")]
+  pub sandbox_mode: Option<String>,
+  #[napi(js_name = "approvalMode")]
+  pub approval_mode: Option<String>,
+  #[napi(js_name = "workspaceWriteOptions")]
+  pub workspace_write_options: Option<WorkspaceWriteOptions>,
+  #[napi(js_name = "workingDirectory")]
+  pub working_directory: Option<String>,
+  #[napi(js_name = "skipGitRepoCheck")]
+  pub skip_git_repo_check: Option<bool>,
+  #[napi(js_name = "baseUrl")]
+  pub base_url: Option<String>,
+  #[napi(js_name = "apiKey")]
+  pub api_key: Option<String>,
+  #[napi(js_name = "linuxSandboxPath")]
+  pub linux_sandbox_path: Option<String>,
+  #[napi(js_name = "reasoningEffort")]
+  pub reasoning_effort: Option<String>,
+  #[napi(js_name = "reasoningSummary")]
+  pub reasoning_summary: Option<String>,
+  #[napi(js_name = "fullAuto")]
+  pub full_auto: Option<bool>,
+}
+
+#[napi(object)]
+pub struct ListConversationsRequest {
+  #[napi(js_name = "config")]
+  pub config: Option<ConversationConfigRequest>,
+  #[napi(js_name = "pageSize")]
+  pub page_size: Option<u32>,
+  pub cursor: Option<String>,
+  #[napi(js_name = "modelProviders")]
+  pub model_providers: Option<Vec<String>>,
+}
+
+#[napi(object)]
+pub struct ConversationSummary {
+  pub id: String,
+  pub path: String,
+  #[napi(js_name = "createdAt")]
+  pub created_at: Option<String>,
+  #[napi(js_name = "updatedAt")]
+  pub updated_at: Option<String>,
+}
+
+#[napi(object)]
+pub struct ConversationListPage {
+  pub conversations: Vec<ConversationSummary>,
+  #[napi(js_name = "nextCursor")]
+  pub next_cursor: Option<String>,
+  #[napi(js_name = "numScannedFiles")]
+  pub num_scanned_files: u32,
+  #[napi(js_name = "reachedScanCap")]
+  pub reached_scan_cap: bool,
+}
+
+#[napi(object)]
+pub struct DeleteConversationRequest {
+  pub id: String,
+  #[napi(js_name = "config")]
+  pub config: Option<ConversationConfigRequest>,
+}
+
+#[napi(object)]
+pub struct DeleteConversationResult {
+  pub deleted: bool,
+}
+
+#[napi(object)]
+pub struct ResumeFromRolloutRequest {
+  #[napi(js_name = "rolloutPath")]
+  pub rollout_path: String,
+  #[napi(js_name = "config")]
+  pub config: Option<ConversationConfigRequest>,
 }
 
 #[napi(object)]
@@ -105,6 +203,7 @@ pub struct InternalRunRequest {
   pub thread_id: Option<String>,
   pub images: Vec<PathBuf>,
   pub model: Option<String>,
+  pub model_provider: Option<String>,
   pub oss: bool,
   pub sandbox_mode: Option<SandboxModeCliArg>,
   pub approval_mode: Option<ApprovalModeCliArg>,
@@ -116,13 +215,48 @@ pub struct InternalRunRequest {
   pub base_url: Option<String>,
   pub api_key: Option<String>,
   pub linux_sandbox_path: Option<PathBuf>,
+  pub reasoning_effort: Option<ReasoningEffort>,
+  pub reasoning_summary: Option<ReasoningSummary>,
   pub full_auto: bool,
+}
+
+impl ConversationConfigRequest {
+  fn into_internal_request(self) -> napi::Result<InternalRunRequest> {
+    let sandbox_mode = parse_sandbox_mode(self.sandbox_mode.as_deref())?;
+    let approval_mode = parse_approval_mode(self.approval_mode.as_deref())?;
+    let reasoning_effort = parse_reasoning_effort(self.reasoning_effort.as_deref())?;
+    let reasoning_summary = parse_reasoning_summary(self.reasoning_summary.as_deref())?;
+
+    Ok(InternalRunRequest {
+      prompt: String::new(),
+      thread_id: None,
+      images: Vec::new(),
+      model: self.model,
+      model_provider: self.model_provider,
+      oss: self.oss.unwrap_or(false),
+      sandbox_mode,
+      approval_mode,
+      workspace_write_options: self.workspace_write_options,
+      review_request: None,
+      working_directory: self.working_directory.map(PathBuf::from),
+      skip_git_repo_check: self.skip_git_repo_check.unwrap_or(false),
+      output_schema: None,
+      base_url: self.base_url,
+      api_key: self.api_key,
+      linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
+      reasoning_effort,
+      reasoning_summary,
+      full_auto: self.full_auto.unwrap_or(true),
+    })
+  }
 }
 
 impl RunRequest {
   pub fn into_internal(self) -> napi::Result<InternalRunRequest> {
     let sandbox_mode = parse_sandbox_mode(self.sandbox_mode.as_deref())?;
     let approval_mode = parse_approval_mode(self.approval_mode.as_deref())?;
+    let reasoning_effort = parse_reasoning_effort(self.reasoning_effort.as_deref())?;
+    let reasoning_summary = parse_reasoning_summary(self.reasoning_summary.as_deref())?;
 
     let review_request = if self.review_mode.unwrap_or(false) {
       let prompt_trimmed = self.prompt.trim().to_string();
@@ -158,9 +292,9 @@ impl RunRequest {
             "Invalid model \"{trimmed}\" for OSS mode. Use models prefixed with \"gpt-oss:\", e.g. \"gpt-oss:20b\"."
           )));
         }
-      } else if trimmed != "gpt-5" && trimmed != "gpt-5-codex" && trimmed != "gpt-5-codex-mini" {
+      } else if trimmed != "gpt-5" && trimmed != "gpt-5-codex" && trimmed != "gpt-5-codex-mini" && trimmed != "gpt-5.1" && trimmed != "gpt-5.1-codex" && trimmed != "gpt-5.1-codex-mini" {
         return Err(napi::Error::from_reason(format!(
-          "Invalid model \"{trimmed}\". Supported models are \"gpt-5\", \"gpt-5-codex\", or \"gpt-5-codex-mini\"."
+          "Invalid model \"{trimmed}\". Supported models are \"gpt-5\", \"gpt-5-codex\", \"gpt-5-codex-mini\", \"gpt-5.1\", \"gpt-5.1-codex\", or \"gpt-5.1-codex-mini\"."
         )));
       }
     }
@@ -170,6 +304,7 @@ impl RunRequest {
       thread_id: self.thread_id,
       images,
       model: self.model,
+      model_provider: self.model_provider,
       oss: self.oss.unwrap_or(false),
       sandbox_mode,
       approval_mode,
@@ -181,6 +316,8 @@ impl RunRequest {
       base_url: self.base_url,
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path.map(PathBuf::from),
+      reasoning_effort,
+      reasoning_summary,
       full_auto: self.full_auto.unwrap_or(true),
     })
   }
@@ -205,6 +342,7 @@ impl ForkRequest {
       thread_id: Some(thread_id.clone()),
       images: None,
       model: self.model,
+      model_provider: self.model_provider,
       oss: self.oss,
       sandbox_mode: self.sandbox_mode,
       approval_mode: self.approval_mode,
@@ -215,6 +353,8 @@ impl ForkRequest {
       base_url: self.base_url,
       api_key: self.api_key,
       linux_sandbox_path: self.linux_sandbox_path,
+      reasoning_effort: self.reasoning_effort,
+      reasoning_summary: self.reasoning_summary,
       full_auto: self.full_auto,
       review_mode: None,
       review_hint: None,
@@ -550,6 +690,24 @@ fn parse_approval_mode(input: Option<&str>) -> napi::Result<Option<ApprovalModeC
   )
 }
 
+fn parse_reasoning_effort(input: Option<&str>) -> napi::Result<Option<ReasoningEffort>> {
+  parse_enum_arg!(input, "reasoning effort",
+    "minimal" => ReasoningEffort::Minimal,
+    "low" => ReasoningEffort::Low,
+    "medium" => ReasoningEffort::Medium,
+    "high" => ReasoningEffort::High,
+  )
+}
+
+fn parse_reasoning_summary(input: Option<&str>) -> napi::Result<Option<ReasoningSummary>> {
+  parse_enum_arg!(input, "reasoning summary",
+    "auto" => ReasoningSummary::Auto,
+    "concise" => ReasoningSummary::Concise,
+    "detailed" => ReasoningSummary::Detailed,
+    "none" => ReasoningSummary::None,
+  )
+}
+
 fn approval_mode_cli_to_policy(mode: Option<ApprovalModeCliArg>) -> Option<AskForApproval> {
   mode.map(|m| match m {
     ApprovalModeCliArg::Never => AskForApproval::Never,
@@ -575,6 +733,14 @@ pub fn build_cli(
   let sandbox_mode = options.sandbox_mode;
   let wants_danger = matches!(sandbox_mode, Some(SandboxModeCliArg::DangerFullAccess));
   let cli_full_auto = options.full_auto && !wants_danger;
+  let add_dir: Vec<PathBuf> = options
+    .workspace_write_options
+    .as_ref()
+    .and_then(|opts| opts.writable_roots.clone())
+    .unwrap_or_default()
+    .into_iter()
+    .map(PathBuf::from)
+    .collect();
 
   let command = options.thread_id.as_ref().map(|id| {
     Command::Resume(ResumeArgs {
@@ -636,6 +802,7 @@ pub fn build_cli(
     dangerously_bypass_approvals_and_sandbox: wants_danger,
     cwd: options.working_directory.clone(),
     skip_git_repo_check: options.skip_git_repo_check,
+    add_dir,
     output_schema: schema_path,
     config_overrides: CliConfigOverrides { raw_overrides },
     color: Color::Never,
@@ -671,8 +838,9 @@ fn build_config_inputs(
     approval_policy: approval_mode_cli_to_policy(options.approval_mode),
     sandbox_mode: sandbox_mode_cli_to_config(options.sandbox_mode),
     model_provider: options
-      .oss
-      .then_some(BUILT_IN_OSS_MODEL_PROVIDER_ID.to_string()),
+      .model_provider
+      .clone()
+      .or_else(|| options.oss.then_some(BUILT_IN_OSS_MODEL_PROVIDER_ID.to_string())),
     config_profile: None,
     codex_linux_sandbox_exe: linux_sandbox_path,
     base_instructions: None,
@@ -686,6 +854,60 @@ fn build_config_inputs(
   };
 
   Ok((overrides, cli_kv_overrides))
+}
+
+async fn load_config_from_internal(options: &InternalRunRequest) -> napi::Result<Config> {
+  let (overrides, cli_kv_overrides) =
+    build_config_inputs(options, options.linux_sandbox_path.clone())?;
+  Config::load_with_cli_overrides(cli_kv_overrides, overrides)
+    .await
+    .map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
+fn ensure_trusted_directory_from_options(
+  options: &InternalRunRequest,
+  config: &Config,
+) -> napi::Result<()> {
+  if !options.skip_git_repo_check && get_git_repo_root(&config.cwd).is_none() {
+    return Err(napi::Error::from_reason(
+      "Not inside a trusted directory and --skip-git-repo-check was not specified.".to_string(),
+    ));
+  }
+  Ok(())
+}
+
+fn parse_cursor_string(input: Option<&str>) -> napi::Result<Option<codex_core::Cursor>> {
+  match input {
+    None => Ok(None),
+    Some(raw) => {
+      let wrapped = format!("\"{raw}\"");
+      serde_json::from_str::<codex_core::Cursor>(&wrapped)
+        .map(Some)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid cursor: {e}")))
+    }
+  }
+}
+
+fn cursor_to_string(cursor: &codex_core::Cursor) -> napi::Result<String> {
+  serde_json::to_string(cursor)
+    .map(|s| s.trim_matches('\"').to_string())
+    .map_err(|e| napi::Error::from_reason(format!("Failed to serialize cursor: {e}")))
+}
+
+fn conversation_item_to_summary(item: ConversationItem) -> ConversationSummary {
+  let id = item
+    .path
+    .file_stem()
+    .and_then(|s| s.to_str())
+    .unwrap_or("unknown")
+    .to_string();
+
+  ConversationSummary {
+    id,
+    path: item.path.to_string_lossy().into_owned(),
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+  }
 }
 
 fn event_to_json(event: &ExecThreadEvent) -> napi::Result<JsonValue> {
@@ -714,6 +936,7 @@ fn run_internal_sync<F>(options: InternalRunRequest, handler: F) -> napi::Result
 where
   F: FnMut(ExecThreadEvent) + Send + 'static,
 {
+  ensure_apply_patch_aliases()?;
   // Check for pending plan updates and inject them as early events
   let pending_plan = if let Some(thread_id) = &options.thread_id {
     let mut updates = pending_plan_updates()
@@ -898,6 +1121,7 @@ pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
 
 #[napi]
 pub async fn compact_thread(req: RunRequest) -> napi::Result<Vec<String>> {
+  ensure_apply_patch_aliases()?;
   let options = req.into_internal()?;
   let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
   let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
@@ -981,6 +1205,120 @@ pub async fn fork_thread(req: ForkRequest) -> napi::Result<ForkResult> {
   tokio::task::spawn_blocking(move || fork_thread_sync(internal))
     .await
     .map_err(|e| napi::Error::from_reason(format!("Task join error: {e}")))?
+}
+
+#[napi]
+pub async fn list_conversations(req: ListConversationsRequest) -> napi::Result<ConversationListPage> {
+  let config_request = req.config.unwrap_or_default();
+  let options = config_request.into_internal_request()?;
+  let config = load_config_from_internal(&options).await?;
+  ensure_trusted_directory_from_options(&options, &config)?;
+
+  let cursor = parse_cursor_string(req.cursor.as_deref())?;
+  let provider_filters = req.model_providers.unwrap_or_default();
+  let provider_slice = if provider_filters.is_empty() {
+    None
+  } else {
+    Some(provider_filters.as_slice())
+  };
+
+  let page_size = req.page_size.unwrap_or(20).max(1) as usize;
+
+  let page = RolloutRecorder::list_conversations(
+    &config.codex_home,
+    page_size,
+    cursor.as_ref(),
+    &[],
+    provider_slice,
+    &config.model_provider_id,
+  )
+  .await
+  .map_err(|e| napi::Error::from_reason(format!("Failed to list conversations: {e}")))?;
+
+  let conversations = page
+    .items
+    .into_iter()
+    .map(conversation_item_to_summary)
+    .collect();
+  let next_cursor = match page.next_cursor.as_ref() {
+    Some(c) => Some(cursor_to_string(c)?),
+    None => None,
+  };
+  let num_scanned = page
+    .num_scanned_files
+    .min(u32::MAX as usize) as u32;
+
+  Ok(ConversationListPage {
+    conversations,
+    next_cursor,
+    num_scanned_files: num_scanned,
+    reached_scan_cap: page.reached_scan_cap,
+  })
+}
+
+#[napi]
+pub async fn delete_conversation(
+  req: DeleteConversationRequest,
+) -> napi::Result<DeleteConversationResult> {
+  let config_request = req.config.unwrap_or_default();
+  let options = config_request.into_internal_request()?;
+  let config = load_config_from_internal(&options).await?;
+  ensure_trusted_directory_from_options(&options, &config)?;
+
+  let path = find_conversation_path_by_id_str(&config.codex_home, &req.id)
+    .await
+    .map_err(|e| napi::Error::from_reason(format!("Failed to resolve conversation: {e}")))?;
+
+  if let Some(path) = path {
+    match tokio::fs::remove_file(&path).await {
+      Ok(_) => {
+        return Ok(DeleteConversationResult { deleted: true });
+      }
+      Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+      Err(err) => {
+        return Err(napi::Error::from_reason(format!("Failed to delete conversation: {err}")));
+      }
+    }
+  }
+
+  Ok(DeleteConversationResult { deleted: false })
+}
+
+#[napi]
+pub async fn resume_conversation_from_rollout(
+  req: ResumeFromRolloutRequest,
+) -> napi::Result<ForkResult> {
+  let config_request = req.config.unwrap_or_default();
+  let options = config_request.into_internal_request()?;
+  let config = load_config_from_internal(&options).await?;
+  ensure_trusted_directory_from_options(&options, &config)?;
+
+  let auth_manager = AuthManager::shared(
+    config.codex_home.clone(),
+    true,
+    config.cli_auth_credentials_store_mode,
+  );
+  let manager = ConversationManager::new(auth_manager.clone(), SessionSource::Exec);
+  let rollout_path = PathBuf::from(req.rollout_path);
+
+  let new_conv = manager
+    .resume_conversation_from_rollout(config, rollout_path, auth_manager)
+    .await
+    .map_err(|e| napi::Error::from_reason(format!("Failed to resume conversation: {e}")))?;
+
+  let thread_id = new_conv.conversation_id.to_string();
+  let rollout_path = new_conv
+    .session_configured
+    .rollout_path
+    .to_string_lossy()
+    .to_string();
+
+  manager.remove_conversation(&new_conv.conversation_id).await;
+
+  Ok(ForkResult {
+    thread_id,
+    rollout_path,
+  })
 }
 
 fn fork_thread_sync(req: InternalForkRequest) -> napi::Result<ForkResult> {
@@ -1076,6 +1414,14 @@ fn fork_thread_sync(req: InternalForkRequest) -> napi::Result<ForkResult> {
 }
 
 #[napi]
+pub fn run_apply_patch(patch: String) -> napi::Result<()> {
+  let mut stdout = std::io::stdout();
+  let mut stderr = std::io::stderr();
+  codex_apply_patch::apply_patch(&patch, &mut stdout, &mut stderr)
+    .map_err(|err| napi::Error::from_reason(err.to_string()))
+}
+
+#[napi]
 pub async fn run_thread_stream(
   req: RunRequest,
   #[napi(ts_arg_type = "(err: unknown, eventJson?: string) => void")] on_event: ThreadsafeFunction<
@@ -1135,4 +1481,3 @@ fn build_cloud_client(
   }
   Ok(client)
 }
-

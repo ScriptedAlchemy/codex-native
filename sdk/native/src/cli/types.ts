@@ -8,7 +8,7 @@ import type {
 } from "../nativeBinding";
 import type { NativeTuiRequest } from "../tui";
 
-export type CommandName = "run" | "tui";
+export type CommandName = "run" | "tui" | "reverie-index";
 
 export interface GlobalOptions {
   config?: string;
@@ -123,7 +123,7 @@ export interface RunCommandOptions extends GlobalOptions {
   linuxSandboxPath?: string;
   fullAuto?: boolean;
   skipGitRepoCheck?: boolean;
-  workingDirectory?: string;
+  cd?: string;
   image?: string[];
   reviewMode?: boolean;
   reviewHint?: string;
@@ -140,7 +140,7 @@ export interface TuiCommandOptions extends GlobalOptions {
   resumePicker?: boolean;
   fullAuto?: boolean;
   dangerouslyBypassApprovalsAndSandbox?: boolean;
-  workingDirectory?: string;
+  cd?: string;
   configProfile?: string;
   configOverrides?: string[];
   addDir?: string[];
@@ -170,4 +170,3 @@ export interface CliContext {
   config: LoadedConfigFile;
   combinedConfig: CombinedConfig;
 }
-

@@ -12,6 +12,7 @@ assert_cmd = { workspace = true }
 codex-core = { workspace = true }
 codex-protocol = { workspace = true }
 notify = { workspace = true }
+portable-pty = { workspace = true }
 regex-lite = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }

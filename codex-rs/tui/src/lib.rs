@@ -23,6 +23,8 @@ use codex_protocol::config_types::SandboxMode;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use std::fs::OpenOptions;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use std::sync::OnceLock;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 use tracing_appender::non_blocking;
@@ -290,7 +292,7 @@ async fn run_ratatui_app(
     feedback: codex_feedback::CodexFeedback,
     shutdown_token: Option<CancellationToken>,
 ) -> color_eyre::Result<AppExitInfo> {
-    color_eyre::install()?;
+    install_color_eyre_once()?;
 
     // Forward panic reports through tracing so they appear in the UI status
     // line, but do not swallow the default/color-eyre panic handler.
@@ -475,6 +477,26 @@ async fn run_ratatui_app(
     session_log::log_session_end();
     // ignore error when collecting usage – report underlying error instead
     app_result
+}
+
+static COLOR_EYRE_HOOK: OnceLock<()> = OnceLock::new();
+static COLOR_EYRE_LOCK: Mutex<()> = Mutex::new(());
+
+fn install_color_eyre_once() -> color_eyre::Result<()> {
+    if COLOR_EYRE_HOOK.get().is_some() {
+        return Ok(());
+    }
+
+    let _guard = COLOR_EYRE_LOCK
+        .lock()
+        .map_err(|err| color_eyre::eyre::eyre!("color_eyre lock poisoned: {err}"))?;
+    if COLOR_EYRE_HOOK.get().is_some() {
+        return Ok(());
+    }
+
+    color_eyre::install()?;
+    let _ = COLOR_EYRE_HOOK.set(());
+    Ok(())
 }
 
 #[expect(

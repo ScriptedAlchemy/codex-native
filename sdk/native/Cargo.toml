@@ -18,7 +18,12 @@ ratatui = "0.29.0"
 vt100 = "0.16.2"
 regex = "1"
 sha1 = "0.10"
-fastembed = "5.2"
+fastembed = { version = "5.2", features = ["online"] }
+ort = { version = "2.0.0-rc.10", features = ["coreml"] }
+toon-rust = "0.1.3"
+stop-words = "0.8"
+rust-stemmers = "1.2"
+chrono = "0.4"
 
 [dependencies.napi]
 version = "3"
@@ -47,6 +52,9 @@ version = "0.7.16"
 [dependencies.codex-common]
 path = "../../codex-rs/common"
 
+[dependencies.codex-arg0]
+path = "../../codex-rs/arg0"
+
 [dependencies.codex-core]
 path = "../../codex-rs/core"
 
@@ -67,6 +75,13 @@ path = "../../codex-rs/utils/tokenizer"
 
 [dependencies.codex-tui]
 path = "../../codex-rs/tui"
+
+[dependencies.codex-apply-patch]
+path = "../../codex-rs/apply-patch"
+
+
+[dependencies.git2]
+version = "0.20"
 
 [build-dependencies]
 napi-build = "2"

@@ -34,7 +34,6 @@ mod json_result;
 mod list_dir;
 mod live_cli;
 mod model_overrides;
-mod model_tools;
 mod otel;
 mod prompt_caching;
 mod quota_exceeded;

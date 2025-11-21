@@ -1,14 +1,18 @@
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { ApprovalMode, SandboxMode, WorkspaceWriteOptions } from "./threadOptions";
+import type { ApprovalMode, SandboxMode, WorkspaceWriteOptions, ReasoningEffort, ReasoningSummary } from "./threadOptions";
+
+const CLI_ENTRYPOINT_ENV = "CODEX_NODE_CLI_ENTRYPOINT";
 
 export type NativeRunRequest = {
   prompt: string;
   threadId?: string;
   images?: string[];
   model?: string;
+  modelProvider?: string;
   oss?: boolean;
   sandboxMode?: SandboxMode;
   approvalMode?: ApprovalMode;
@@ -19,6 +23,8 @@ export type NativeRunRequest = {
   baseUrl?: string;
   apiKey?: string;
   linuxSandboxPath?: string;
+  reasoningEffort?: ReasoningEffort;
+  reasoningSummary?: ReasoningSummary;
   /** @deprecated Use sandboxMode and approvalMode instead */
   fullAuto?: boolean;
   reviewMode?: boolean;
@@ -29,6 +35,7 @@ export type NativeForkRequest = {
   threadId: string;
   nthUserMessage: number;
   model?: string;
+  modelProvider?: string;
   oss?: boolean;
   sandboxMode?: SandboxMode;
   approvalMode?: ApprovalMode;
@@ -39,6 +46,58 @@ export type NativeForkRequest = {
   apiKey?: string;
   linuxSandboxPath?: string;
   fullAuto?: boolean;
+};
+
+export type NativeConversationConfig = {
+  model?: string;
+  modelProvider?: string;
+  oss?: boolean;
+  sandboxMode?: SandboxMode;
+  approvalMode?: ApprovalMode;
+  workspaceWriteOptions?: WorkspaceWriteOptions;
+  workingDirectory?: string;
+  skipGitRepoCheck?: boolean;
+  baseUrl?: string;
+  apiKey?: string;
+  linuxSandboxPath?: string;
+  reasoningEffort?: ReasoningEffort;
+  reasoningSummary?: ReasoningSummary;
+  fullAuto?: boolean;
+};
+
+export type NativeConversationListRequest = {
+  config?: NativeConversationConfig;
+  pageSize?: number;
+  cursor?: string;
+  modelProviders?: string[];
+};
+
+export type NativeConversationSummary = {
+  id: string;
+  path: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type NativeConversationListPage = {
+  conversations: NativeConversationSummary[];
+  nextCursor?: string;
+  numScannedFiles: number;
+  reachedScanCap: boolean;
+};
+
+export type NativeDeleteConversationRequest = {
+  id: string;
+  config?: NativeConversationConfig;
+};
+
+export type NativeDeleteConversationResult = {
+  deleted: boolean;
+};
+
+export type NativeResumeFromRolloutRequest = {
+  rolloutPath: string;
+  config?: NativeConversationConfig;
 };
 
 export type NativeTuiRequest = {
@@ -61,6 +120,8 @@ export type NativeTuiRequest = {
   linuxSandboxPath?: string;
   baseUrl?: string;
   apiKey?: string;
+  reasoningEffort?: ReasoningEffort;
+  reasoningSummary?: ReasoningSummary;
 };
 
 export type PlanStatus = "pending" | "in_progress" | "completed";
@@ -122,6 +183,39 @@ export type NativeTuiSession = {
   readonly closed: boolean;
 };
 
+// ============================================================================ 
+// Repo diff summaries
+// ============================================================================ 
+
+export type RepoDiffFileChange = {
+  path: string;
+  status: string;
+  diff: string;
+  truncated: boolean;
+  previousPath?: string | null;
+};
+
+export type RepoDiffSummary = {
+  repoPath: string;
+  branch: string;
+  baseBranch: string;
+  upstreamRef?: string | null;
+  mergeBase: string;
+  statusSummary: string;
+  diffStat: string;
+  recentCommits: string;
+  changedFiles: RepoDiffFileChange[];
+  totalChangedFiles: number;
+};
+
+export type RepoDiffSummaryOptions = {
+  cwd?: string;
+  baseBranchOverride?: string;
+  maxFiles?: number;
+  diffContextLines?: number;
+  diffCharLimit?: number;
+};
+
 // ============================================================================
 // Reverie System Types
 // ============================================================================
@@ -133,6 +227,8 @@ export type ReverieConversation = {
   updatedAt?: string;
   headRecords: string[];
   tailRecords: string[];
+  headRecordsToon: string[];
+  tailRecordsToon: string[];
 };
 
 export type ReverieSearchResult = {
@@ -140,6 +236,34 @@ export type ReverieSearchResult = {
   relevanceScore: number;
   matchingExcerpts: string[];
   insights: string[];
+  rerankerScore?: number;
+};
+
+export type FastEmbedRerankerModelCode =
+  | "BAAI/bge-reranker-base"
+  | "rozgo/bge-reranker-v2-m3"
+  | "jinaai/jina-reranker-v1-turbo-en"
+  | "jinaai/jina-reranker-v2-base-multilingual";
+
+export type ReverieSemanticSearchOptions = {
+  limit?: number;
+  maxCandidates?: number;
+  projectRoot?: string;
+  batchSize?: number;
+  normalize?: boolean;
+  cache?: boolean;
+  rerankerModel?: FastEmbedRerankerModelCode;
+  rerankerCacheDir?: string;
+  rerankerMaxLength?: number;
+  rerankerShowProgress?: boolean;
+  rerankerBatchSize?: number;
+  rerankerTopK?: number;
+};
+
+export type ReverieSemanticIndexStats = {
+  conversationsIndexed: number;
+  documentsEmbedded: number;
+  batches: number;
 };
 
 // ============================================================================
@@ -174,6 +298,29 @@ export type TokenizerEncodeOptions = TokenizerOptions & {
   withSpecialTokens?: boolean;
 };
 
+function ensureCliEntrypointEnv(): void {
+  if (process.env[CLI_ENTRYPOINT_ENV]) {
+    return;
+  }
+
+  const filename = fileURLToPath(import.meta.url);
+  const dirname = path.dirname(filename);
+  const candidates = [
+    path.resolve(dirname, "cli.cjs"),
+    path.resolve(dirname, "../cli.cjs"),
+    path.resolve(dirname, "../dist/cli.cjs"),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      process.env[CLI_ENTRYPOINT_ENV] = candidate;
+      break;
+    }
+  }
+}
+
+ensureCliEntrypointEnv();
+
 export type NativeBinding = {
   runThread(request: NativeRunRequest): Promise<string[]>;
   runThreadStream(
@@ -182,6 +329,9 @@ export type NativeBinding = {
   ): Promise<void>;
   compactThread(request: NativeRunRequest): Promise<string[]>;
   forkThread(request: NativeForkRequest): Promise<NativeForkResult>;
+  listConversations(request: NativeConversationListRequest): Promise<NativeConversationListPage>;
+  deleteConversation(request: NativeDeleteConversationRequest): Promise<NativeDeleteConversationResult>;
+  resumeConversationFromRollout(request: NativeResumeFromRolloutRequest): Promise<NativeForkResult>;
   runTui(request: NativeTuiRequest): Promise<NativeTuiExitInfo>;
   tuiTestRun?(request: {
     width: number;
@@ -233,7 +383,17 @@ export type NativeBinding = {
   // Reverie system - conversation search and insights
   reverieListConversations(codexHomePath: string, limit?: number, offset?: number): Promise<ReverieConversation[]>;
   reverieSearchConversations(codexHomePath: string, query: string, limit?: number): Promise<ReverieSearchResult[]>;
+  reverieSearchSemantic?(
+    codexHomePath: string,
+    context: string,
+    options?: ReverieSemanticSearchOptions,
+  ): Promise<ReverieSearchResult[]>;
+  reverieIndexSemantic?(
+    codexHomePath: string,
+    options?: ReverieSemanticSearchOptions,
+  ): Promise<ReverieSemanticIndexStats>;
   reverieGetConversationInsights(conversationPath: string, query?: string): Promise<string[]>;
+  toonEncode(value: unknown): string;
   // FastEmbed hooks
   fastEmbedInit?(options: FastEmbedInitOptions): Promise<void>;
   fastEmbedEmbed?(request: FastEmbedEmbedRequest): Promise<number[][]>;
@@ -241,6 +401,11 @@ export type NativeBinding = {
   tokenizerCount(text: string, options?: TokenizerOptions): number;
   tokenizerEncode(text: string, options?: TokenizerEncodeOptions): number[];
   tokenizerDecode(tokens: number[], options?: TokenizerOptions): string;
+  collectRepoDiffSummary?(
+    cwd: string,
+    baseBranchOverride?: string,
+    options?: NativeRepoDiffOptions,
+  ): Promise<RepoDiffSummary>;
 };
 
 export type NativeToolInfo = {
@@ -272,6 +437,13 @@ export type NativeForkResult = {
 export type ApprovalRequest = {
   type: "shell" | "file_write" | "network_access";
   details?: unknown;
+  context?: string;
+};
+
+type NativeRepoDiffOptions = {
+  maxFiles?: number;
+  diffContextLines?: number;
+  diffCharLimit?: number;
 };
 
 let cachedBinding: NativeBinding | null | undefined;
@@ -389,6 +561,15 @@ export function sse(events: string[]): string {
   return (binding as any).sse(events);
 }
 
+export function runApplyPatch(patch: string): void {
+  if (!patch) {
+    throw new Error("apply_patch requires patch contents");
+  }
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  (binding as any).runApplyPatch(patch);
+}
+
 // Reverie system helpers
 export async function reverieListConversations(
   codexHomePath: string,
@@ -410,6 +591,25 @@ export async function reverieSearchConversations(
   return (binding as any).reverieSearchConversations(codexHomePath, query, limit);
 }
 
+export async function reverieSearchSemantic(
+  codexHomePath: string,
+  context: string,
+  options?: ReverieSemanticSearchOptions,
+): Promise<ReverieSearchResult[]> {
+  const binding = getNativeBinding();
+  if (!binding?.reverieSearchSemantic) throw new Error("Native binding not available or reverie functions not supported");
+  return (binding as any).reverieSearchSemantic(codexHomePath, context, options);
+}
+
+export async function reverieIndexSemantic(
+  codexHomePath: string,
+  options?: ReverieSemanticSearchOptions,
+): Promise<ReverieSemanticIndexStats> {
+  const binding = getNativeBinding();
+  if (!binding?.reverieIndexSemantic) throw new Error("Native binding not available or reverie functions not supported");
+  return (binding as any).reverieIndexSemantic(codexHomePath, options);
+}
+
 export async function reverieGetConversationInsights(
   conversationPath: string,
   query?: string,
@@ -417,6 +617,12 @@ export async function reverieGetConversationInsights(
   const binding = getNativeBinding();
   if (!binding?.reverieGetConversationInsights) throw new Error("Native binding not available or reverie functions not supported");
   return (binding as any).reverieGetConversationInsights(conversationPath, query);
+}
+
+export function encodeToToon(value: unknown): string {
+  const binding = getNativeBinding();
+  if (!binding?.toonEncode) throw new Error("Native binding not available or toon encoder not supported");
+  return (binding as any).toonEncode(value);
 }
 
 // FastEmbed helpers
@@ -449,4 +655,26 @@ export function tokenizerDecode(tokens: number[], options?: TokenizerOptions): s
   const binding = getNativeBinding();
   if (!binding?.tokenizerDecode) throw new Error("Native binding not available or tokenizer functions not supported");
   return (binding as any).tokenizerDecode(tokens, options);
+}
+
+export async function collectRepoDiffSummary(
+  options?: RepoDiffSummaryOptions,
+): Promise<RepoDiffSummary> {
+  const binding = getNativeBinding();
+  if (!binding?.collectRepoDiffSummary) {
+    throw new Error("Native binding not available or repo diff helpers not supported");
+  }
+  const cwd = options?.cwd ?? process.cwd();
+  const nativeOptions: NativeRepoDiffOptions | undefined =
+    options &&
+    (options.maxFiles !== undefined ||
+      options.diffContextLines !== undefined ||
+      options.diffCharLimit !== undefined)
+      ? {
+          maxFiles: options.maxFiles,
+          diffContextLines: options.diffContextLines,
+          diffCharLimit: options.diffCharLimit,
+        }
+      : undefined;
+  return binding.collectRepoDiffSummary(cwd, options?.baseBranchOverride, nativeOptions);
 }

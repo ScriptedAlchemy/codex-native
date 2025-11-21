@@ -23,7 +23,10 @@ use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::ReviewDecision;
 use futures::future::BoxFuture;
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
+
+const NODE_CLI_ENTRYPOINT_ENV: &str = "CODEX_NODE_CLI_ENTRYPOINT";
 
 #[derive(Clone, Debug)]
 pub struct ApplyPatchRequest {
@@ -63,9 +66,18 @@ impl ApplyPatchRuntime {
                 .map_err(|e| ToolError::Rejected(format!("failed to determine codex exe: {e}")))?
         };
         let program = exe.to_string_lossy().to_string();
+        let mut args = Vec::new();
+        if should_use_node_entrypoint(&exe)
+            && let Ok(entrypoint) = env::var(NODE_CLI_ENTRYPOINT_ENV)
+            && !entrypoint.is_empty()
+        {
+            args.push(entrypoint);
+        }
+        args.push(CODEX_APPLY_PATCH_ARG1.to_string());
+        args.push(req.patch.clone());
         Ok(CommandSpec {
             program,
-            args: vec![CODEX_APPLY_PATCH_ARG1.to_string(), req.patch.clone()],
+            args,
             cwd: req.cwd.clone(),
             timeout_ms: req.timeout_ms,
             // Run apply_patch with a minimal environment for determinism and to avoid leaks.
@@ -82,6 +94,13 @@ impl ApplyPatchRuntime {
             tx_event: ctx.session.get_tx_event(),
         })
     }
+}
+
+fn should_use_node_entrypoint(exe: &Path) -> bool {
+    exe.file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(|name| matches!(name, "node" | "nodejs"))
+        .unwrap_or(false)
 }
 
 impl Sandboxable for ApplyPatchRuntime {
@@ -159,5 +178,62 @@ impl ToolRuntime<ApplyPatchRequest, ExecToolCallOutput> for ApplyPatchRuntime {
             .await
             .map_err(ToolError::Codex)?;
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::CODEX_APPLY_PATCH_ARG1;
+    use serial_test::serial;
+    use std::env;
+
+    fn make_request_with_exe(exe: &str) -> ApplyPatchRequest {
+        ApplyPatchRequest {
+            patch: "*** Begin Patch\n*** End Patch".to_string(),
+            cwd: PathBuf::from("/tmp"),
+            timeout_ms: None,
+            user_explicitly_approved: true,
+            codex_exe: Some(PathBuf::from(exe)),
+        }
+    }
+
+    fn with_entrypoint_env<T>(value: Option<&str>, f: impl FnOnce() -> T) -> T {
+        let original = env::var(NODE_CLI_ENTRYPOINT_ENV).ok();
+        match value {
+            Some(val) => unsafe { env::set_var(NODE_CLI_ENTRYPOINT_ENV, val) },
+            None => unsafe { env::remove_var(NODE_CLI_ENTRYPOINT_ENV) },
+        }
+        let result = f();
+        match original {
+            Some(val) => unsafe { env::set_var(NODE_CLI_ENTRYPOINT_ENV, val) },
+            None => unsafe { env::remove_var(NODE_CLI_ENTRYPOINT_ENV) },
+        }
+        result
+    }
+
+    #[test]
+    #[serial]
+    fn build_command_spec_skips_entrypoint_for_codex_binary() {
+        with_entrypoint_env(Some("cli.cjs"), || {
+            let req = make_request_with_exe("/usr/local/bin/codex");
+            let spec = ApplyPatchRuntime::build_command_spec(&req).expect("spec");
+            assert_eq!(spec.args.len(), 2);
+            assert_eq!(spec.args[0], CODEX_APPLY_PATCH_ARG1);
+            assert_eq!(spec.args[1], req.patch);
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn build_command_spec_includes_entrypoint_for_node_binary() {
+        with_entrypoint_env(Some("/app/cli.cjs"), || {
+            let req = make_request_with_exe("/usr/local/bin/node");
+            let spec = ApplyPatchRuntime::build_command_spec(&req).expect("spec");
+            assert_eq!(spec.args.len(), 3);
+            assert_eq!(spec.args[0], "/app/cli.cjs");
+            assert_eq!(spec.args[1], CODEX_APPLY_PATCH_ARG1);
+            assert_eq!(spec.args[2], req.patch);
+        });
     }
 }

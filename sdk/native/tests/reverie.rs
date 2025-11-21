@@ -3,13 +3,17 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use codex_native::{
-  reverie_get_conversation_insights, reverie_list_conversations, reverie_search_conversations,
+  FastEmbedInitOptions, ReverieSemanticSearchOptions, clear_fast_embed_rerank_hook,
+  fast_embed_init, reverie_get_conversation_insights, reverie_index_semantic,
+  reverie_list_conversations, reverie_search_conversations, reverie_search_semantic,
+  set_fast_embed_rerank_hook,
 };
 use codex_protocol::ConversationId;
 use codex_protocol::models::{ContentItem, ResponseItem};
 use codex_protocol::protocol::{
   EventMsg, RolloutItem, RolloutLine, SessionMeta, SessionMetaLine, SessionSource, UserMessageEvent,
 };
+use fastembed::RerankResult;
 
 fn write_rollout_file<P: AsRef<Path>>(path: P, items: &[RolloutLine]) {
   let parent = path.as_ref().parent().unwrap();
@@ -38,7 +42,7 @@ fn make_fake_codex_home() -> (tempfile::TempDir, PathBuf) {
           id: ConversationId::from_string(uuid).unwrap(),
           timestamp: timestamp.clone(),
           instructions: None,
-          cwd: PathBuf::from("."),
+          cwd: tmp.path().to_path_buf(),
           originator: "test".to_string(),
           cli_version: "0.0.0".to_string(),
           model_provider: Some("test-provider".to_string()),
@@ -125,4 +129,313 @@ async fn test_reverie_get_conversation_insights_filters() {
   .unwrap();
   assert!(!insights.is_empty(), "expected at least one insight");
   assert!(insights.iter().any(|s| s.to_lowercase().contains("auth")));
+}
+
+#[tokio::test]
+async fn test_reverie_search_semantic_matches_context() {
+  let (home, _convo) = make_fake_codex_home();
+  let path = home.path().to_string_lossy().to_string();
+
+  let cache_dir = tempfile::tempdir().unwrap();
+  fast_embed_init(FastEmbedInitOptions {
+    model: Some("BAAI/bge-small-en-v1.5".to_string()),
+    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
+    max_length: Some(512),
+    show_download_progress: Some(false),
+    use_coreml: Some(false),
+    coreml_ane_only: Some(false),
+  })
+  .await
+  .unwrap();
+
+  let options = ReverieSemanticSearchOptions {
+    limit: Some(5),
+    max_candidates: Some(10),
+    project_root: Some(home.path().to_string_lossy().to_string()),
+    batch_size: None,
+    normalize: Some(true),
+    cache: Some(true),
+    ..Default::default()
+  };
+
+  let results = reverie_search_semantic(path, "auth timeout debugging".to_string(), Some(options))
+    .await
+    .unwrap();
+  assert!(!results.is_empty(), "expected semantic matches");
+  assert!(results[0].relevance_score > 0.0);
+}
+
+#[tokio::test]
+async fn test_reverie_index_semantic_populates_cache() {
+  let (home, _convo) = make_fake_codex_home();
+  let path = home.path().to_string_lossy().to_string();
+
+  let cache_dir = tempfile::tempdir().unwrap();
+  fast_embed_init(FastEmbedInitOptions {
+    model: Some("BAAI/bge-small-en-v1.5".to_string()),
+    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
+    max_length: Some(512),
+    show_download_progress: Some(false),
+    use_coreml: Some(false),
+    coreml_ane_only: Some(false),
+  })
+  .await
+  .unwrap();
+
+  let stats = reverie_index_semantic(
+    path,
+    Some(ReverieSemanticSearchOptions {
+      limit: Some(5),
+      max_candidates: Some(5),
+      project_root: None,
+      batch_size: Some(8),
+      normalize: Some(true),
+      cache: Some(true),
+      ..Default::default()
+    }),
+  )
+  .await
+  .unwrap();
+  assert!(
+    stats.documents_embedded > 0,
+    "expected embeddings to be generated"
+  );
+  assert!(stats.batches >= 1);
+}
+
+#[tokio::test]
+async fn test_reverie_search_semantic_empty_query_short_circuits() {
+  let (home, _convo) = make_fake_codex_home();
+  let path = home.path().to_string_lossy().to_string();
+
+  let results = reverie_search_semantic(path, "   ".to_string(), None)
+    .await
+    .unwrap();
+  assert!(
+    results.is_empty(),
+    "whitespace-only queries should return no matches"
+  );
+}
+
+#[tokio::test]
+async fn test_reverie_search_semantic_filters_project_root() {
+  let (home, _convo) = make_fake_codex_home();
+  let path = home.path().to_string_lossy().to_string();
+  let cache_dir = tempfile::tempdir().unwrap();
+  fast_embed_init(FastEmbedInitOptions {
+    model: Some("BAAI/bge-small-en-v1.5".to_string()),
+    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
+    max_length: Some(512),
+    show_download_progress: Some(false),
+    use_coreml: Some(false),
+    coreml_ane_only: Some(false),
+  })
+  .await
+  .unwrap();
+
+  let unrelated_root = tempfile::tempdir().unwrap();
+  let options = ReverieSemanticSearchOptions {
+    limit: Some(5),
+    max_candidates: Some(10),
+    project_root: Some(unrelated_root.path().to_string_lossy().to_string()),
+    batch_size: None,
+    normalize: Some(true),
+    cache: Some(true),
+    ..Default::default()
+  };
+
+  let results = reverie_search_semantic(path, "auth timeout".to_string(), Some(options))
+    .await
+    .unwrap();
+  assert!(
+    results.is_empty(),
+    "conversations outside project root should be filtered out"
+  );
+}
+
+#[tokio::test]
+async fn test_reverie_search_semantic_respects_reranker_hook() {
+  let (home, _convo) = make_fake_codex_home();
+  let sessions_dir = home.path().join("sessions/2025/01/01");
+  let priority_uuid = "019a0000-0000-0000-0000-000000000002";
+  let priority_path = sessions_dir.join(format!(
+    "rollout-2025-01-01T12-05-00-{}.jsonl",
+    priority_uuid
+  ));
+  let timestamp = "2025-01-01T12:05:00Z".to_string();
+  let priority_items = vec![
+    RolloutLine {
+      timestamp: timestamp.clone(),
+      item: RolloutItem::SessionMeta(SessionMetaLine {
+        meta: SessionMeta {
+          id: ConversationId::from_string(priority_uuid).unwrap(),
+          timestamp: timestamp.clone(),
+          instructions: None,
+          cwd: home.path().to_path_buf(),
+          originator: "test".to_string(),
+          cli_version: "0.0.0".to_string(),
+          model_provider: Some("test-provider".to_string()),
+          source: SessionSource::VSCode,
+        },
+        git: None,
+      }),
+    },
+    RolloutLine {
+      timestamp: "2025-01-01T12:05:01Z".to_string(),
+      item: RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
+        message: "Need reverie priority hints for critical migration blockers with schema drift".to_string(),
+        images: None,
+      })),
+    },
+    RolloutLine {
+      timestamp: "2025-01-01T12:05:02Z".to_string(),
+      item: RolloutItem::ResponseItem(ResponseItem::Message {
+        id: None,
+        role: "assistant".to_string(),
+        content: vec![ContentItem::OutputText {
+          text: "Root-caused the reverie priority migration issue by replaying the hints about rollback order"
+            .to_string(),
+        }],
+      }),
+    },
+  ];
+  write_rollout_file(&priority_path, &priority_items);
+
+  let cache_dir = tempfile::tempdir().unwrap();
+  fast_embed_init(FastEmbedInitOptions {
+    model: Some("BAAI/bge-small-en-v1.5".to_string()),
+    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
+    max_length: Some(512),
+    show_download_progress: Some(false),
+    use_coreml: Some(false),
+    coreml_ane_only: Some(false),
+  })
+  .await
+  .unwrap();
+
+  struct HookGuard;
+  impl Drop for HookGuard {
+    fn drop(&mut self) {
+      clear_fast_embed_rerank_hook();
+    }
+  }
+  let _guard = HookGuard;
+
+  set_fast_embed_rerank_hook(|_, _, documents, _, top_k| {
+    let mut results: Vec<RerankResult> = documents
+      .into_iter()
+      .enumerate()
+      .map(|(index, doc)| {
+        let score = if doc.contains("reverie priority migration issue") {
+          0.99
+        } else {
+          0.1 + (index as f32 * 0.01)
+        };
+        RerankResult {
+          document: None,
+          score,
+          index,
+        }
+      })
+      .collect();
+    results.sort_by(|a, b| b.score.total_cmp(&a.score));
+    if let Some(top_k) = top_k {
+      results.truncate(top_k.min(results.len()));
+    }
+    Ok(results)
+  })
+  .unwrap();
+
+  let path = home.path().to_string_lossy().to_string();
+  let options = ReverieSemanticSearchOptions {
+    limit: Some(3),
+    max_candidates: Some(10),
+    project_root: Some(home.path().to_string_lossy().to_string()),
+    batch_size: None,
+    normalize: Some(true),
+    cache: Some(true),
+    reranker_model: Some("rozgo/bge-reranker-v2-m3".to_string()),
+    reranker_batch_size: Some(4),
+    reranker_top_k: Some(1),
+    ..Default::default()
+  };
+
+  let results = reverie_search_semantic(
+    path,
+    "critical reverie priority migration hints".to_string(),
+    Some(options),
+  )
+  .await
+  .unwrap();
+
+  assert!(
+    !results.is_empty(),
+    "expected matches with reranker enabled"
+  );
+  let top = &results[0];
+  assert!(
+    top.conversation.id.contains(priority_uuid),
+    "expected priority conversation to rank first"
+  );
+  assert!(
+    top.reranker_score.is_some(),
+    "expected reranker score to be propagated"
+  );
+}
+
+#[tokio::test]
+async fn test_reverie_search_semantic_reranker_failure_falls_back() {
+  let (home, _convo) = make_fake_codex_home();
+  let path = home.path().to_string_lossy().to_string();
+
+  let cache_dir = tempfile::tempdir().unwrap();
+  fast_embed_init(FastEmbedInitOptions {
+    model: Some("BAAI/bge-small-en-v1.5".to_string()),
+    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
+    max_length: Some(512),
+    show_download_progress: Some(false),
+    use_coreml: Some(false),
+    coreml_ane_only: Some(false),
+  })
+  .await
+  .unwrap();
+
+  struct HookGuard;
+  impl Drop for HookGuard {
+    fn drop(&mut self) {
+      clear_fast_embed_rerank_hook();
+    }
+  }
+  let _guard = HookGuard;
+
+  set_fast_embed_rerank_hook(|_, _, _documents, _, _top_k| {
+    Err(napi::Error::from_reason("test reranker failure"))
+  })
+  .unwrap();
+
+  let options = ReverieSemanticSearchOptions {
+    limit: Some(5),
+    max_candidates: Some(10),
+    project_root: Some(home.path().to_string_lossy().to_string()),
+    batch_size: None,
+    normalize: Some(true),
+    cache: Some(true),
+    reranker_model: Some("rozgo/bge-reranker-v2-m3".to_string()),
+    reranker_batch_size: Some(4),
+    reranker_top_k: Some(2),
+    ..Default::default()
+  };
+
+  let results = reverie_search_semantic(path, "auth timeout debugging".to_string(), Some(options))
+    .await
+    .unwrap();
+
+  assert!(
+    !results.is_empty(),
+    "semantic search should still succeed when reranker fails"
+  );
+  assert!(
+    results.iter().all(|entry| entry.reranker_score.is_none()),
+    "results should not include reranker scores when reranker fails"
+  );
 }

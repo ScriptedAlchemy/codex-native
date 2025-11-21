@@ -1,8 +1,13 @@
 import { ApprovalMode, SandboxMode, WorkspaceWriteOptions } from "./threadOptions";
 import {
   NativeBinding,
+  NativeConversationListPage,
+  NativeConversationListRequest,
+  NativeDeleteConversationRequest,
+  NativeDeleteConversationResult,
   NativeForkRequest,
   NativeForkResult,
+  NativeResumeFromRolloutRequest,
   NativeRunRequest,
   getNativeBinding,
 } from "./nativeBinding";
@@ -11,6 +16,7 @@ export type CodexExecArgs = {
   input: string;
   baseUrl?: string;
   apiKey?: string;
+  modelProvider?: string;
   threadId?: string | null;
   images?: string[];
   model?: string;
@@ -37,6 +43,7 @@ export type CodexForkArgs = {
   nthUserMessage: number;
   baseUrl?: string;
   apiKey?: string;
+  modelProvider?: string;
   model?: string;
   oss?: boolean;
   sandboxMode?: SandboxMode;
@@ -90,6 +97,7 @@ export class CodexExec {
       outputSchema: args.outputSchema,
       baseUrl: args.baseUrl,
       apiKey: args.apiKey,
+      modelProvider: args.modelProvider,
       fullAuto: args.fullAuto,
       reviewMode: args.review ? true : undefined,
       reviewHint: args.review?.userFacingHint,
@@ -146,6 +154,7 @@ export class CodexExec {
       threadId: args.threadId ?? undefined,
       images: args.images && args.images.length > 0 ? args.images : undefined,
       model: args.model,
+      modelProvider: args.modelProvider,
       oss: args.oss,
       sandboxMode: args.sandboxMode,
       approvalMode: args.approvalMode,
@@ -178,10 +187,29 @@ export class CodexExec {
       skipGitRepoCheck: args.skipGitRepoCheck,
       baseUrl: args.baseUrl,
       apiKey: args.apiKey,
+      modelProvider: args.modelProvider,
       linuxSandboxPath: args.linuxSandboxPath,
       fullAuto: args.fullAuto,
     };
     return this.native.forkThread(request);
+  }
+
+  async listConversations(
+    request: NativeConversationListRequest,
+  ): Promise<NativeConversationListPage> {
+    return this.native.listConversations(request);
+  }
+
+  async deleteConversation(
+    request: NativeDeleteConversationRequest,
+  ): Promise<NativeDeleteConversationResult> {
+    return this.native.deleteConversation(request);
+  }
+
+  async resumeConversationFromRollout(
+    request: NativeResumeFromRolloutRequest,
+  ): Promise<NativeForkResult> {
+    return this.native.resumeConversationFromRollout(request);
   }
 }
 
@@ -262,9 +290,26 @@ function validateModel(model: string | undefined | null, oss: boolean): void {
     return;
   }
   // Non-OSS mode: restrict to supported hosted models
-  if (trimmed !== "gpt-5" && trimmed !== "gpt-5-codex" && trimmed !== "gpt-5-codex-mini") {
+  const allowed = new Set([
+    // GPT models
+    "gpt-5",
+    "gpt-5-codex",
+    "gpt-5-codex-mini",
+    "gpt-5.1",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-mini",
+    // Claude models
+    "claude-sonnet-4-5-20250929",
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
+  ]);
+
+  // Allow any claude- or gpt- prefixed model (flexible for future models)
+  if (!allowed.has(trimmed) && !trimmed.startsWith("claude-") && !trimmed.startsWith("gpt-")) {
     throw new Error(
-      `Invalid model "${trimmed}". Supported models are "gpt-5", "gpt-5-codex", or "gpt-5-codex-mini".`
+      `Invalid model "${trimmed}". Supported models: ${Array.from(allowed)
+        .map((m) => `"${m}"`)
+        .join(", " )}, or any model starting with "claude-" or "gpt-".`
     );
   }
 }

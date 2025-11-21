@@ -1,3 +1,4 @@
+use std::fmt;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -7,6 +8,7 @@ use wiremock::BodyPrintLimit;
 use wiremock::Match;
 use wiremock::Mock;
 use wiremock::MockBuilder;
+use wiremock::MockGuard;
 use wiremock::MockServer;
 use wiremock::Respond;
 use wiremock::ResponseTemplate;
@@ -15,16 +17,22 @@ use wiremock::matchers::path_regex;
 
 use crate::test_codex::ApplyPatchModelOutput;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ResponseMock {
     requests: Arc<Mutex<Vec<ResponsesRequest>>>,
+    guards: Arc<Mutex<Vec<MockGuard>>>,
 }
 
 impl ResponseMock {
     fn new() -> Self {
         Self {
             requests: Arc::new(Mutex::new(Vec::new())),
+            guards: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    fn keep_guard(&self, guard: MockGuard) {
+        self.guards.lock().unwrap().push(guard);
     }
 
     pub fn single_request(&self) -> ResponsesRequest {
@@ -189,6 +197,15 @@ impl ResponsesRequest {
             .query_pairs()
             .find(|(k, _)| k == name)
             .map(|(_, v)| v.to_string())
+    }
+}
+
+impl fmt::Debug for ResponseMock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ResponseMock")
+            .field("requests", &self.requests)
+            .field("guards", &"<redacted>")
+            .finish()
     }
 }
 
@@ -491,6 +508,13 @@ pub fn sse_response(body: String) -> ResponseTemplate {
         .set_body_raw(body, "text/event-stream")
 }
 
+pub async fn mount_mcp_responder(server: &MockServer) {
+    Mock::given(path_regex(".*/mcp$"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(server)
+        .await;
+}
+
 fn base_mock() -> (MockBuilder, ResponseMock) {
     let response_mock = ResponseMock::new();
     let mock = Mock::given(method("POST"))
@@ -504,20 +528,24 @@ where
     M: wiremock::Match + Send + Sync + 'static,
 {
     let (mock, response_mock) = base_mock();
-    mock.and(matcher)
+    let guard = mock
+        .and(matcher)
         .respond_with(sse_response(body))
         .up_to_n_times(1)
-        .mount(server)
+        .mount_as_scoped(server)
         .await;
+    response_mock.keep_guard(guard);
     response_mock
 }
 
 pub async fn mount_sse_once(server: &MockServer, body: String) -> ResponseMock {
     let (mock, response_mock) = base_mock();
-    mock.respond_with(sse_response(body))
+    let guard = mock
+        .respond_with(sse_response(body))
         .up_to_n_times(1)
-        .mount(server)
+        .mount_as_scoped(server)
         .await;
+    response_mock.keep_guard(guard);
     response_mock
 }
 
@@ -590,11 +618,13 @@ pub async fn mount_sse_sequence(server: &MockServer, bodies: Vec<String>) -> Res
     };
 
     let (mock, response_mock) = base_mock();
-    mock.respond_with(responder)
+    let guard = mock
+        .respond_with(responder)
         .up_to_n_times(num_calls as u64)
         .expect(num_calls as u64)
-        .mount(server)
+        .mount_as_scoped(server)
         .await;
+    response_mock.keep_guard(guard);
 
     response_mock
 }

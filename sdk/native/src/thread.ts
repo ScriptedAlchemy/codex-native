@@ -3,6 +3,7 @@ import * as path from "node:path";
 
 import { CodexOptions } from "./codexOptions";
 import { ThreadEvent, ThreadError, Usage } from "./events";
+import { convertRustEventToThreadEvent } from "./events/convert";
 import { CodexExec, CodexForkArgs } from "./exec";
 import { ThreadItem } from "./items";
 import { ThreadOptions } from "./threadOptions";
@@ -10,88 +11,9 @@ import { TurnOptions } from "./turnOptions";
 import { createOutputSchemaFile, normalizeOutputSchema } from "./outputSchemaFile";
 import { runTui, startTui } from "./tui";
 import { getNativeBinding } from "./nativeBinding";
-import type { NativeTuiRequest, NativeTuiExitInfo } from "./nativeBinding";
+import type { NativeTuiRequest, NativeTuiExitInfo, ApprovalRequest } from "./nativeBinding";
 import type { RunTuiOptions, TuiSession } from "./tui";
-
-/**
- * Convert Rust event format to ThreadEvent format.
- * Rust sends events like { "TurnStarted": {} } but we expect { "type": "turn.started" }
- */
-function convertRustEventToThreadEvent(rustEvent: any): ThreadEvent {
-  if (rustEvent.ThreadStarted) {
-    return {
-      type: "thread.started",
-      thread_id: rustEvent.ThreadStarted.thread_id,
-    };
-  }
-  if (rustEvent.TurnStarted) {
-    return { type: "turn.started" };
-  }
-  if (rustEvent.TurnCompleted) {
-    return {
-      type: "turn.completed",
-      usage: rustEvent.TurnCompleted.usage,
-    };
-  }
-  if (rustEvent.TurnFailed) {
-    return {
-      type: "turn.failed",
-      error: rustEvent.TurnFailed.error,
-    };
-  }
-  if (rustEvent.ItemStarted) {
-    return {
-      type: "item.started",
-      item: rustEvent.ItemStarted.item,
-    };
-  }
-  if (rustEvent.ItemUpdated) {
-    return {
-      type: "item.updated",
-      item: rustEvent.ItemUpdated.item,
-    };
-  }
-  if (rustEvent.ItemCompleted) {
-    return {
-      type: "item.completed",
-      item: rustEvent.ItemCompleted.item,
-    };
-  }
-  if (rustEvent.Error) {
-    return {
-      type: "error",
-      message: rustEvent.Error.message,
-    };
-  }
-  if (rustEvent.type === "background_event" && typeof rustEvent.message === "string") {
-    return {
-      type: "background_event",
-      message: rustEvent.message,
-    };
-  }
-  // Handle plan_update_scheduled synthetic event
-  if (rustEvent.type === "plan_update_scheduled" && rustEvent.plan) {
-    const planData = rustEvent.plan;
-    const planItems = planData.plan || [];
-    return {
-      type: "item.completed",
-      item: {
-        id: `plan-${Date.now()}`,
-        type: "todo_list",
-        items: planItems.map((item: any) => ({
-          text: item.step,
-          completed: item.status === "completed",
-        })),
-      },
-    };
-  }
-  // If it's already in the correct format, return as-is
-  if (rustEvent.type) {
-    return rustEvent;
-  }
-  // Unknown format - return as-is and let the consumer handle it
-  return rustEvent;
-}
+import { attachLspDiagnostics } from "./lsp";
 
 /** Completed turn. */
 export type Turn = {
@@ -172,6 +94,7 @@ export class Thread {
   private _id: string | null;
   private _threadOptions: ThreadOptions;
   private _eventListeners: Array<(event: ThreadEvent) => void> = [];
+  private _approvalHandler: ((request: ApprovalRequest) => boolean | Promise<boolean>) | null = null;
 
   /** Returns the ID of the thread. Populated after the first turn starts. */
   public get id(): string | null {
@@ -201,6 +124,27 @@ export class Thread {
     const index = this._eventListeners.indexOf(listener);
     if (index !== -1) {
       this._eventListeners.splice(index, 1);
+    }
+  }
+
+  /**
+   * Register a callback to handle approval requests from the agent.
+   * The handler should return true to approve the action, false to deny it.
+   *
+   * @param handler Callback function that receives ApprovalRequest and returns approval decision
+   * @example
+   * ```typescript
+   * thread.onApprovalRequest(async (request) => {
+   *   console.log(`Approval requested for ${request.type}`);
+   *   return true; // Auto-approve
+   * });
+   * ```
+   */
+  onApprovalRequest(handler: (request: ApprovalRequest) => boolean | Promise<boolean>): void {
+    this._approvalHandler = handler;
+    const binding = getNativeBinding();
+    if (binding && typeof binding.registerApprovalCallback === "function") {
+      binding.registerApprovalCallback(handler);
     }
   }
 
@@ -339,12 +283,13 @@ export class Thread {
       threadId: this._id,
       baseUrl: this._options.baseUrl,
       apiKey: this._options.apiKey,
-      model: this._threadOptions?.model,
+      model: this._threadOptions?.model ?? this._options.defaultModel,
       sandboxMode: this._threadOptions?.sandboxMode,
       approvalMode: this._threadOptions?.approvalMode,
       workspaceWriteOptions: this._threadOptions?.workspaceWriteOptions,
       workingDirectory: this._threadOptions?.workingDirectory,
       skipGitRepoCheck,
+      modelProvider: this._options.modelProvider,
     });
     // No return value needed; compaction modifies server-side history.
     if (!Array.isArray(events)) {
@@ -393,7 +338,7 @@ export class Thread {
       nthUserMessage,
       baseUrl: this._options.baseUrl,
       apiKey: this._options.apiKey,
-      model: nextThreadOptions.model,
+      model: nextThreadOptions.model ?? this._options.defaultModel,
       oss: nextThreadOptions.oss,
       sandboxMode: nextThreadOptions.sandboxMode,
       approvalMode: nextThreadOptions.approvalMode,
@@ -401,6 +346,7 @@ export class Thread {
       workingDirectory: nextThreadOptions.workingDirectory,
       skipGitRepoCheck,
       fullAuto: nextThreadOptions.fullAuto,
+      modelProvider: this._options.modelProvider,
     };
 
     const result = await this._exec.fork(forkArgs);
@@ -555,7 +501,7 @@ export class Thread {
       }
     };
 
-    assignIfUndefined("model", this._threadOptions?.model);
+    assignIfUndefined("model", this._threadOptions?.model ?? this._options.defaultModel);
     assignIfUndefined("oss", this._threadOptions?.oss);
     assignIfUndefined("sandboxMode", this._threadOptions?.sandboxMode);
     assignIfUndefined("approvalMode", this._threadOptions?.approvalMode);
@@ -584,7 +530,9 @@ export class Thread {
    */
   launchTui(overrides: Partial<NativeTuiRequest> = {}): TuiSession {
     const request = this.buildTuiRequest(overrides);
-    return startTui(request);
+    const detachLsp = this.attachDefaultLspBridge(request);
+    const session = startTui(request);
+    return this.wrapTuiSession(session, detachLsp);
   }
 
   /**
@@ -609,7 +557,52 @@ export class Thread {
     options: RunTuiOptions = {},
   ): Promise<NativeTuiExitInfo> {
     const request = this.buildTuiRequest(overrides);
-    return runTui(request, options);
+    const detachLsp = this.attachDefaultLspBridge(request);
+    try {
+      return await runTui(request, options);
+    } finally {
+      detachLsp();
+    }
+  }
+
+  private wrapTuiSession(session: TuiSession, cleanup: () => void): TuiSession {
+    let released = false;
+    const release = () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      cleanup();
+    };
+    return {
+      wait: async () => {
+        try {
+          return await session.wait();
+        } finally {
+          release();
+        }
+      },
+      shutdown: () => {
+        release();
+        session.shutdown();
+      },
+      get closed() {
+        return session.closed;
+      },
+    };
+  }
+
+  private attachDefaultLspBridge(request: NativeTuiRequest): () => void {
+    const workingDirectory =
+      request.workingDirectory ??
+      this._threadOptions?.workingDirectory ??
+      (typeof process !== "undefined" && typeof process.cwd === "function"
+        ? process.cwd()
+        : ".");
+    return attachLspDiagnostics(this, {
+      workingDirectory,
+      waitForDiagnostics: true,
+    });
   }
 }
 

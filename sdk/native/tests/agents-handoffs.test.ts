@@ -49,6 +49,11 @@ function createMockThread(responseText: string) {
         yield { type: 'turn.completed', usage };
       })(),
     })),
+    onEvent: jest.fn(() => {
+      // Return unsubscribe function
+      return () => {};
+    }),
+    sendBackgroundEvent: jest.fn(async () => {}),
   };
 }
 

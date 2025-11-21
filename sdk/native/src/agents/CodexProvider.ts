@@ -6,6 +6,7 @@ import type { Input, UserInput } from "../thread";
 import type { CodexOptions, NativeToolDefinition } from "../codexOptions";
 import type { ThreadOptions } from "../threadOptions";
 import type { NativeToolInvocation, NativeToolResult } from "../nativeBinding";
+import { attachLspDiagnostics } from "../lsp";
 import { getCodexToolExecutor, type ToolExecutor, type ToolExecutionContext, type ToolExecutorResult } from "./toolRegistry";
 import * as fs from "fs";
 import * as path from "path";
@@ -126,6 +127,8 @@ class CodexModel implements Model {
   private tempImageFiles: Set<string> = new Set();
   private streamedTurnItems: ThreadItem[] = [];
   private lastStreamedMessage: string | null = null;
+  private detachDiagnostics?: () => void;
+  private diagnosticsThread?: Thread | null;
 
   constructor(codex: Codex, modelName: string | undefined, options: CodexProviderOptions) {
     this.codex = codex;
@@ -155,13 +158,34 @@ class CodexModel implements Model {
     if (conversationId) {
       if (!this.thread || this.thread.id !== conversationId) {
         // Resume the specified thread
+        this.detachDiagnostics?.();
         this.thread = this.codex.resumeThread(conversationId, this.getThreadOptions());
+        this.diagnosticsThread = null;
       }
     } else if (!this.thread) {
       // Create new thread only if we don't have one
+      this.detachDiagnostics?.();
       this.thread = this.codex.startThread(this.getThreadOptions());
+      this.diagnosticsThread = null;
     }
-    return this.thread;
+    const thread = this.thread;
+    if (!thread) {
+      throw new Error("Thread initialization failed");
+    }
+    this.ensureDiagnosticsBridge(thread);
+    return thread;
+  }
+
+  private ensureDiagnosticsBridge(thread: Thread): void {
+    if (this.diagnosticsThread === thread && this.detachDiagnostics) {
+      return;
+    }
+    this.detachDiagnostics?.();
+    this.diagnosticsThread = thread;
+    this.detachDiagnostics = attachLspDiagnostics(thread, {
+      workingDirectory: this.options.workingDirectory ?? process.cwd(),
+      waitForDiagnostics: true,
+    });
   }
 
   private getThreadOptions(): ThreadOptions {

@@ -1,0 +1,36 @@
+{
+  "name": "codex-agents-suite",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli.ts",
+    "run:diff": "tsx src/diff/diff-reviewer.ts",
+    "run:merge": "tsx src/diff/merge-solver-cli.ts",
+    "run:ci-fix": "tsx src/diff/ci/enhanced-ci-orchestrator.ts",
+    "test": "node --import tsx --test"
+  },
+  "dependencies": {
+    "@codex-native/sdk": "workspace:*",
+    "@openai/agents": "^0.3.0",
+    "@openai/agents-core": "^0.3.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.7.2"
+  },
+  "bin": {
+    "codex-agents-suite": "dist/index.js",
+    "codex-diff-reviewer": "dist/diff/diff-reviewer.js",
+    "codex-merge-solver": "dist/diff/merge-solver-cli.js",
+    "codex-ci-fixer": "dist/diff/ci/enhanced-ci-orchestrator.js"
+  }
+}

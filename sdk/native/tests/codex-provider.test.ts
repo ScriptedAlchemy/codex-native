@@ -25,6 +25,8 @@ interface MockThread {
       item?: { type: string; text?: string };
     }>;
   }>>;
+  onEvent: jest.MockedFunction<(callback: (event: any) => void) => () => void>;
+  sendBackgroundEvent: jest.MockedFunction<(message: string) => Promise<void>>;
 }
 
 const createMockThread = (): MockThread => {
@@ -56,6 +58,11 @@ const createMockThread = (): MockThread => {
         yield { type: 'turn.completed', usage };
       })(),
     })),
+    onEvent: jest.fn(() => {
+      // Return unsubscribe function
+      return () => {};
+    }),
+    sendBackgroundEvent: jest.fn(async () => {}),
   };
 };
 
@@ -448,6 +455,8 @@ describe('CodexProvider', () => {
             yield { type: 'turn.completed', usage };
           })(),
         })),
+        onEvent: jest.fn(() => () => {}),
+        sendBackgroundEvent: jest.fn(async () => {}),
       };
 
       const localProvider = new CodexProvider({ skipGitRepoCheck: true });
@@ -519,6 +528,8 @@ describe('CodexProvider', () => {
             yield { type: 'turn.completed', usage };
           })(),
         })),
+        onEvent: jest.fn(() => () => {}),
+        sendBackgroundEvent: jest.fn(async () => {}),
       };
 
       const localProvider = new CodexProvider({

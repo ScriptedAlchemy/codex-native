@@ -21,8 +21,12 @@ impl AppEventSender {
         if !matches!(event, AppEvent::CodexOp(_)) {
             session_log::log_inbound_app_event(&event);
         }
+        if self.app_event_tx.is_closed() {
+            tracing::debug!("dropping app event because channel is closed");
+            return;
+        }
         if let Err(e) = self.app_event_tx.send(event) {
-            tracing::error!("failed to send event: {e}");
+            tracing::debug!("dropping app event because channel is closed: {e}");
         }
     }
 }
