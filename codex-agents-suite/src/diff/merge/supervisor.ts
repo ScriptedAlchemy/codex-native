@@ -42,6 +42,10 @@ export class ApprovalSupervisor {
   }
 
   async handleApproval(request: ApprovalRequest): Promise<boolean> {
+    if (!request) {
+      logWarn("supervisor", "Received empty approval request; denying.", "unknown");
+      return false;
+    }
     if (!this.thread) {
       logWarn("supervisor", "Supervisor unavailable; auto-denying", request.type);
       return false;
@@ -56,7 +60,9 @@ export class ApprovalSupervisor {
         }\nNotes: ${this.context.extraNotes ?? "<none>"}`
       : "No active worker context.";
     const detailsBlock =
-      request.details !== undefined ? JSON.stringify(request.details, null, 2) : "<no additional details>";
+      request.details !== undefined && request.details !== null
+        ? JSON.stringify(request.details, null, 2)
+        : "<no additional details>";
 
     const prompt = `# Autonomous Approval Supervisor
 

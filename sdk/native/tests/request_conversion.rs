@@ -10,6 +10,7 @@ fn base_run_request(prompt: &str) -> RunRequest {
     thread_id: None,
     images: None,
     model: None,
+    model_provider: None,
     approval_mode: None,
     workspace_write_options: None,
     oss: None,

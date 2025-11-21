@@ -124,6 +124,13 @@ export class MergeConflictSolver {
     };
   }
 
+  private conflictIsSimple(conflict: ConflictContext): boolean {
+    const markers = conflict.conflictMarkers ?? Number.MAX_SAFE_INTEGER;
+    const lines = conflict.lineCount ?? Number.MAX_SAFE_INTEGER;
+    const diffLen = conflict.diffExcerpt?.length ?? 0;
+    return markers <= 6 && lines <= 400 && diffLen <= 4_000;
+  }
+
   async run(): Promise<void> {
     await this.ensureUpstreamMerge();
     logInfo("git", "Collecting merge conflicts via git diff --diff-filter=U");
@@ -157,11 +164,44 @@ export class MergeConflictSolver {
     this.syncCoordinatorBoard([]);
 
     const outcomes: WorkerOutcome[] = [];
-    for (let i = 0; i < conflicts.length; i++) {
-      const conflict = conflicts[i];
-      const outcome = await this.resolveConflict(conflict);
+    const simpleConflicts = conflicts.filter((c) => this.conflictIsSimple(c));
+    const complexConflicts = conflicts.filter((c) => !this.conflictIsSimple(c));
+    const maxConcurrentWorkers = 2;
+    const active = new Set<Promise<void>>();
+
+    const recordOutcome = (outcome: WorkerOutcome): void => {
       outcomes.push(outcome);
       this.syncCoordinatorBoard(outcomes);
+    };
+
+    const scheduleSimple = async (conflict: ConflictContext): Promise<void> => {
+      while (active.size >= maxConcurrentWorkers) {
+        await Promise.race(active);
+      }
+      const task = this.resolveConflict(conflict)
+        .then(recordOutcome)
+        .catch((error) => {
+          recordOutcome({
+            path: conflict.path,
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          active.delete(task);
+        });
+      active.add(task);
+    };
+
+    for (const conflict of simpleConflicts) {
+      await scheduleSimple(conflict);
+    }
+    if (active.size > 0) {
+      await Promise.all(active);
+    }
+    for (const conflict of complexConflicts) {
+      const outcome = await this.resolveConflict(conflict);
+      recordOutcome(outcome);
     }
 
     const reviewSummary = await this.runReviewer(outcomes, this.remoteComparison);
@@ -774,6 +814,7 @@ export function createDefaultSolverConfig(workingDirectory: string): SolverConfi
     apiKey: process.env.CODEX_API_KEY,
     skipGitRepoCheck: false,
     originRef: process.env.CX_MERGE_ORIGIN_REF ?? "HEAD",
-    upstreamRef: process.env.CX_MERGE_UPSTREAM_REF ?? "origin/main",
+    upstreamRef: process.env.CX_MERGE_UPSTREAM_REF ?? "upstream/main",
+    reasoningEffort: "high",
   };
 }

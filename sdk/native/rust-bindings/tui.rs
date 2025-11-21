@@ -318,13 +318,15 @@ fn run_tui_sync(
 ) -> napi::Result<TuiExitInfo> {
   ensure_apply_patch_aliases()?;
   let InternalTuiRequest {
-    cli,
+    mut cli,
     base_url,
     api_key,
     linux_sandbox_path,
-    reasoning_effort: _,
-    reasoning_summary: _,
+    reasoning_effort,
+    reasoning_summary,
   } = options;
+
+  apply_reasoning_overrides(&mut cli, reasoning_effort, reasoning_summary);
 
   let pending_tools = {
     let guard = registered_native_tools()
@@ -392,6 +394,25 @@ fn run_tui_sync(
   }
 }
 
+fn apply_reasoning_overrides(
+  cli: &mut TuiCli,
+  effort: Option<ReasoningEffort>,
+  summary: Option<ReasoningSummary>,
+) {
+  if let Some(effort) = effort {
+    cli
+      .config_overrides
+      .raw_overrides
+      .push(format!("model_reasoning_effort={}", effort.to_string().to_lowercase()));
+  }
+  if let Some(summary) = summary {
+    cli
+      .config_overrides
+      .raw_overrides
+      .push(format!("model_reasoning_summary={}", summary.to_string().to_lowercase()));
+  }
+}
+
 #[napi]
 pub fn start_tui(req: TuiRequest) -> napi::Result<TuiSession> {
   let options = req.into_internal()?;
@@ -405,4 +426,42 @@ pub fn start_tui(req: TuiRequest) -> napi::Result<TuiSession> {
 pub async fn run_tui(req: TuiRequest) -> napi::Result<TuiExitInfo> {
   let session = start_tui(req)?;
   session.wait().await
+}
+
+#[cfg(test)]
+mod tests_tui_reasoning_overrides {
+  use super::*;
+
+  #[test]
+  fn apply_reasoning_overrides_sets_raw_overrides() {
+    let mut cli = TuiCli {
+      prompt: None,
+      images: Vec::new(),
+      resume_picker: false,
+      resume_last: false,
+      resume_session_id: None,
+      model: None,
+      oss: false,
+      config_profile: None,
+      sandbox_mode: None,
+      approval_policy: None,
+      full_auto: false,
+      dangerously_bypass_approvals_and_sandbox: false,
+      cwd: None,
+      web_search: false,
+      add_dir: Vec::new(),
+      config_overrides: CliConfigOverrides { raw_overrides: Vec::new() },
+    };
+
+    apply_reasoning_overrides(&mut cli, Some(ReasoningEffort::High), Some(ReasoningSummary::Concise));
+
+    assert!(cli
+      .config_overrides
+      .raw_overrides
+      .contains(&"model_reasoning_effort=high".to_string()));
+    assert!(cli
+      .config_overrides
+      .raw_overrides
+      .contains(&"model_reasoning_summary=concise".to_string()));
+  }
 }

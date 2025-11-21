@@ -10,6 +10,7 @@ fn base_internal_request() -> InternalRunRequest {
     thread_id: None,
     images: Vec::new(),
     model: None,
+    model_provider: None,
     oss: false,
     sandbox_mode: None,
     approval_mode: None,

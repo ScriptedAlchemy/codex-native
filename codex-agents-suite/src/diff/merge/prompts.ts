@@ -58,8 +58,8 @@ ${HISTORICAL_PLAYBOOK}
 Mission:
 1. Build a concise plan for how to resolve these conflicts with multiple specialized agents.
 2. For each file, describe the most likely source of conflict and what to preserve from our branch vs upstream.
-3. Highlight any cross-file coupling (e.g., sdk/typescript changes requiring sdk/native updates).
-4. Provide sequencing guidance plus sanity checks (pnpm install/build/ci expectations).
+3. Highlight any cross-file coupling (e.g., shared types/interfaces requiring mirrored changes across layers).
+4. Provide sequencing guidance plus sanity checks (install/build/ci expectations).
 
 Provide the plan as structured bullet points so downstream workers can pick up easily.`;
 }
@@ -128,9 +128,11 @@ Constraints:
 - Understand our branch vs upstream intent using git show :2:${conflict.path} / :3:${conflict.path} / :1:${conflict.path} before editing.
 - Use \`read_file_v2\` / \`read_file\` for large sections instead of manual sed dumps so you can quote precise hunks in your reasoning.
 - Start by writing a short \"Three-way summary\" that contrasts Base → Ours, Base → Theirs, and Ours ↔ Theirs; note what each side was trying to achieve and whether they can coexist.
+- Do NOT run \`git add\`, \`git merge\`, \`git checkout\`, or touch .git/lock files; the coordinator handles staging/cleanup. If you need staging, just say so in your summary.
+- When editing, prefer \`apply_patch\` or structured writes; avoid ad-hoc python/sed that rewrites entire files.
 - Preserve intentional local increases (buffer sizes, limits, config tweaks).
-- Mirror sdk/typescript → sdk/native implications if this file participates.
-- After resolving the conflict, run rg '<<<<<<<' ${conflict.path} to ensure markers are gone, then git add ${conflict.path}.
+- Mirror cross-surface implications (e.g., API definitions ↔ bindings or client ↔ server) if this file participates.
+- After resolving the conflict, run rg '<<<<<<<' ${conflict.path} to ensure markers are gone, then state it is ready for staging (do not run git add yourself).
 - Summarize what you kept from each side plus any follow-up commands/tests to run.
 - Your shell/file-write accesses are gated by an autonomous supervisor; justify sensitive steps so approvals go through.
 - Begin with a short research note referencing the diffs/logs below before modifying any code.
@@ -202,6 +204,7 @@ Historical guardrails to honor:
 ${HISTORICAL_PLAYBOOK}
 
 Tasks:
+0. Do not run git add/merge/reset; only inspect status and report what should be staged.
 1. ${
     input.validationMode
       ? "Run targeted tests for each resolved file (unit/integration only)."

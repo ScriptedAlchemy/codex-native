@@ -51,6 +51,8 @@ pub enum PlanType {
     Team,
     #[serde(rename = "business")]
     Business,
+    #[serde(rename = "guest")]
+    Guest,
     #[serde(rename = "education")]
     Education,
     #[serde(rename = "quorum")]
@@ -59,4 +61,15 @@ pub enum PlanType {
     Enterprise,
     #[serde(rename = "edu")]
     Edu,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PlanType;
+
+    #[test]
+    fn plan_type_deserializes_guest() {
+        let plan: PlanType = serde_json::from_str("\"guest\"").expect("guest variant should parse");
+        assert_eq!(plan, PlanType::Guest);
+    }
 }

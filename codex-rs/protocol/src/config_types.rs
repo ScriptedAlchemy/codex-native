@@ -29,6 +29,7 @@ pub enum ReasoningEffort {
     Low,
     #[default]
     Medium,
+    #[serde(alias = "xhigh")]
     High,
 }
 
@@ -107,4 +108,23 @@ pub enum ForcedLoginMethod {
 pub enum TrustLevel {
     Trusted,
     Untrusted,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ReasoningEffort;
+
+    #[test]
+    fn parsing_xhigh_falls_back_to_high() {
+        let parsed: ReasoningEffort =
+            serde_json::from_str("\"xhigh\"").expect("xhigh should deserialize");
+        assert_eq!(parsed, ReasoningEffort::High);
+    }
+
+    #[test]
+    fn high_serializes_without_aliases() {
+        let serialized =
+            serde_json::to_string(&ReasoningEffort::High).expect("serialization should succeed");
+        assert_eq!(serialized, "\"high\"");
+    }
 }

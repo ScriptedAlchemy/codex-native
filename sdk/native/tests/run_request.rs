@@ -8,6 +8,7 @@ fn base_run_request(prompt: &str) -> RunRequest {
     thread_id: None,
     images: None,
     model: None,
+    model_provider: None,
     oss: None,
     sandbox_mode: None,
     approval_mode: None,
