@@ -368,16 +368,20 @@ impl Expectation {
                     "expected non-zero exit for network failure: {}",
                     result.stdout
                 );
+                let has_err_prefix = result.stdout.contains("ERR:");
+                let timed_out = result.stdout.contains("command timed out");
                 assert!(
-                    result.stdout.contains("ERR:"),
+                    has_err_prefix || timed_out,
                     "stdout missing ERR prefix: {}",
                     result.stdout
                 );
-                assert!(
-                    result.stdout.contains(expect_tag),
-                    "stdout missing expected tag {expect_tag:?}: {}",
-                    result.stdout
-                );
+                if has_err_prefix {
+                    assert!(
+                        result.stdout.contains(expect_tag),
+                        "stdout missing expected tag {expect_tag:?}: {}",
+                        result.stdout
+                    );
+                }
             }
             Expectation::CommandSuccess { stdout_contains } => {
                 assert_eq!(

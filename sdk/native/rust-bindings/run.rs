@@ -822,10 +822,23 @@ fn build_config_inputs(
   linux_sandbox_path: Option<PathBuf>,
 ) -> napi::Result<(ConfigOverrides, Vec<(String, TomlValue)>)> {
   let cli = build_cli(options, None, false);
-  let cli_kv_overrides = cli
+  let mut cli_kv_overrides = cli
     .config_overrides
     .parse_overrides()
     .map_err(|e| napi::Error::from_reason(format!("Failed to parse config overrides: {e}")))?;
+
+  if let Some(effort) = options.reasoning_effort.as_ref() {
+    cli_kv_overrides.push((
+      "model_reasoning_effort".to_string(),
+      TomlValue::String(effort.to_string().to_lowercase()),
+    ));
+  }
+  if let Some(summary) = options.reasoning_summary.as_ref() {
+    cli_kv_overrides.push((
+      "model_reasoning_summary".to_string(),
+      TomlValue::String(summary.to_string().to_lowercase()),
+    ));
+  }
 
   let cwd = options
     .working_directory
@@ -852,8 +865,6 @@ fn build_config_inputs(
     tools_web_search_request: None,
     experimental_sandbox_command_assessment: None,
     additional_writable_roots: Vec::new(),
-    model_reasoning_effort: options.reasoning_effort,
-    model_reasoning_summary: options.reasoning_summary,
   };
 
   Ok((overrides, cli_kv_overrides))

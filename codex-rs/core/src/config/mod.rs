@@ -847,8 +847,6 @@ pub struct ConfigOverrides {
     pub show_raw_agent_reasoning: Option<bool>,
     pub tools_web_search_request: Option<bool>,
     pub experimental_sandbox_command_assessment: Option<bool>,
-    pub model_reasoning_effort: Option<ReasoningEffort>,
-    pub model_reasoning_summary: Option<ReasoningSummary>,
     /// Additional directories that should be treated as writable roots for this session.
     pub additional_writable_roots: Vec<PathBuf>,
 }
@@ -880,8 +878,6 @@ impl Config {
             show_raw_agent_reasoning,
             tools_web_search_request: override_tools_web_search_request,
             experimental_sandbox_command_assessment: sandbox_command_assessment_override,
-            model_reasoning_effort: override_model_reasoning_effort,
-            model_reasoning_summary: override_model_reasoning_summary,
             additional_writable_roots,
         } = overrides;
 
@@ -1149,11 +1145,11 @@ impl Config {
                 .show_raw_agent_reasoning
                 .or(show_raw_agent_reasoning)
                 .unwrap_or(false),
-            model_reasoning_effort: override_model_reasoning_effort
-                .or(config_profile.model_reasoning_effort)
+            model_reasoning_effort: config_profile
+                .model_reasoning_effort
                 .or(cfg.model_reasoning_effort),
-            model_reasoning_summary: override_model_reasoning_summary
-                .or(config_profile.model_reasoning_summary)
+            model_reasoning_summary: config_profile
+                .model_reasoning_summary
                 .or(cfg.model_reasoning_summary)
                 .unwrap_or_default(),
             model_verbosity: config_profile.model_verbosity.or(cfg.model_verbosity),
@@ -2669,31 +2665,6 @@ model = "gpt-5-codex"
                 .and_then(|profile| profile.model.as_deref()),
             Some("gpt-5-codex"),
         );
-
-        Ok(())
-    }
-
-    #[test]
-    fn overrides_take_precedence_for_reasoning_effort_and_summary() -> anyhow::Result<()> {
-        let codex_home = TempDir::new()?;
-        let mut cfg = ConfigToml::default();
-        cfg.model_reasoning_effort = Some(ReasoningEffort::High);
-        cfg.model_reasoning_summary = Some(ReasoningSummary::Concise);
-
-        let overrides = ConfigOverrides {
-            model_reasoning_effort: Some(ReasoningEffort::Low),
-            model_reasoning_summary: Some(ReasoningSummary::Detailed),
-            ..Default::default()
-        };
-
-        let loaded = Config::load_from_base_config_with_overrides(
-            cfg,
-            overrides,
-            codex_home.path().to_path_buf(),
-        )?;
-
-        assert_eq!(loaded.model_reasoning_effort, Some(ReasoningEffort::Low));
-        assert_eq!(loaded.model_reasoning_summary, ReasoningSummary::Detailed);
 
         Ok(())
     }
