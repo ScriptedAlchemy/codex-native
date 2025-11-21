@@ -696,6 +696,7 @@ fn parse_reasoning_effort(input: Option<&str>) -> napi::Result<Option<ReasoningE
     "low" => ReasoningEffort::Low,
     "medium" => ReasoningEffort::Medium,
     "high" => ReasoningEffort::High,
+    "xhigh" => ReasoningEffort::High,
   )
 }
 

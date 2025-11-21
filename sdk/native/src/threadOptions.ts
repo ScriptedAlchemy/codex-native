@@ -8,7 +8,7 @@ export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access"
  *
  * @default "medium" - When undefined, codex uses "medium" as the default
  */
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 /**
  * Controls whether reasoning summaries are included for reasoning-capable models.
