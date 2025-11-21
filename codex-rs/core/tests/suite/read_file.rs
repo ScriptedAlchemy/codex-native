@@ -8,12 +8,14 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "disabled until we enable read_file tool"]
 async fn read_file_tool_returns_requested_lines() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
-    let test = test_codex().build(&server).await?;
+    let mut builder = test_codex().with_config(|config| {
+        config.model = "gpt-5-codex".to_string();
+    });
+    let test = builder.build(&server).await?;
 
     let file_path = test.cwd.path().join("sample.txt");
     std::fs::write(&file_path, "first\nsecond\nthird\nfourth\n")?;

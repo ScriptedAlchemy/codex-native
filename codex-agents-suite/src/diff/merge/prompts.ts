@@ -127,6 +127,7 @@ Constraints:
 - Operate ONLY on ${conflict.path} unless you must touch closely linked files (explain if so).
 - Understand our branch vs upstream intent using git show :2:${conflict.path} / :3:${conflict.path} / :1:${conflict.path} before editing.
 - Use \`read_file_v2\` / \`read_file\` for large sections instead of manual sed dumps so you can quote precise hunks in your reasoning.
+- The \`read_file\` tool is available here—call it with absolute repo paths for any content reads and do not fall back to python/sed unless the tool call itself fails.
 - Start by writing a short \"Three-way summary\" that contrasts Base → Ours, Base → Theirs, and Ours ↔ Theirs; note what each side was trying to achieve and whether they can coexist.
 - Do NOT run \`git add\`, \`git merge\`, \`git checkout\`, or touch .git/lock files; the coordinator handles staging/cleanup. If you need staging, just say so in your summary.
 - When editing, prefer \`apply_patch\` or structured writes; avoid ad-hoc python/sed that rewrites entire files.
