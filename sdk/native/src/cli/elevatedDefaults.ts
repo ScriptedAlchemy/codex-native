@@ -69,7 +69,7 @@ function ensureWorkspaceWriteOptions(
 
   return {
     ...options,
-    networkAccess: true,
+    networkAccess: options?.networkAccess ?? true,
     writableRoots: Array.from(writableRoots),
   };
 }

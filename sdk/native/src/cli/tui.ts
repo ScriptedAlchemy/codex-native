@@ -36,7 +36,11 @@ export async function executeTuiCommand(
 
   await runBeforeStartHooks(combinedConfig.beforeStartHooks, hookContext, combinedConfig.warnings);
 
-  const codex = new Codex({ baseUrl: request.baseUrl, apiKey: request.apiKey });
+  const codex = new Codex({
+    baseUrl: request.baseUrl,
+    apiKey: request.apiKey,
+    preserveRegisteredTools: true,
+  });
   const thread = codex.startThread(threadOptions);
 
   const exitInfo = await thread.tui(request);

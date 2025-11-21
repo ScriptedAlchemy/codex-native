@@ -13,4 +13,9 @@ export type CodexOptions = {
   /** Default model to use when a thread omits an explicit choice */
   defaultModel?: string;
   tools?: NativeToolDefinition[];
+  /**
+   * When true, constructor will not clear already-registered tools on the native binding.
+   * Useful when other code (CLI, plugins) pre-register tools before instantiating Codex.
+   */
+  preserveRegisteredTools?: boolean;
 };

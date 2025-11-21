@@ -55,11 +55,12 @@ export class Codex {
 
   constructor(options: CodexOptions = {}) {
     const predefinedTools = options.tools ? [...options.tools] : [];
+    const preserveRegisteredTools = options.preserveRegisteredTools === true;
     this.nativeBinding = getNativeBinding();
     this.options = { ...options, tools: [] };
     if (this.nativeBinding) {
       // clearRegisteredTools may not be available in all builds
-      if (typeof this.nativeBinding.clearRegisteredTools === 'function') {
+      if (!preserveRegisteredTools && typeof this.nativeBinding.clearRegisteredTools === "function") {
         this.nativeBinding.clearRegisteredTools();
       }
       for (const tool of predefinedTools) {
@@ -82,7 +83,7 @@ export class Codex {
       throw new Error("Native tool registration requires the NAPI binding");
     }
     // registerTool may not be available in all builds
-    if (typeof this.nativeBinding.registerTool !== 'function') {
+    if (typeof this.nativeBinding.registerTool !== "function") {
       console.warn("registerTool is not available in this build - tools feature may be incomplete");
       return;
     }
@@ -107,8 +108,8 @@ export class Codex {
     }
     // registerToolInterceptor may not be available in all builds
     if (
-      typeof this.nativeBinding.registerToolInterceptor !== 'function' ||
-      typeof this.nativeBinding.callToolBuiltin !== 'function'
+      typeof this.nativeBinding.registerToolInterceptor !== "function" ||
+      typeof this.nativeBinding.callToolBuiltin !== "function"
     ) {
       console.warn("registerToolInterceptor is not available in this build - interceptor feature may be incomplete");
       return;
@@ -135,7 +136,7 @@ export class Codex {
     if (!this.nativeBinding) {
       throw new Error("Native tool management requires the NAPI binding");
     }
-    if (typeof this.nativeBinding.clearRegisteredTools === 'function') {
+    if (typeof this.nativeBinding.clearRegisteredTools === "function") {
       this.nativeBinding.clearRegisteredTools();
     }
     if (this.options.tools) {
@@ -240,7 +241,7 @@ export class Codex {
   setApprovalCallback(
     handler: (request: ApprovalRequest) => boolean | Promise<boolean>,
   ): void {
-    if (!this.nativeBinding || typeof this.nativeBinding.registerApprovalCallback !== 'function') {
+    if (!this.nativeBinding || typeof this.nativeBinding.registerApprovalCallback !== "function") {
       console.warn("Approval callback is not available in this build");
       return;
     }
