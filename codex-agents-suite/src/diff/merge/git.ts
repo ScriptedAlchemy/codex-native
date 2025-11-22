@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { MAX_CONTEXT_CHARS } from "./constants.js";
+// Token limits removed - relying on SDK's context manager with 250k window
 import type { ConflictContext, RemoteComparison, RemoteRefs } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -73,55 +73,66 @@ export class GitRepo {
 
   async collectConflicts(remotes?: RemoteRefs): Promise<ConflictContext[]> {
     const paths = await this.listConflictPaths();
-    const results: ConflictContext[] = [];
-    for (const filePath of paths) {
-      results.push(await this.describeConflict(filePath, remotes));
-    }
-    return results;
+    // Parallelize conflict context gathering for all files
+    return await Promise.all(paths.map((filePath) => this.describeConflict(filePath, remotes)));
   }
 
   private async describeConflict(filePath: string, remotes?: RemoteRefs): Promise<ConflictContext> {
-    const working = await this.readWorkingFile(filePath);
-    const diff = await this.runGit(["diff", "--color=never", "--unified=40", "--", filePath], true);
-    const base = await this.showStageFile(filePath, 1);
-    const ours = await this.showStageFile(filePath, 2);
-    const theirs = await this.showStageFile(filePath, 3);
-    const originRefContent =
+    // Parallelize all independent git operations for maximum speed
+    const [
+      working,
+      diff,
+      base,
+      ours,
+      theirs,
+      originRefContent,
+      upstreamRefContent,
+      originVsUpstreamDiff,
+      baseVsOursDiff,
+      baseVsTheirsDiff,
+      oursVsTheirsDiff,
+      recentHistory,
+      localIntentLog,
+    ] = await Promise.all([
+      this.readWorkingFile(filePath),
+      this.runGit(["diff", "--color=never", "--unified=40", "--", filePath], true),
+      Promise.resolve(null), // Skip loading full base file - we have diffs
+      Promise.resolve(null), // Skip loading full ours file - we have diffs
+      Promise.resolve(null), // Skip loading full theirs file - we have diffs
       remotes?.originRef && remotes.originRef.length
-        ? await this.showRefFile(remotes.originRef, filePath)
-        : null;
-    const upstreamRefContent =
+        ? this.showRefFile(remotes.originRef, filePath)
+        : Promise.resolve(null),
       remotes?.upstreamRef && remotes.upstreamRef.length
-        ? await this.showRefFile(remotes.upstreamRef, filePath)
-        : null;
-    const originVsUpstreamDiff =
+        ? this.showRefFile(remotes.upstreamRef, filePath)
+        : Promise.resolve(null),
       remotes?.originRef && remotes?.upstreamRef
-        ? await this.diffFileBetweenRefs(remotes.originRef, remotes.upstreamRef, filePath)
-        : null;
-    const baseVsOursDiff = await this.diffStageBlobs(filePath, 1, 2);
-    const baseVsTheirsDiff = await this.diffStageBlobs(filePath, 1, 3);
-    const oursVsTheirsDiff = await this.diffStageBlobs(filePath, 2, 3);
-    const recentHistory = await this.getRecentHistory(filePath, 5);
-    const localIntentLog = await this.getLocalIntentLog(remotes?.upstreamRef, filePath, 3);
+        ? this.diffFileBetweenRefs(remotes.originRef, remotes.upstreamRef, filePath)
+        : Promise.resolve(null),
+      this.diffStageBlobs(filePath, 1, 2), // baseVsOursDiff - only changed lines
+      this.diffStageBlobs(filePath, 1, 3), // baseVsTheirsDiff - only changed lines
+      this.diffStageBlobs(filePath, 2, 3), // oursVsTheirsDiff - direct comparison
+      this.getRecentHistory(filePath, 5),
+      this.getLocalIntentLog(remotes?.upstreamRef, filePath, 3),
+    ]);
 
     return {
       path: filePath,
       language: detectLanguage(filePath),
       lineCount: working ? countLines(working) : null,
       conflictMarkers: working ? countMarkers(working) : null,
-      diffExcerpt: limitText(diff.stdout),
-      workingExcerpt: limitText(working),
-      baseExcerpt: limitText(base),
-      oursExcerpt: limitText(ours),
-      theirsExcerpt: limitText(theirs),
-      originRefContent: limitText(originRefContent),
-      upstreamRefContent: limitText(upstreamRefContent),
-      originVsUpstreamDiff: limitText(originVsUpstreamDiff),
-      baseVsOursDiff: limitText(baseVsOursDiff),
-      baseVsTheirsDiff: limitText(baseVsTheirsDiff),
-      oursVsTheirsDiff: limitText(oursVsTheirsDiff),
-      recentHistory: limitText(recentHistory, 2000),
-      localIntentLog: limitText(localIntentLog, 2000),
+      diffExcerpt: diff.stdout,
+      workingExcerpt: working,
+      baseExcerpt: base,
+      oursExcerpt: ours,
+      theirsExcerpt: theirs,
+      originRefContent: originRefContent,
+      upstreamRefContent: upstreamRefContent,
+      originVsUpstreamDiff: originVsUpstreamDiff,
+      baseVsOursDiff: baseVsOursDiff, // Critical three-way diff
+      baseVsTheirsDiff: baseVsTheirsDiff, // Critical three-way diff
+      oursVsTheirsDiff: oursVsTheirsDiff, // Direct comparison
+      recentHistory: recentHistory,
+      localIntentLog: localIntentLog,
     };
   }
 
@@ -217,6 +228,10 @@ export class GitRepo {
       return false;
     }
   }
+
+  async stageFile(relPath: string): Promise<void> {
+    await this.runGit(["add", "--", relPath]);
+  }
 }
 
 export function detectLanguage(filePath: string): string {
@@ -242,11 +257,7 @@ export function countMarkers(text: string): number {
   return matches ? matches.length : 0;
 }
 
-export function limitText(text: string | null, limit = MAX_CONTEXT_CHARS): string | null {
-  if (!text) return null;
-  if (text.length <= limit) return text;
-  return `${text.slice(0, limit)}\n\n… truncated (${text.length - limit} additional chars)`;
-}
+// Removed limitTextByTokens - SDK's context manager handles truncation with 250k window
 
 export function indent(text: string, spaces: number): string {
   const prefix = " ".repeat(spaces);

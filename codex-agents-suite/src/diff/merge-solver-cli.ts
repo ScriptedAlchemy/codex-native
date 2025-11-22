@@ -28,7 +28,9 @@ async function main(): Promise<void> {
   assertGitRepo(cwd);
 
   const git = new GitRepo(cwd);
-  let shouldAbortOnFailure = true;
+  const mergeWasActiveAtStart = await git.isMergeInProgress();
+  // Only auto-abort if we initiated the merge; respect an existing in-progress merge.
+  let shouldAbortOnFailure = !mergeWasActiveAtStart;
   let cleanupRunning = false;
 
   const abortMergeIfNeeded = async (reason: string): Promise<void> => {
@@ -37,7 +39,7 @@ async function main(): Promise<void> {
     }
     cleanupRunning = true;
     try {
-      if (await git.isMergeInProgress()) {
+      if (shouldAbortOnFailure && (await git.isMergeInProgress())) {
         console.error(`[merge-solver-cli] ${reason}; aborting in-progress merge to reset state...`);
         await git.runGit(["merge", "--abort"], true);
         console.error("[merge-solver-cli] Merge aborted.");
@@ -78,11 +80,14 @@ async function main(): Promise<void> {
   try {
     const solver = new MergeConflictSolver(createDefaultSolverConfig(cwd));
     await solver.run();
+    const mergeActiveAfter = await git.isMergeInProgress();
     const mergeActive = await git.isMergeInProgress();
     const remainingConflicts = await git.listConflictPaths();
+    const mergeStartedByUs = !mergeWasActiveAtStart && mergeActiveAfter;
+
     if (!mergeActive && remainingConflicts.length === 0) {
       shouldAbortOnFailure = false;
-    } else {
+    } else if (mergeStartedByUs) {
       const conflictMsg =
         remainingConflicts.length > 0
           ? `${remainingConflicts.length} conflicted file${remainingConflicts.length === 1 ? "" : "s"}`
@@ -90,6 +95,9 @@ async function main(): Promise<void> {
       await abortMergeIfNeeded(
         `Solver completed but left ${conflictMsg}; cleaning up to restore a clean working tree`,
       );
+      shouldAbortOnFailure = false;
+    } else {
+      // Merge pre-existed; leave it for the user to resolve.
       shouldAbortOnFailure = false;
     }
   } catch (error) {
