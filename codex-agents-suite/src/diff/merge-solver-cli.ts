@@ -13,8 +13,11 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-import { createDefaultSolverConfig, MergeConflictSolver } from "./merge-conflict-solver.js";
+import { createDefaultSolverConfig } from "./merge-conflict-solver.js";
 import { GitRepo } from "./merge/git.js";
+import { collectRepoSnapshot } from "./shared/snapshot.js";
+import { AgentWorkflowOrchestrator } from "./agents/workflow-orchestrator.js";
+import { convertToAgentConfig } from "./agents/adapter.js";
 
 function assertGitRepo(cwd: string): void {
   const gitPath = path.join(cwd, ".git");
@@ -76,8 +79,35 @@ async function main(): Promise<void> {
   });
 
   try {
-    const solver = new MergeConflictSolver(createDefaultSolverConfig(cwd));
-    await solver.run();
+    const config = createDefaultSolverConfig(cwd);
+    console.log("[merge-solver-cli] Using agent-based workflow");
+
+    // Collect conflicts and snapshot
+    const conflicts = await git.collectConflicts({
+      originRef: config.originRef,
+      upstreamRef: config.upstreamRef,
+    });
+    if (conflicts.length === 0) {
+      console.log("[merge-solver-cli] No conflicts detected.");
+      shouldAbortOnFailure = false;
+      return;
+    }
+
+    const remoteComparison = await git.compareRefs(config.originRef, config.upstreamRef);
+    const snapshot = await collectRepoSnapshot(git, conflicts, remoteComparison);
+
+    const agentConfig = convertToAgentConfig(config);
+    const orchestrator = new AgentWorkflowOrchestrator(agentConfig);
+
+    const result = await orchestrator.execute(snapshot);
+    console.log(
+      `[merge-solver-cli] Agent workflow completed: ${result.success ? "SUCCESS" : "FAILED"} (${result.outcomes.filter((o) => o.success).length}/${result.outcomes.length} resolved)`,
+    );
+
+    if (!result.success) {
+      throw new Error("Agent workflow failed to resolve all conflicts");
+    }
+
     const mergeActive = await git.isMergeInProgress();
     const remainingConflicts = await git.listConflictPaths();
     if (!mergeActive && remainingConflicts.length === 0) {
