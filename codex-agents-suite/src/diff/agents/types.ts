@@ -30,7 +30,10 @@ export interface AgentModelConfig {
   lowReasoningMatchers?: string[];
 }
 
-export interface CoordinatorInput extends RepoSnapshot {}
+export interface CoordinatorInput extends RepoSnapshot {
+  originRef?: string | null;
+  upstreamRef?: string | null;
+}
 
 export interface CoordinatorOutput {
   plan: string | null;
