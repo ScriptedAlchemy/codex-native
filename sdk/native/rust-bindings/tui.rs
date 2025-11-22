@@ -92,8 +92,10 @@ impl TuiRequest {
       resume_picker: self.resume_picker.unwrap_or(false),
       resume_last: self.resume_last.unwrap_or(false),
       resume_session_id: self.resume_session_id,
+      resume_show_all: false, // Added missing field
       model: self.model,
       oss: self.oss.unwrap_or(false),
+      oss_provider: None, // Added missing field
       config_profile: self.config_profile,
       sandbox_mode,
       approval_policy: approval_mode,

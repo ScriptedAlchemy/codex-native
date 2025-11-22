@@ -990,3 +990,11 @@ export async function runEnhancedCiOrchestrator(
   }
 }
 
+// Run if called directly (not imported)
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runEnhancedCiOrchestrator().catch((error) => {
+    console.error("Fatal error:", error);
+    process.exit(1);
+  });
+}
+

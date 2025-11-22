@@ -797,6 +797,7 @@ pub fn build_cli(
     images: options.images.clone(),
     model: options.model.clone(),
     oss: options.oss,
+    oss_provider: None, // Added missing field
     sandbox_mode,
     config_profile: None,
     full_auto: cli_full_auto,
@@ -854,7 +855,7 @@ fn build_config_inputs(
     model_provider: options
       .model_provider
       .clone()
-      .or_else(|| options.oss.then_some(BUILT_IN_OSS_MODEL_PROVIDER_ID.to_string())),
+      .or(options.oss_provider.clone()),
     config_profile: None,
     codex_linux_sandbox_exe: linux_sandbox_path,
     base_instructions: None,

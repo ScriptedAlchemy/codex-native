@@ -576,7 +576,7 @@ async fn load_reverie_conversations(
     None,
     &[],
     None,
-    BUILT_IN_OSS_MODEL_PROVIDER_ID,
+    None, // OSS provider ID - removed constant, using None for now
   )
   .await?;
 
