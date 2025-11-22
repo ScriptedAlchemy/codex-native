@@ -31,6 +31,7 @@ pub enum ReasoningEffort {
     Medium,
     #[serde(alias = "xhigh")]
     High,
+    XHigh,
 }
 
 /// A summary of the reasoning performed by the model. This can be useful for

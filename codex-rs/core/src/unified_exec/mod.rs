@@ -47,6 +47,7 @@ pub(crate) const MIN_YIELD_TIME_MS: u64 = 250;
 pub(crate) const MAX_YIELD_TIME_MS: u64 = 30_000;
 pub(crate) const DEFAULT_MAX_OUTPUT_TOKENS: usize = 10_000;
 pub(crate) const UNIFIED_EXEC_OUTPUT_MAX_BYTES: usize = 1024 * 1024; // 1 MiB
+pub(crate) const UNIFIED_EXEC_OUTPUT_MAX_TOKENS: usize = UNIFIED_EXEC_OUTPUT_MAX_BYTES / 4;
 
 pub(crate) struct UnifiedExecContext {
     pub session: Arc<Session>,
@@ -134,37 +135,6 @@ pub(crate) fn generate_chunk_id() -> String {
     (0..6)
         .map(|_| format!("{:x}", rng.random_range(0..16)))
         .collect()
-}
-
-pub(crate) fn truncate_output_to_tokens(
-    output: &str,
-    max_tokens: usize,
-) -> (String, Option<usize>) {
-    if max_tokens == 0 {
-        let total_tokens = output.chars().count();
-        let message = format!("…{total_tokens} tokens truncated…");
-        return (message, Some(total_tokens));
-    }
-
-    let tokens: Vec<char> = output.chars().collect();
-    let total_tokens = tokens.len();
-    if total_tokens <= max_tokens {
-        return (output.to_string(), None);
-    }
-
-    let half = max_tokens / 2;
-    if half == 0 {
-        let truncated = total_tokens.saturating_sub(max_tokens);
-        let message = format!("…{truncated} tokens truncated…");
-        return (message, Some(total_tokens));
-    }
-
-    let truncated = total_tokens.saturating_sub(half * 2);
-    let mut truncated_output = String::new();
-    truncated_output.extend(&tokens[..half]);
-    truncated_output.push_str(&format!("…{truncated} tokens truncated…"));
-    truncated_output.extend(&tokens[total_tokens - half..]);
-    (truncated_output, Some(total_tokens))
 }
 
 #[cfg(test)]

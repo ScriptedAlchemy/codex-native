@@ -37,8 +37,10 @@ The diff reviewer and related utilities respect both legacy `CX_DIFF_AGENT_*` va
 
 - `CODEX_AGENTS_REPO` – repository to inspect (defaults to the current git root).
 - `CODEX_AGENTS_BASE` – base branch for comparisons (`main` by default).
-- `CODEX_AGENTS_MODEL` – model for diff analysis (defaults to `gpt-5.1-codex-mini`).
+- `CODEX_AGENTS_MODEL` – model for diff analysis (defaults to `gpt-5.1-codex`).
 - `CODEX_AGENTS_MAX_FILES` – maximum files to inspect in a single review.
+- `CX_MERGE_CONCURRENCY` – number of conflict files to process in parallel (defaults to 4).
+- `CX_MERGE_UPSTREAM_REF` – upstream reference for merge operations (e.g., `upstream/main`).
 
 All tools also honor the standard Codex SDK settings (`CODEX_BASE_URL`, `CODEX_API_KEY`, `CODEX_HOME`, etc.).
 

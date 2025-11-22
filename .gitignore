@@ -76,6 +76,9 @@ apply_patch/
 # coverage
 coverage/
 
+# personal files
+personal/
+
 # os
 .DS_Store
 Thumbs.db
