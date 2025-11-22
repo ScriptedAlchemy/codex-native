@@ -117,7 +117,7 @@ pub fn parse_turn_item(item: &ResponseItem) -> Option<TurnItem> {
             ..
         } => Some(TurnItem::WebSearch(WebSearchItem {
             id: id.clone().unwrap_or_default(),
-            query: query.clone().unwrap_or_default(),
+            query: query.clone(),
         })),
         _ => None,
     }
@@ -306,7 +306,7 @@ mod tests {
             id: Some("ws_1".to_string()),
             status: Some("completed".to_string()),
             action: WebSearchAction::Search {
-                query: Some("weather".to_string()),
+                query: "weather".to_string(),
             },
         };
 

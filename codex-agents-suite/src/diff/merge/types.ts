@@ -8,15 +8,9 @@ export type SolverConfig = {
   supervisorModel?: string;
   workerModelHigh?: string;
   workerModelLow?: string;
-  /** Ultra-fast model for simple verification/staging tasks (e.g., deepseek, gpt-4o-mini, codex-mini) */
-  quickTaskModel?: string;
-  /** Use fast model for verification and staging steps */
-  useFastVerification?: boolean;
-  /** Use OpenCodeAgent with Claude Sonnet for execution (dual-agent pattern) */
-  useOpenCodeAgent?: boolean;
   highReasoningMatchers?: string[];
   lowReasoningMatchers?: string[];
-  reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  reasoningEffort?: "minimal" | "low" | "medium" | "high";
   sandboxMode: SandboxMode;
   approvalMode: ApprovalMode;
   baseUrl?: string;
@@ -91,7 +85,6 @@ export type SupervisorOptions = {
 export type WorkerOutcome = {
   path: string;
   success: boolean;
-  changed?: boolean;
   summary?: string;
   threadId?: string;
   error?: string;

@@ -45,7 +45,7 @@ function parseIntEnv(value: string | undefined, fallback: number): number {
   return fallback;
 }
 
-const DEFAULT_DIFF_MODEL = "gpt-5.1-codex";
+const DEFAULT_DIFF_MODEL = "gpt-5.1-codex-mini";
 const DEFAULT_MAX_FILES = 12;
 const DEFAULT_BASE = "main";
 

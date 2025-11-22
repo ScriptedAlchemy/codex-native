@@ -3,7 +3,6 @@ mod find_codex_home;
 mod logging_client_handler;
 mod oauth;
 mod perform_oauth_login;
-mod program_resolver;
 mod rmcp_client;
 mod utils;
 

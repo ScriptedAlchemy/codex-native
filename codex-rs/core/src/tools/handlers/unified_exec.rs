@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use crate::exec::StreamOutput;
+use crate::context_manager::MODEL_FORMAT_MAX_BYTES;
+use crate::context_manager::MODEL_FORMAT_MAX_LINES;
+use crate::context_manager::format_output_for_model_body;
 use crate::function_tool::FunctionCallError;
 use crate::is_safe_command::is_known_safe_command;
 use crate::protocol::EventMsg;
@@ -8,19 +10,15 @@ use crate::protocol::ExecCommandOutputDeltaEvent;
 use crate::protocol::ExecCommandSource;
 use crate::protocol::ExecOutputStream;
 use crate::shell::get_shell_by_model_provided_path;
-use crate::tools::ExecToolCallOutput;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
 use crate::tools::events::ToolEmitter;
 use crate::tools::events::ToolEventCtx;
 use crate::tools::events::ToolEventStage;
-use crate::tools::format_exec_output_str;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
-use crate::truncate::TruncationPolicy;
 use crate::unified_exec::ExecCommandRequest;
-use crate::unified_exec::UNIFIED_EXEC_OUTPUT_MAX_TOKENS;
 use crate::unified_exec::UnifiedExecContext;
 use crate::unified_exec::UnifiedExecResponse;
 use crate::unified_exec::UnifiedExecSessionManager;
@@ -269,17 +267,12 @@ fn format_response(response: &UnifiedExecResponse) -> String {
     }
 
     sections.push("Output:".to_string());
-    sections.push(format_exec_output_str(
-        &ExecToolCallOutput {
-            exit_code: response.exit_code.unwrap_or_default(),
-            stdout: StreamOutput::new(response.output.clone()),
-            stderr: StreamOutput::new(String::new()),
-            aggregated_output: StreamOutput::new(response.output.clone()),
-            duration: response.wall_time,
-            timed_out: false,
-        },
-        TruncationPolicy::Tokens(UNIFIED_EXEC_OUTPUT_MAX_TOKENS),
-    ));
+    let formatted = format_output_for_model_body(
+        &response.output,
+        MODEL_FORMAT_MAX_BYTES,
+        MODEL_FORMAT_MAX_LINES,
+    );
+    sections.push(formatted);
 
     sections.join("\n")
 }

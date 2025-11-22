@@ -1,19 +1,14 @@
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::SandboxPolicy;
 
-use crate::sandboxing::SandboxPermissions;
-
 use crate::bash::parse_shell_lc_plain_commands;
 use crate::is_safe_command::is_known_safe_command;
-#[cfg(windows)]
-#[path = "windows_dangerous_commands.rs"]
-mod windows_dangerous_commands;
 
 pub fn requires_initial_appoval(
     policy: AskForApproval,
     sandbox_policy: &SandboxPolicy,
     command: &[String],
-    sandbox_permissions: SandboxPermissions,
+    with_escalated_permissions: bool,
 ) -> bool {
     if is_known_safe_command(command) {
         return false;
@@ -29,7 +24,8 @@ pub fn requires_initial_appoval(
             // In restricted sandboxes (ReadOnly/WorkspaceWrite), do not prompt for
             // non‑escalated, non‑dangerous commands — let the sandbox enforce
             // restrictions (e.g., block network/write) without a user prompt.
-            if sandbox_permissions.requires_escalated_permissions() {
+            let wants_escalation: bool = with_escalated_permissions;
+            if wants_escalation {
                 return true;
             }
             command_might_be_dangerous(command)
@@ -39,13 +35,6 @@ pub fn requires_initial_appoval(
 }
 
 pub fn command_might_be_dangerous(command: &[String]) -> bool {
-    #[cfg(windows)]
-    {
-        if windows_dangerous_commands::is_dangerous_command_windows(command) {
-            return true;
-        }
-    }
-
     if is_dangerous_to_call_with_exec(command) {
         return true;
     }

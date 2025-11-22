@@ -1,4 +1,3 @@
-use image::ImageError;
 use image::ImageFormat;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -23,16 +22,4 @@ pub enum ImageProcessingError {
         #[source]
         source: image::ImageError,
     },
-}
-
-impl ImageProcessingError {
-    pub fn is_invalid_image(&self) -> bool {
-        matches!(
-            self,
-            ImageProcessingError::Decode {
-                source: ImageError::Decoding(_),
-                ..
-            }
-        )
-    }
 }

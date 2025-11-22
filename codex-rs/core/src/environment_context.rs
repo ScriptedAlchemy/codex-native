@@ -6,7 +6,6 @@ use crate::codex::TurnContext;
 use crate::protocol::AskForApproval;
 use crate::protocol::SandboxPolicy;
 use crate::shell::Shell;
-use crate::shell::default_user_shell;
 use codex_protocol::config_types::SandboxMode;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
@@ -29,7 +28,7 @@ pub(crate) struct EnvironmentContext {
     pub sandbox_mode: Option<SandboxMode>,
     pub network_access: Option<NetworkAccess>,
     pub writable_roots: Option<Vec<PathBuf>>,
-    pub shell: Shell,
+    pub shell: Option<Shell>,
 }
 
 impl EnvironmentContext {
@@ -37,7 +36,7 @@ impl EnvironmentContext {
         cwd: Option<PathBuf>,
         approval_policy: Option<AskForApproval>,
         sandbox_policy: Option<SandboxPolicy>,
-        shell: Shell,
+        shell: Option<Shell>,
     ) -> Self {
         Self {
             cwd,
@@ -111,7 +110,7 @@ impl EnvironmentContext {
         } else {
             None
         };
-        EnvironmentContext::new(cwd, approval_policy, sandbox_policy, default_user_shell())
+        EnvironmentContext::new(cwd, approval_policy, sandbox_policy, None)
     }
 }
 
@@ -122,7 +121,7 @@ impl From<&TurnContext> for EnvironmentContext {
             Some(turn_context.approval_policy),
             Some(turn_context.sandbox_policy.clone()),
             // Shell is not configurable from turn to turn
-            default_user_shell(),
+            None,
         )
     }
 }
@@ -170,9 +169,11 @@ impl EnvironmentContext {
             }
             lines.push("  </writable_roots>".to_string());
         }
-
-        let shell_name = self.shell.name();
-        lines.push(format!("  <shell>{shell_name}</shell>"));
+        if let Some(shell) = self.shell
+            && let Some(shell_name) = shell.name()
+        {
+            lines.push(format!("  <shell>{shell_name}</shell>"));
+        }
         lines.push(ENVIRONMENT_CONTEXT_CLOSE_TAG.to_string());
         lines.join("\n")
     }
@@ -192,17 +193,11 @@ impl From<EnvironmentContext> for ResponseItem {
 
 #[cfg(test)]
 mod tests {
-    use crate::shell::ShellType;
+    use crate::shell::BashShell;
+    use crate::shell::ZshShell;
 
     use super::*;
     use pretty_assertions::assert_eq;
-
-    fn fake_shell() -> Shell {
-        Shell {
-            shell_type: ShellType::Bash,
-            shell_path: PathBuf::from("/bin/bash"),
-        }
-    }
 
     fn workspace_write_policy(writable_roots: Vec<&str>, network_access: bool) -> SandboxPolicy {
         SandboxPolicy::WorkspaceWrite {
@@ -219,7 +214,7 @@ mod tests {
             Some(PathBuf::from("/repo")),
             Some(AskForApproval::OnRequest),
             Some(workspace_write_policy(vec!["/repo", "/tmp"], false)),
-            fake_shell(),
+            None,
         );
 
         let expected = r#"<environment_context>
@@ -231,7 +226,6 @@ mod tests {
     <root>/repo</root>
     <root>/tmp</root>
   </writable_roots>
-  <shell>bash</shell>
 </environment_context>"#;
 
         assert_eq!(context.serialize_to_xml(), expected);
@@ -243,14 +237,13 @@ mod tests {
             None,
             Some(AskForApproval::Never),
             Some(SandboxPolicy::ReadOnly),
-            fake_shell(),
+            None,
         );
 
         let expected = r#"<environment_context>
   <approval_policy>never</approval_policy>
   <sandbox_mode>read-only</sandbox_mode>
   <network_access>restricted</network_access>
-  <shell>bash</shell>
 </environment_context>"#;
 
         assert_eq!(context.serialize_to_xml(), expected);
@@ -262,14 +255,13 @@ mod tests {
             None,
             Some(AskForApproval::OnFailure),
             Some(SandboxPolicy::DangerFullAccess),
-            fake_shell(),
+            None,
         );
 
         let expected = r#"<environment_context>
   <approval_policy>on-failure</approval_policy>
   <sandbox_mode>danger-full-access</sandbox_mode>
   <network_access>enabled</network_access>
-  <shell>bash</shell>
 </environment_context>"#;
 
         assert_eq!(context.serialize_to_xml(), expected);
@@ -282,13 +274,13 @@ mod tests {
             Some(PathBuf::from("/repo")),
             Some(AskForApproval::OnRequest),
             Some(workspace_write_policy(vec!["/repo"], false)),
-            fake_shell(),
+            None,
         );
         let context2 = EnvironmentContext::new(
             Some(PathBuf::from("/repo")),
             Some(AskForApproval::Never),
             Some(workspace_write_policy(vec!["/repo"], true)),
-            fake_shell(),
+            None,
         );
         assert!(!context1.equals_except_shell(&context2));
     }
@@ -299,13 +291,13 @@ mod tests {
             Some(PathBuf::from("/repo")),
             Some(AskForApproval::OnRequest),
             Some(SandboxPolicy::new_read_only_policy()),
-            fake_shell(),
+            None,
         );
         let context2 = EnvironmentContext::new(
             Some(PathBuf::from("/repo")),
             Some(AskForApproval::OnRequest),
             Some(SandboxPolicy::new_workspace_write_policy()),
-            fake_shell(),
+            None,
         );
 
         assert!(!context1.equals_except_shell(&context2));
@@ -317,13 +309,13 @@ mod tests {
             Some(PathBuf::from("/repo")),
             Some(AskForApproval::OnRequest),
             Some(workspace_write_policy(vec!["/repo", "/tmp", "/var"], false)),
-            fake_shell(),
+            None,
         );
         let context2 = EnvironmentContext::new(
             Some(PathBuf::from("/repo")),
             Some(AskForApproval::OnRequest),
             Some(workspace_write_policy(vec!["/repo", "/tmp"], true)),
-            fake_shell(),
+            None,
         );
 
         assert!(!context1.equals_except_shell(&context2));
@@ -335,19 +327,17 @@ mod tests {
             Some(PathBuf::from("/repo")),
             Some(AskForApproval::OnRequest),
             Some(workspace_write_policy(vec!["/repo"], false)),
-            Shell {
-                shell_type: ShellType::Bash,
+            Some(Shell::Bash(BashShell {
                 shell_path: "/bin/bash".into(),
-            },
+            })),
         );
         let context2 = EnvironmentContext::new(
             Some(PathBuf::from("/repo")),
             Some(AskForApproval::OnRequest),
             Some(workspace_write_policy(vec!["/repo"], false)),
-            Shell {
-                shell_type: ShellType::Zsh,
+            Some(Shell::Zsh(ZshShell {
                 shell_path: "/bin/zsh".into(),
-            },
+            })),
         );
 
         assert!(context1.equals_except_shell(&context2));

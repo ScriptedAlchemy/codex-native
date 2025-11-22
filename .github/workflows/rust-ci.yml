@@ -97,6 +97,7 @@ jobs:
     env:
       # Speed up repeated builds across CI runs by caching compiled objects (non-Windows).
       USE_SCCACHE: ${{ startsWith(matrix.runner, 'windows') && 'false' || 'true' }}
+      RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
       SCCACHE_CACHE_SIZE: 10G
 
@@ -148,6 +149,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+      - name: Disable sccache on Windows
+        if: ${{ env.USE_SCCACHE == 'false' }}
+        shell: pwsh
+        run: "echo 'RUSTC_WRAPPER=' >> $env:GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.90
         with:
           targets: ${{ matrix.target }}
@@ -197,11 +202,6 @@ jobs:
             echo "SCCACHE_DIR=${{ github.workspace }}/.sccache" >> "$GITHUB_ENV"
             echo "Using sccache local disk + actions/cache fallback"
           fi
-
-      - name: Enable sccache wrapper
-        if: ${{ env.USE_SCCACHE == 'true' }}
-        shell: bash
-        run: echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
 
       - name: Restore sccache cache (fallback)
         if: ${{ env.USE_SCCACHE == 'true' && env.SCCACHE_GHA_ENABLED != 'true' }}
@@ -343,6 +343,7 @@ jobs:
     env:
       # Speed up repeated builds across CI runs by caching compiled objects (non-Windows).
       USE_SCCACHE: ${{ startsWith(matrix.runner, 'windows') && 'false' || 'true' }}
+      RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: "0"
       SCCACHE_CACHE_SIZE: 10G
 
@@ -368,6 +369,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+      - name: Disable sccache on Windows
+        if: ${{ env.USE_SCCACHE == 'false' }}
+        shell: pwsh
+        run: "echo 'RUSTC_WRAPPER=' >> $env:GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.90
         with:
           targets: ${{ matrix.target }}
@@ -405,11 +410,6 @@ jobs:
             echo "SCCACHE_DIR=${{ github.workspace }}/.sccache" >> "$GITHUB_ENV"
             echo "Using sccache local disk + actions/cache fallback"
           fi
-
-      - name: Enable sccache wrapper
-        if: ${{ env.USE_SCCACHE == 'true' }}
-        shell: bash
-        run: echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
 
       - name: Restore sccache cache (fallback)
         if: ${{ env.USE_SCCACHE == 'true' && env.SCCACHE_GHA_ENABLED != 'true' }}

@@ -1,13 +1,12 @@
 import type { ApprovalMode, SandboxMode } from "@codex-native/sdk";
 
 export const DEFAULT_COORDINATOR_MODEL = "gpt-5.1-codex";
-export const DEFAULT_WORKER_MODEL = "gpt-5.1-codex";
+export const DEFAULT_WORKER_MODEL = "gpt-5.1-codex-mini";
 export const DEFAULT_REVIEWER_MODEL = "gpt-5.1-codex";
-// Use most permissive modes for Codex to allow full capabilities
-export const DEFAULT_SANDBOX_MODE: SandboxMode = "danger-full-access";  // Full system access
-export const DEFAULT_APPROVAL_MODE: ApprovalMode = "never";  // Never ask for approval
-// Token limits removed - SDK's context manager handles truncation with 250k window
-export const CI_LOG_CONTEXT_TOKENS = 40000;  // Token limit for CI logs (still used for CI log checking)
+export const DEFAULT_SANDBOX_MODE: SandboxMode = "workspace-write";
+export const DEFAULT_APPROVAL_MODE: ApprovalMode = "on-request";
+export const MAX_CONTEXT_CHARS = 5000;
+export const CI_LOG_CONTEXT_LIMIT = 15000;
 export const CI_OVERFLOW_SUMMARY_MAX_TOKENS = 100_000;
 export const CI_OVERFLOW_SUMMARY_CHARS_PER_TOKEN = 4;
 export const CI_OVERFLOW_SUMMARY_CHAR_LIMIT =
@@ -25,45 +24,6 @@ export const SUPERVISOR_OUTPUT_SCHEMA = {
         type: "array",
         items: { type: "string", minLength: 4 },
       },
-    },
-    required: ["decision", "reason"],
-  },
-};
-
-export const MERGE_REVIEW_OUTPUT_SCHEMA = {
-  name: "merge_review_decision",
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      decision: {
-        type: "string",
-        enum: ["approved", "needs_fixes", "rejected"],
-        description: "The review decision for the merge resolution"
-      },
-      reason: {
-        type: "string",
-        minLength: 10,
-        description: "Brief explanation of the decision"
-      },
-      feedback: {
-        type: "string",
-        description: "Specific instructions for fixes (required when decision is needs_fixes)"
-      },
-      issues: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            line: { type: "number", description: "Line number if applicable" },
-            issue: { type: "string", description: "Description of the issue" },
-            fix: { type: "string", description: "How to fix it" }
-          },
-          required: ["issue", "fix"],
-          additionalProperties: false
-        },
-        description: "List of specific issues found"
-      }
     },
     required: ["decision", "reason"],
   },

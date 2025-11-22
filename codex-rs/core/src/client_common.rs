@@ -165,9 +165,11 @@ fn build_structured_output(parsed: &ExecOutputJson) -> String {
     ));
 
     let mut output = parsed.output.clone();
-    if let Some((stripped, total_lines)) = strip_total_output_header(&parsed.output) {
+    if let Some(total_lines) = extract_total_output_lines(&parsed.output) {
         sections.push(format!("Total output lines: {total_lines}"));
-        output = stripped.to_string();
+        if let Some(stripped) = strip_total_output_header(&output) {
+            output = stripped.to_string();
+        }
     }
 
     sections.push("Output:".to_string());
@@ -176,12 +178,19 @@ fn build_structured_output(parsed: &ExecOutputJson) -> String {
     sections.join("\n")
 }
 
-fn strip_total_output_header(output: &str) -> Option<(&str, u32)> {
+fn extract_total_output_lines(output: &str) -> Option<u32> {
+    let marker_start = output.find("[... omitted ")?;
+    let marker = &output[marker_start..];
+    let (_, after_of) = marker.split_once(" of ")?;
+    let (total_segment, _) = after_of.split_once(' ')?;
+    total_segment.parse::<u32>().ok()
+}
+
+fn strip_total_output_header(output: &str) -> Option<&str> {
     let after_prefix = output.strip_prefix("Total output lines: ")?;
-    let (total_segment, remainder) = after_prefix.split_once('\n')?;
-    let total_lines = total_segment.parse::<u32>().ok()?;
+    let (_, remainder) = after_prefix.split_once('\n')?;
     let remainder = remainder.strip_prefix('\n').unwrap_or(remainder);
-    Some((remainder, total_lines))
+    Some(remainder)
 }
 
 #[derive(Debug)]
@@ -469,11 +478,11 @@ mod tests {
                 expects_apply_patch_instructions: false,
             },
             InstructionsTestCase {
-                slug: "gpt-5.1-codex",
+                slug: "gpt-5-codex",
                 expects_apply_patch_instructions: false,
             },
             InstructionsTestCase {
-                slug: "gpt-5.1-codex-max",
+                slug: "gpt-5.1-codex",
                 expects_apply_patch_instructions: false,
             },
         ];
@@ -499,7 +508,7 @@ mod tests {
         let input: Vec<ResponseItem> = vec![];
         let tools: Vec<serde_json::Value> = vec![];
         let req = ResponsesApiRequest {
-            model: "gpt-5.1",
+            model: "gpt-5",
             instructions: "i",
             input: &input,
             tools: &tools,
@@ -540,7 +549,7 @@ mod tests {
             create_text_param_for_request(None, &Some(schema.clone())).expect("text controls");
 
         let req = ResponsesApiRequest {
-            model: "gpt-5.1",
+            model: "gpt-5",
             instructions: "i",
             input: &input,
             tools: &tools,
@@ -576,7 +585,7 @@ mod tests {
         let input: Vec<ResponseItem> = vec![];
         let tools: Vec<serde_json::Value> = vec![];
         let req = ResponsesApiRequest {
-            model: "gpt-5.1",
+            model: "gpt-5",
             instructions: "i",
             input: &input,
             tools: &tools,

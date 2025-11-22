@@ -30,7 +30,6 @@ pub use standalone_executable::main;
 pub const APPLY_PATCH_TOOL_INSTRUCTIONS: &str = include_str!("../apply_patch_tool_instructions.md");
 
 const APPLY_PATCH_COMMANDS: [&str; 2] = ["apply_patch", "applypatch"];
-const APPLY_PATCH_SHELLS: [&str; 3] = ["bash", "zsh", "sh"];
 
 #[derive(Debug, Error, PartialEq)]
 pub enum ApplyPatchError {
@@ -97,13 +96,6 @@ pub struct ApplyPatchArgs {
     pub workdir: Option<String>,
 }
 
-fn shell_supports_apply_patch(shell: &str) -> bool {
-    std::path::Path::new(shell)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| APPLY_PATCH_SHELLS.contains(&name))
-}
-
 pub fn maybe_parse_apply_patch(argv: &[String]) -> MaybeApplyPatch {
     match argv {
         // Direct invocation: apply_patch <patch>
@@ -112,7 +104,7 @@ pub fn maybe_parse_apply_patch(argv: &[String]) -> MaybeApplyPatch {
             Err(e) => MaybeApplyPatch::PatchParseError(e),
         },
         // Bash heredoc form: (optional `cd <path> &&`) apply_patch <<'EOF' ...
-        [shell, flag, script] if shell_supports_apply_patch(shell) && flag == "-lc" => {
+        [bash, flag, script] if bash == "bash" && flag == "-lc" => {
             match extract_apply_patch_from_bash(script) {
                 Ok((body, workdir)) => match parse_patch(&body) {
                     Ok(mut source) => {
@@ -232,12 +224,12 @@ pub fn maybe_parse_apply_patch_verified(argv: &[String], cwd: &Path) -> MaybeApp
                 );
             }
         }
-        [shell, flag, script]
-            if shell_supports_apply_patch(shell)
-                && flag == "-lc"
-                && parse_patch(script).is_ok() =>
-        {
-            return MaybeApplyPatchVerified::CorrectnessError(ApplyPatchError::ImplicitInvocation);
+        [bash, flag, script] if bash == "bash" && flag == "-lc" => {
+            if parse_patch(script).is_ok() {
+                return MaybeApplyPatchVerified::CorrectnessError(
+                    ApplyPatchError::ImplicitInvocation,
+                );
+            }
         }
         _ => {}
     }

@@ -28,15 +28,11 @@ pub(crate) struct ExecCall {
 #[derive(Debug)]
 pub(crate) struct ExecCell {
     pub(crate) calls: Vec<ExecCall>,
-    animations_enabled: bool,
 }
 
 impl ExecCell {
-    pub(crate) fn new(call: ExecCall, animations_enabled: bool) -> Self {
-        Self {
-            calls: vec![call],
-            animations_enabled,
-        }
+    pub(crate) fn new(call: ExecCall) -> Self {
+        Self { calls: vec![call] }
     }
 
     pub(crate) fn with_added_call(
@@ -60,7 +56,6 @@ impl ExecCell {
         if self.is_exploring_cell() && Self::is_exploring_call(&call) {
             Some(Self {
                 calls: [self.calls.clone(), vec![call]].concat(),
-                animations_enabled: self.animations_enabled,
             })
         } else {
             None
@@ -117,17 +112,12 @@ impl ExecCell {
             .and_then(|c| c.start_time)
     }
 
-    pub(crate) fn animations_enabled(&self) -> bool {
-        self.animations_enabled
-    }
-
     pub(crate) fn iter_calls(&self) -> impl Iterator<Item = &ExecCall> {
         self.calls.iter()
     }
 
     pub(super) fn is_exploring_call(call: &ExecCall) -> bool {
-        !matches!(call.source, ExecCommandSource::UserShell)
-            && !call.parsed.is_empty()
+        !call.parsed.is_empty()
             && call.parsed.iter().all(|p| {
                 matches!(
                     p,

@@ -70,9 +70,8 @@ path = "../../codex-rs/protocol"
 [dependencies.codex-cloud-tasks-client]
 path = "../../codex-rs/cloud-tasks-client"
 
-[dependencies.tiktoken-rs]
-version = "0.5"
-
+[dependencies.codex-utils-tokenizer]
+path = "../../codex-rs/utils/tokenizer"
 
 [dependencies.codex-tui]
 path = "../../codex-rs/tui"

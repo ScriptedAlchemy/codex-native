@@ -1,6 +1,5 @@
-import { tokenizerCount } from "@codex-native/sdk";
 import {
-  CI_LOG_CONTEXT_TOKENS,
+  CI_LOG_CONTEXT_LIMIT,
   CI_OVERFLOW_SUMMARY_CHAR_LIMIT,
   CI_SNIPPET_CONTEXT_LINES,
   CI_SNIPPET_KEYWORDS,
@@ -95,8 +94,7 @@ export function matchCiFailureToOutcome(failure: CiFailure, outcomes: WorkerOutc
 }
 
 export function prepareCiLogWithSnippets(ciLog: string, snippetSection: string | null): string {
-  const tokenCount = tokenizerCount(ciLog);
-  if (tokenCount <= CI_LOG_CONTEXT_TOKENS) {
+  if (ciLog.length <= CI_LOG_CONTEXT_LIMIT) {
     return snippetSection ? `${ciLog}\n\n${snippetSection}` : ciLog;
   }
   return ciLog; // caller will handle summarization when overflow occurs

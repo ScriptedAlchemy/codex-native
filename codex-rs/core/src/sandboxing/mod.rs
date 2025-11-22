@@ -8,7 +8,6 @@ ready‑to‑spawn environment.
 
 pub mod assessment;
 
-use crate::exec::ExecExpiration;
 use crate::exec::ExecToolCallOutput;
 use crate::exec::SandboxType;
 use crate::exec::StdoutStream;
@@ -27,45 +26,23 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SandboxPermissions {
-    UseDefault,
-    RequireEscalated,
-}
-
-impl SandboxPermissions {
-    pub fn requires_escalated_permissions(self) -> bool {
-        matches!(self, SandboxPermissions::RequireEscalated)
-    }
-}
-
-impl From<bool> for SandboxPermissions {
-    fn from(with_escalated_permissions: bool) -> Self {
-        if with_escalated_permissions {
-            SandboxPermissions::RequireEscalated
-        } else {
-            SandboxPermissions::UseDefault
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CommandSpec {
     pub program: String,
     pub args: Vec<String>,
     pub cwd: PathBuf,
     pub env: HashMap<String, String>,
-    pub expiration: ExecExpiration,
+    pub timeout_ms: Option<u64>,
     pub with_escalated_permissions: Option<bool>,
     pub justification: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ExecEnv {
     pub command: Vec<String>,
     pub cwd: PathBuf,
     pub env: HashMap<String, String>,
-    pub expiration: ExecExpiration,
+    pub timeout_ms: Option<u64>,
     pub sandbox: SandboxType,
     pub with_escalated_permissions: Option<bool>,
     pub justification: Option<String>,
@@ -116,13 +93,13 @@ impl SandboxManager {
 
     pub(crate) fn transform(
         &self,
-        mut spec: CommandSpec,
+        spec: &CommandSpec,
         policy: &SandboxPolicy,
         sandbox: SandboxType,
         sandbox_policy_cwd: &Path,
         codex_linux_sandbox_exe: Option<&PathBuf>,
     ) -> Result<ExecEnv, SandboxTransformError> {
-        let mut env = spec.env;
+        let mut env = spec.env.clone();
         if !policy.has_full_network_access() {
             env.insert(
                 CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR.to_string(),
@@ -131,8 +108,8 @@ impl SandboxManager {
         }
 
         let mut command = Vec::with_capacity(1 + spec.args.len());
-        command.push(spec.program);
-        command.append(&mut spec.args);
+        command.push(spec.program.clone());
+        command.extend(spec.args.iter().cloned());
 
         let (command, sandbox_env, arg0_override) = match sandbox {
             SandboxType::None => (command, HashMap::new(), None),
@@ -177,12 +154,12 @@ impl SandboxManager {
 
         Ok(ExecEnv {
             command,
-            cwd: spec.cwd,
+            cwd: spec.cwd.clone(),
             env,
-            expiration: spec.expiration,
+            timeout_ms: spec.timeout_ms,
             sandbox,
             with_escalated_permissions: spec.with_escalated_permissions,
-            justification: spec.justification,
+            justification: spec.justification.clone(),
             arg0: arg0_override,
         })
     }
@@ -193,9 +170,9 @@ impl SandboxManager {
 }
 
 pub async fn execute_env(
-    env: ExecEnv,
+    env: &ExecEnv,
     policy: &SandboxPolicy,
     stdout_stream: Option<StdoutStream>,
 ) -> crate::error::Result<ExecToolCallOutput> {
-    execute_exec_env(env, policy, stdout_stream).await
+    execute_exec_env(env.clone(), policy, stdout_stream).await
 }

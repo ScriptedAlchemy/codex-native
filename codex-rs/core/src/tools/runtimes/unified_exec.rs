@@ -1,3 +1,4 @@
+use crate::command_safety::is_dangerous_command::requires_initial_appoval;
 /*
 Runtime: unified exec
 
@@ -6,11 +7,9 @@ the session manager to spawn PTYs once an ExecEnv is prepared.
 */
 use crate::error::CodexErr;
 use crate::error::SandboxErr;
-use crate::exec::ExecExpiration;
 use crate::tools::runtimes::build_command_spec;
 use crate::tools::sandboxing::Approvable;
 use crate::tools::sandboxing::ApprovalCtx;
-use crate::tools::sandboxing::ApprovalRequirement;
 use crate::tools::sandboxing::ProvidesSandboxRetryData;
 use crate::tools::sandboxing::SandboxAttempt;
 use crate::tools::sandboxing::SandboxRetryData;
@@ -23,7 +22,9 @@ use crate::tools::sandboxing::with_cached_approval;
 use crate::unified_exec::UnifiedExecError;
 use crate::unified_exec::UnifiedExecSession;
 use crate::unified_exec::UnifiedExecSessionManager;
+use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::ReviewDecision;
+use codex_protocol::protocol::SandboxPolicy;
 use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -35,7 +36,6 @@ pub struct UnifiedExecRequest {
     pub env: HashMap<String, String>,
     pub with_escalated_permissions: Option<bool>,
     pub justification: Option<String>,
-    pub approval_requirement: ApprovalRequirement,
 }
 
 impl ProvidesSandboxRetryData for UnifiedExecRequest {
@@ -65,7 +65,6 @@ impl UnifiedExecRequest {
         env: HashMap<String, String>,
         with_escalated_permissions: Option<bool>,
         justification: Option<String>,
-        approval_requirement: ApprovalRequirement,
     ) -> Self {
         Self {
             command,
@@ -73,7 +72,6 @@ impl UnifiedExecRequest {
             env,
             with_escalated_permissions,
             justification,
-            approval_requirement,
         }
     }
 }
@@ -131,8 +129,18 @@ impl Approvable<UnifiedExecRequest> for UnifiedExecRuntime<'_> {
         })
     }
 
-    fn approval_requirement(&self, req: &UnifiedExecRequest) -> Option<ApprovalRequirement> {
-        Some(req.approval_requirement.clone())
+    fn wants_initial_approval(
+        &self,
+        req: &UnifiedExecRequest,
+        policy: AskForApproval,
+        sandbox_policy: &SandboxPolicy,
+    ) -> bool {
+        requires_initial_appoval(
+            policy,
+            sandbox_policy,
+            &req.command,
+            req.with_escalated_permissions.unwrap_or(false),
+        )
     }
 
     fn wants_escalated_first_attempt(&self, req: &UnifiedExecRequest) -> bool {
@@ -151,13 +159,13 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecSession> for UnifiedExecRunt
             &req.command,
             &req.cwd,
             &req.env,
-            ExecExpiration::DefaultTimeout,
+            None,
             req.with_escalated_permissions,
             req.justification.clone(),
         )
         .map_err(|_| ToolError::Rejected("missing command line for PTY".to_string()))?;
         let exec_env = attempt
-            .env_for(spec)
+            .env_for(&spec)
             .map_err(|err| ToolError::Codex(err.into()))?;
         self.manager
             .open_session_with_exec_env(&exec_env)

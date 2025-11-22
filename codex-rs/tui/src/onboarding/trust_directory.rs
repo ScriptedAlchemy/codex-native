@@ -189,14 +189,13 @@ mod tests {
     use crossterm::event::KeyModifiers;
     use pretty_assertions::assert_eq;
     use ratatui::Terminal;
+
     use std::path::PathBuf;
-    use tempfile::TempDir;
 
     #[test]
     fn release_event_does_not_change_selection() {
-        let codex_home = TempDir::new().expect("temp home");
         let mut widget = TrustDirectoryWidget {
-            codex_home: codex_home.path().to_path_buf(),
+            codex_home: PathBuf::from("."),
             cwd: PathBuf::from("."),
             is_git_repo: false,
             selection: None,
@@ -218,9 +217,8 @@ mod tests {
 
     #[test]
     fn renders_snapshot_for_git_repo() {
-        let codex_home = TempDir::new().expect("temp home");
         let widget = TrustDirectoryWidget {
-            codex_home: codex_home.path().to_path_buf(),
+            codex_home: PathBuf::from("."),
             cwd: PathBuf::from("/workspace/project"),
             is_git_repo: true,
             selection: None,

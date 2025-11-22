@@ -31,7 +31,6 @@ async fn test_list_and_resume_conversations() -> Result<()> {
         "2025-01-02T12:00:00Z",
         "Hello A",
         Some("openai"),
-        None,
     )?;
     create_fake_rollout(
         codex_home.path(),
@@ -39,14 +38,12 @@ async fn test_list_and_resume_conversations() -> Result<()> {
         "2025-01-01T13:00:00Z",
         "Hello B",
         Some("openai"),
-        None,
     )?;
     create_fake_rollout(
         codex_home.path(),
         "2025-01-01T12-00-00",
         "2025-01-01T12:00:00Z",
         "Hello C",
-        None,
         None,
     )?;
 
@@ -108,7 +105,6 @@ async fn test_list_and_resume_conversations() -> Result<()> {
         "2025-01-01T11:30:00Z",
         "Hello TP",
         Some("test-provider"),
-        None,
     )?;
 
     // Filtering by model provider should return only matching sessions.

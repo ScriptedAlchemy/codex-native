@@ -155,7 +155,6 @@ pub(crate) struct AuthModeWidget {
     pub auth_manager: Arc<AuthManager>,
     pub forced_chatgpt_workspace_id: Option<String>,
     pub forced_login_method: Option<ForcedLoginMethod>,
-    pub animations_enabled: bool,
 }
 
 impl AuthModeWidget {
@@ -261,14 +260,10 @@ impl AuthModeWidget {
 
     fn render_continue_in_browser(&self, area: Rect, buf: &mut Buffer) {
         let mut spans = vec!["  ".into()];
-        if self.animations_enabled {
-            // Schedule a follow-up frame to keep the shimmer animation going.
-            self.request_frame
-                .schedule_frame_in(std::time::Duration::from_millis(100));
-            spans.extend(shimmer_spans("Finish signing in via your browser"));
-        } else {
-            spans.push("Finish signing in via your browser".into());
-        }
+        // Schedule a follow-up frame to keep the shimmer animation going.
+        self.request_frame
+            .schedule_frame_in(std::time::Duration::from_millis(100));
+        spans.extend(shimmer_spans("Finish signing in via your browser"));
         let mut lines = vec![spans.into(), "".into()];
 
         let sign_in_state = self.sign_in_state.read().unwrap();
@@ -675,7 +670,6 @@ mod tests {
             ),
             forced_chatgpt_workspace_id: None,
             forced_login_method: Some(ForcedLoginMethod::Chatgpt),
-            animations_enabled: true,
         };
         (widget, codex_home)
     }

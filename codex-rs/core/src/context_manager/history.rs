@@ -1,14 +1,20 @@
 use crate::codex::TurnContext;
 use crate::context_manager::normalize;
-use crate::truncate::TruncationPolicy;
-use crate::truncate::approx_token_count;
-use crate::truncate::truncate_function_output_items_with_policy;
-use crate::truncate::truncate_text;
+use crate::context_manager::truncate;
+use crate::context_manager::truncate::format_output_for_model_body;
+use crate::context_manager::truncate::globally_truncate_function_output_items;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TokenUsageInfo;
+use codex_utils_tokenizer::Tokenizer;
 use std::ops::Deref;
+
+const CONTEXT_WINDOW_HARD_LIMIT_FACTOR: f64 = 1.1;
+const CONTEXT_WINDOW_HARD_LIMIT_BYTES: usize =
+    (truncate::MODEL_FORMAT_MAX_BYTES as f64 * CONTEXT_WINDOW_HARD_LIMIT_FACTOR) as usize;
+const CONTEXT_WINDOW_HARD_LIMIT_LINES: usize =
+    (truncate::MODEL_FORMAT_MAX_LINES as f64 * CONTEXT_WINDOW_HARD_LIMIT_FACTOR) as usize;
 
 /// Transcript of conversation history
 #[derive(Debug, Clone, Default)]
@@ -44,7 +50,7 @@ impl ContextManager {
     }
 
     /// `items` is ordered from oldest to newest.
-    pub(crate) fn record_items<I>(&mut self, items: I, policy: TruncationPolicy)
+    pub(crate) fn record_items<I>(&mut self, items: I)
     where
         I: IntoIterator,
         I::Item: std::ops::Deref<Target = ResponseItem>,
@@ -56,7 +62,7 @@ impl ContextManager {
                 continue;
             }
 
-            let processed = self.process_item(item_ref, policy);
+            let processed = Self::process_item(&item);
             self.items.push(processed);
         }
     }
@@ -74,21 +80,26 @@ impl ContextManager {
         history
     }
 
-    // Estimate token usage using byte-based heuristics from the truncation helpers.
-    // This is a coarse lower bound, not a tokenizer-accurate count.
+    // Estimate the number of tokens in the history. Return None if no tokenizer
+    // is available. This does not consider the reasoning traces.
+    // /!\ The value is a lower bound estimate and does not represent the exact
+    // context length.
     pub(crate) fn estimate_token_count(&self, turn_context: &TurnContext) -> Option<i64> {
+        let model = turn_context.client.get_model();
+        let tokenizer = Tokenizer::for_model(model.as_str()).ok()?;
         let model_family = turn_context.client.get_model_family();
-        let base_tokens =
-            i64::try_from(approx_token_count(model_family.base_instructions.as_str()))
-                .unwrap_or(i64::MAX);
 
-        let items_tokens = self.items.iter().fold(0i64, |acc, item| {
-            let serialized = serde_json::to_string(item).unwrap_or_default();
-            let item_tokens = i64::try_from(approx_token_count(&serialized)).unwrap_or(i64::MAX);
-            acc.saturating_add(item_tokens)
-        });
-
-        Some(base_tokens.saturating_add(items_tokens))
+        Some(
+            self.items
+                .iter()
+                .map(|item| {
+                    serde_json::to_string(&item)
+                        .map(|item| tokenizer.count(&item))
+                        .unwrap_or_default()
+                })
+                .sum::<i64>()
+                + tokenizer.count(model_family.base_instructions.as_str()),
+        )
     }
 
     pub(crate) fn remove_first_item(&mut self) {
@@ -139,18 +150,18 @@ impl ContextManager {
         items.retain(|item| !matches!(item, ResponseItem::GhostSnapshot { .. }));
     }
 
-    fn process_item(&self, item: &ResponseItem, policy: TruncationPolicy) -> ResponseItem {
-        let policy_with_serialization_budget = policy.mul(1.2);
+    fn process_item(item: &ResponseItem) -> ResponseItem {
         match item {
             ResponseItem::FunctionCallOutput { call_id, output } => {
-                let truncated =
-                    truncate_text(output.content.as_str(), policy_with_serialization_budget);
-                let truncated_items = output.content_items.as_ref().map(|items| {
-                    truncate_function_output_items_with_policy(
-                        items,
-                        policy_with_serialization_budget,
-                    )
-                });
+                let truncated = format_output_for_model_body(
+                    output.content.as_str(),
+                    CONTEXT_WINDOW_HARD_LIMIT_BYTES,
+                    CONTEXT_WINDOW_HARD_LIMIT_LINES,
+                );
+                let truncated_items = output
+                    .content_items
+                    .as_ref()
+                    .map(|items| globally_truncate_function_output_items(items));
                 ResponseItem::FunctionCallOutput {
                     call_id: call_id.clone(),
                     output: FunctionCallOutputPayload {
@@ -161,7 +172,11 @@ impl ContextManager {
                 }
             }
             ResponseItem::CustomToolCallOutput { call_id, output } => {
-                let truncated = truncate_text(output, policy_with_serialization_budget);
+                let truncated = format_output_for_model_body(
+                    output,
+                    CONTEXT_WINDOW_HARD_LIMIT_BYTES,
+                    CONTEXT_WINDOW_HARD_LIMIT_LINES,
+                );
                 ResponseItem::CustomToolCallOutput {
                     call_id: call_id.clone(),
                     output: truncated,
@@ -173,7 +188,6 @@ impl ContextManager {
             | ResponseItem::FunctionCall { .. }
             | ResponseItem::WebSearchCall { .. }
             | ResponseItem::CustomToolCall { .. }
-            | ResponseItem::CompactionSummary { .. }
             | ResponseItem::GhostSnapshot { .. }
             | ResponseItem::Other => item.clone(),
         }
@@ -191,8 +205,7 @@ fn is_api_message(message: &ResponseItem) -> bool {
         | ResponseItem::CustomToolCallOutput { .. }
         | ResponseItem::LocalShellCall { .. }
         | ResponseItem::Reasoning { .. }
-        | ResponseItem::WebSearchCall { .. }
-        | ResponseItem::CompactionSummary { .. } => true,
+        | ResponseItem::WebSearchCall { .. } => true,
         ResponseItem::GhostSnapshot { .. } => false,
         ResponseItem::Other => false,
     }

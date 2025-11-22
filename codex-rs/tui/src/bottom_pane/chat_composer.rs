@@ -1,4 +1,3 @@
-use crate::key_hint::has_ctrl_or_alt;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
@@ -254,7 +253,7 @@ impl ChatComposer {
                 true
             }
             Err(err) => {
-                tracing::trace!("ERR: {err}");
+                tracing::info!("ERR: {err}");
                 false
             }
         }
@@ -1104,7 +1103,8 @@ impl ChatComposer {
             ..
         } = input
         {
-            let has_ctrl_or_alt = has_ctrl_or_alt(modifiers);
+            let has_ctrl_or_alt =
+                modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT);
             if !has_ctrl_or_alt {
                 // Non-ASCII characters (e.g., from IMEs) can arrive in quick bursts and be
                 // misclassified by paste heuristics. Flush any active burst buffer and insert
@@ -1174,7 +1174,8 @@ impl ChatComposer {
         } = input;
         match code {
             KeyCode::Char(_) => {
-                let has_ctrl_or_alt = has_ctrl_or_alt(modifiers);
+                let has_ctrl_or_alt = modifiers.contains(KeyModifiers::CONTROL)
+                    || modifiers.contains(KeyModifiers::ALT);
                 if has_ctrl_or_alt {
                     self.paste_burst.clear_window_after_non_char();
                 }

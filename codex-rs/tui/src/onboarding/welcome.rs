@@ -25,14 +25,10 @@ const MIN_ANIMATION_WIDTH: u16 = 60;
 pub(crate) struct WelcomeWidget {
     pub is_logged_in: bool,
     animation: AsciiAnimation,
-    animations_enabled: bool,
 }
 
 impl KeyboardHandler for WelcomeWidget {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
-        if !self.animations_enabled {
-            return;
-        }
         if key_event.kind == KeyEventKind::Press
             && key_event.code == KeyCode::Char('.')
             && key_event.modifiers.contains(KeyModifiers::CONTROL)
@@ -44,15 +40,10 @@ impl KeyboardHandler for WelcomeWidget {
 }
 
 impl WelcomeWidget {
-    pub(crate) fn new(
-        is_logged_in: bool,
-        request_frame: FrameRequester,
-        animations_enabled: bool,
-    ) -> Self {
+    pub(crate) fn new(is_logged_in: bool, request_frame: FrameRequester) -> Self {
         Self {
             is_logged_in,
             animation: AsciiAnimation::new(request_frame),
-            animations_enabled,
         }
     }
 }
@@ -60,17 +51,17 @@ impl WelcomeWidget {
 impl WidgetRef for &WelcomeWidget {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         Clear.render(area, buf);
-        if self.animations_enabled {
-            self.animation.schedule_next_frame();
-        }
+        self.animation.schedule_next_frame();
 
         // Skip the animation entirely when the viewport is too small so we don't clip frames.
         let show_animation =
             area.height >= MIN_ANIMATION_HEIGHT && area.width >= MIN_ANIMATION_WIDTH;
 
         let mut lines: Vec<Line> = Vec::new();
-        if show_animation && self.animations_enabled {
+        if show_animation {
             let frame = self.animation.current_frame();
+            // let frame_line_count = frame.lines().count();
+            // lines.reserve(frame_line_count + 2);
             lines.extend(frame.lines().map(Into::into));
             lines.push("".into());
         }
@@ -108,7 +99,7 @@ mod tests {
 
     #[test]
     fn welcome_renders_animation_on_first_draw() {
-        let widget = WelcomeWidget::new(false, FrameRequester::test_dummy(), true);
+        let widget = WelcomeWidget::new(false, FrameRequester::test_dummy());
         let area = Rect::new(0, 0, MIN_ANIMATION_WIDTH, MIN_ANIMATION_HEIGHT);
         let mut buf = Buffer::empty(area);
         (&widget).render(area, &mut buf);
@@ -138,7 +129,6 @@ mod tests {
         let mut widget = WelcomeWidget {
             is_logged_in: false,
             animation: AsciiAnimation::with_variants(FrameRequester::test_dummy(), &VARIANTS, 0),
-            animations_enabled: true,
         };
 
         let before = widget.animation.current_frame();

@@ -54,7 +54,7 @@ impl ToolRouter {
             .any(|config| config.spec.name() == tool_name)
     }
 
-    pub async fn build_tool_call(
+    pub fn build_tool_call(
         session: &Session,
         item: ResponseItem,
     ) -> Result<Option<ToolCall>, FunctionCallError> {
@@ -65,7 +65,7 @@ impl ToolRouter {
                 call_id,
                 ..
             } => {
-                if let Some((server, tool)) = session.parse_mcp_tool_name(&name).await {
+                if let Some((server, tool)) = session.parse_mcp_tool_name(&name) {
                     Ok(Some(ToolCall {
                         tool_name: name,
                         call_id,
