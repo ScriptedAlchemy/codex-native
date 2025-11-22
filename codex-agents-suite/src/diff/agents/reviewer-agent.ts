@@ -15,6 +15,7 @@ export function createReviewerAgent(config: AgentConfig & { model?: string }): A
     defaultModel: config.model || DEFAULT_REVIEWER_MODEL,
     workingDirectory: config.workingDirectory,
     sandboxMode: config.sandboxMode,
+    approvalMode: config.approvalMode,
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     skipGitRepoCheck: config.skipGitRepoCheck ?? false,

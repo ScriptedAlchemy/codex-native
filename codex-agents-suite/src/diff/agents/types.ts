@@ -1,7 +1,7 @@
 /**
  * Shared types for agent-based merge solver workflow.
  */
-import type { SandboxMode } from "@codex-native/sdk";
+import type { ApprovalMode, SandboxMode } from "@codex-native/sdk";
 import type { Agent, Model } from "@openai/agents";
 import type {
   ConflictContext,
@@ -17,6 +17,7 @@ export interface AgentConfig {
   apiKey?: string;
   sandboxMode: SandboxMode;
   skipGitRepoCheck?: boolean;
+  approvalMode?: ApprovalMode;
 }
 
 export interface AgentModelConfig {
@@ -77,4 +78,6 @@ export interface AgentWorkflowConfig extends AgentConfig, AgentModelConfig {
    * returns simulated outcomes without invoking remote models.
    */
   dryRun?: boolean;
+  originRef?: string | null;
+  upstreamRef?: string | null;
 }

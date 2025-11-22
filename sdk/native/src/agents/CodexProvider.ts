@@ -34,6 +34,10 @@ export interface CodexProviderOptions extends CodexOptions {
    */
   defaultModel?: string;
   /**
+   * Approval policy forwarded to threads created by this provider.
+   */
+  approvalMode?: ThreadOptions["approvalMode"];
+  /**
    * Use local OSS provider via Ollama (pulls models as needed)
    */
   oss?: boolean;
@@ -197,6 +201,7 @@ class CodexModel implements Model {
       workingDirectory: this.options.workingDirectory,
       skipGitRepoCheck: this.options.skipGitRepoCheck,
       sandboxMode: this.options.sandboxMode ?? "danger-full-access",
+      approvalMode: this.options.approvalMode,
     };
   }
 

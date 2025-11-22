@@ -10,6 +10,7 @@ export function convertToAgentConfig(config: SolverConfig): AgentWorkflowConfig 
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     sandboxMode: config.sandboxMode,
+    approvalMode: config.approvalMode,
     skipGitRepoCheck: config.skipGitRepoCheck,
     coordinatorModel: config.coordinatorModel,
     workerModel: config.workerModel,
@@ -21,5 +22,7 @@ export function convertToAgentConfig(config: SolverConfig): AgentWorkflowConfig 
     lowReasoningMatchers: config.lowReasoningMatchers,
     maxConcurrentSimpleWorkers: config.maxConcurrentSimpleWorkers ?? 2,
     reasoningEffort: config.reasoningEffort,
+    originRef: config.originRef,
+    upstreamRef: config.upstreamRef,
   };
 }

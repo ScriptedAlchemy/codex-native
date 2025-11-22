@@ -1,27 +1,27 @@
 /**
  * OpenCode wrapper for complex conflicts.
  *
- * This module keeps OpenCode separate from the @openai/agents flow. It is
- * supervised by the ApprovalSupervisor to gate sensitive operations.
+ * Uses the lower-level Codex thread API (outside @openai/agents) so we can run
+ * high-reasoning tool executions with explicit approval supervision.
  */
 
-import { Codex } from "@codex-native/sdk";
+import { Codex, type ApprovalMode, type SandboxMode, logger } from "@codex-native/sdk";
+import { buildWorkerPrompt } from "../merge/prompts.js";
 import type { ApprovalSupervisor } from "../merge/supervisor.js";
-import type { ConflictContext, WorkerOutcome } from "../merge/types.js";
+import type { ConflictContext, RemoteComparison, WorkerOutcome } from "../merge/types.js";
 
 export interface OpenCodeOptions {
   workingDirectory: string;
-  sandboxMode: string;
-  approvalSupervisor: ApprovalSupervisor;
+  sandboxMode: SandboxMode;
+  approvalSupervisor?: ApprovalSupervisor | null;
   model: string;
   baseUrl?: string;
   apiKey?: string;
+  coordinatorPlan?: string | null;
+  remoteInfo?: RemoteComparison | null;
+  approvalMode?: ApprovalMode;
 }
 
-/**
- * Placeholder OpenCode execution. For now, it returns a stub outcome but
- * preserves the supervision hook so approvals are still respected.
- */
 export async function runOpenCodeResolution(
   conflict: ConflictContext,
   options: OpenCodeOptions,
@@ -30,13 +30,40 @@ export async function runOpenCodeResolution(
     baseUrl: options.baseUrl,
     apiKey: options.apiKey,
   });
-  codex.setApprovalCallback(async (req) => options.approvalSupervisor.handleApproval(req));
 
-  // TODO: integrate real OpenCodeAgent call.
-  return {
-    path: conflict.path,
-    success: false,
-    summary: "OpenCode delegation placeholder (not yet implemented)",
-    error: "opencode_not_implemented",
-  };
+  if (options.approvalSupervisor?.isAvailable()) {
+    codex.setApprovalCallback(async (req) => options.approvalSupervisor!.handleApproval(req));
+  }
+
+  const thread = codex.startThread({
+    model: options.model,
+    sandboxMode: options.sandboxMode,
+    approvalMode: options.approvalMode ?? "on-request",
+    workingDirectory: options.workingDirectory,
+    skipGitRepoCheck: true,
+  });
+
+  const prompt = buildWorkerPrompt(conflict, options.coordinatorPlan ?? null, {
+    originRef: options.remoteInfo?.originRef,
+    upstreamRef: options.remoteInfo?.upstreamRef,
+  });
+
+  try {
+    const turn = await thread.run(prompt);
+    const summary = turn.finalResponse ?? "";
+    return {
+      path: conflict.path,
+      success: true,
+      summary: summary || undefined,
+      threadId: thread.id ?? undefined,
+    };
+  } catch (error: any) {
+    logger.scope("opencode", conflict.path).warn(`OpenCode resolution failed: ${String(error)}`);
+    return {
+      path: conflict.path,
+      success: false,
+      error: error?.message ?? String(error),
+      threadId: thread.id ?? undefined,
+    };
+  }
 }
