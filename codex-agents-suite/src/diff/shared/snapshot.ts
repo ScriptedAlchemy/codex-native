@@ -1,17 +1,25 @@
-import type { ConflictContext, RemoteComparison, RepoSnapshot } from "../merge/types.js";
-import { GitRepo } from "../merge/git.js";
+/**
+ * Shared snapshot collection utilities
+ */
 
+import type { GitRepo } from "../merge/git.js";
+import type { ConflictContext, RemoteComparison, RepoSnapshot } from "../merge/types.js";
+
+/**
+ * Collect complete repository snapshot for merge analysis
+ */
 export async function collectRepoSnapshot(
   git: GitRepo,
-  conflicts: ConflictContext[] = [],
-  remoteComparison: RemoteComparison | null = null,
+  conflicts: ConflictContext[],
+  remoteComparison: RemoteComparison | null
 ): Promise<RepoSnapshot> {
   const [branch, statusShort, diffStat, recentCommits] = await Promise.all([
     git.getBranchName(),
     git.getStatusShort(),
     git.getDiffStat(),
-    git.getRecentCommits(),
+    git.getRecentCommits(10),
   ]);
+
   return {
     branch,
     statusShort,
