@@ -10,7 +10,7 @@ import { ApprovalSupervisor } from "../merge/supervisor.js";
 import { GitRepo } from "../merge/git.js";
 import { logInfo, logWarn } from "../merge/logging.js";
 
-const OPEN_CODE_SEVERITY_THRESHOLD = 1200;
+const DEFAULT_OPEN_CODE_SEVERITY_THRESHOLD = 1200;
 
 /**
  * Agent workflow orchestrator using @openai/agents SDK.
@@ -20,6 +20,7 @@ export class AgentWorkflowOrchestrator {
   private readonly git: GitRepo;
   private readonly approvalSupervisor: ApprovalSupervisor | null;
   private readonly supervisorLogThread: Thread | null;
+  private readonly activeFiles = new Set<string>();
 
   constructor(private readonly config: AgentWorkflowConfig) {
     this.git = new GitRepo(this.config.workingDirectory);
@@ -86,7 +87,10 @@ export class AgentWorkflowOrchestrator {
     });
 
     const result = await run(agent, JSON.stringify(input));
-    return result?.finalOutput ?? null;
+    if (!result?.finalOutput || typeof result.finalOutput !== "string") {
+      throw new Error("Coordinator produced invalid output");
+    }
+    return result.finalOutput;
   }
 
   private async runWorkerPhase(
@@ -107,7 +111,16 @@ export class AgentWorkflowOrchestrator {
         .then((outcome) => {
           outcomes.push(outcome);
         })
+        .catch((error) => {
+          logWarn("worker", `Unhandled error: ${error}`, conflict.path);
+          outcomes.push({
+            path: conflict.path,
+            success: false,
+            error: String(error),
+          });
+        })
         .finally(() => {
+          this.activeFiles.delete(conflict.path);
           active.delete(task);
         });
       active.add(task);
@@ -118,6 +131,12 @@ export class AgentWorkflowOrchestrator {
         // eslint-disable-next-line no-await-in-loop
         await Promise.race(active);
       }
+      if (this.activeFiles.has(conflict.path)) {
+        // wait for existing processing of same file
+        // eslint-disable-next-line no-await-in-loop
+        await Promise.race(active);
+      }
+      this.activeFiles.add(conflict.path);
       schedule(conflict);
     }
 
@@ -126,8 +145,14 @@ export class AgentWorkflowOrchestrator {
     }
 
     for (const conflict of complexConflicts) {
+      if (this.activeFiles.has(conflict.path)) {
+        await Promise.all(active);
+        this.activeFiles.delete(conflict.path);
+      }
+      this.activeFiles.add(conflict.path);
       const outcome = await this.handleConflict(conflict, coordinatorPlan, remoteComparison, true);
       outcomes.push(outcome);
+      this.activeFiles.delete(conflict.path);
     }
 
     return outcomes;
@@ -173,7 +198,8 @@ export class AgentWorkflowOrchestrator {
   }
 
   private isComplex(conflict: ConflictContext): boolean {
-    return this.computeSeverity(conflict) >= OPEN_CODE_SEVERITY_THRESHOLD;
+    const threshold = this.config.openCodeSeverityThreshold ?? DEFAULT_OPEN_CODE_SEVERITY_THRESHOLD;
+    return this.computeSeverity(conflict) >= threshold;
   }
 
   private async handleConflict(
@@ -226,8 +252,11 @@ export class AgentWorkflowOrchestrator {
     try {
       const workerPrompt = formatWorkerInput({ conflict, coordinatorPlan, remoteInfo: remoteComparison });
       const result = await run(agent, workerPrompt);
+      if (!result?.finalOutput || typeof result.finalOutput !== "string") {
+        throw new Error("Worker produced invalid output");
+      }
 
-      const summary = result?.finalOutput ?? null;
+      const summary = result.finalOutput;
       const resolved = await this.isResolved(conflict.path);
 
       return {

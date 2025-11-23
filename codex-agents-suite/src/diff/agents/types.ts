@@ -84,4 +84,5 @@ export interface AgentWorkflowConfig extends AgentConfig, AgentModelConfig {
   dryRun?: boolean;
   originRef?: string | null;
   upstreamRef?: string | null;
+  openCodeSeverityThreshold?: number;
 }

@@ -7,6 +7,7 @@
 
 import { Codex, type ApprovalMode, type SandboxMode, logger } from "@codex-native/sdk";
 import { buildWorkerPrompt } from "../merge/prompts.js";
+import { GitRepo } from "../merge/git.js";
 import type { ApprovalSupervisor } from "../merge/supervisor.js";
 import type { ConflictContext, RemoteComparison, WorkerOutcome } from "../merge/types.js";
 
@@ -48,14 +49,19 @@ export async function runOpenCodeResolution(
     upstreamRef: options.remoteInfo?.upstreamRef,
   });
 
+  const git = new GitRepo(options.workingDirectory);
+
   try {
     const turn = await thread.run(prompt);
     const summary = turn.finalResponse ?? "";
+    const remaining = await git.listConflictPaths();
+    const resolved = !remaining.includes(conflict.path);
     return {
       path: conflict.path,
-      success: true,
+      success: resolved,
       summary: summary || undefined,
       threadId: thread.id ?? undefined,
+      error: resolved ? undefined : "Conflict markers still present after OpenCode run",
     };
   } catch (error: any) {
     logger.scope("worker", conflict.path).warn(`OpenCode resolution failed: ${String(error)}`);
