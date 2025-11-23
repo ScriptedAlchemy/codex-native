@@ -101,7 +101,8 @@ export class AgentWorkflowOrchestrator {
       approvalSupervisor: this.approvalSupervisor,
     });
 
-    const result = await run(agent, JSON.stringify(input));
+    const slimInput = this.shrinkCoordinatorInput(input);
+    const result = await run(agent, JSON.stringify(slimInput));
     if (!result?.finalOutput || typeof result.finalOutput !== "string") {
       throw new Error("Coordinator produced invalid output");
     }
@@ -388,5 +389,49 @@ export class AgentWorkflowOrchestrator {
     parts.push(reviewerSummary ? reviewerSummary.slice(0, 500) : "<no summary>");
 
     return parts.join("");
+  }
+
+  private shrinkCoordinatorInput(input: CoordinatorInput): CoordinatorInput {
+    const truncate = (text: string | null | undefined, max = 2000): string | null => {
+      if (!text) return null;
+      return text.length > max ? `${text.slice(0, max)}\n\n…truncated` : text;
+    };
+
+    const slimConflicts = input.conflicts.map((c) => ({
+      path: c.path,
+      language: c.language,
+      lineCount: c.lineCount,
+      conflictMarkers: c.conflictMarkers,
+      diffExcerpt: truncate(c.diffExcerpt, 1800),
+      workingExcerpt: truncate(c.workingExcerpt, 1200),
+      baseExcerpt: null,
+      oursExcerpt: null,
+      theirsExcerpt: null,
+      originRefContent: null,
+      upstreamRefContent: null,
+      originVsUpstreamDiff: null,
+      baseVsOursDiff: null,
+      baseVsTheirsDiff: null,
+      oursVsTheirsDiff: null,
+      recentHistory: null,
+      localIntentLog: null,
+    }));
+
+    return {
+      ...input,
+      statusShort: truncate(input.statusShort, 1200) ?? "",
+      diffStat: truncate(input.diffStat, 2000) ?? "",
+      recentCommits: truncate(input.recentCommits, 1200) ?? "",
+      conflicts: slimConflicts,
+      remoteComparison: input.remoteComparison
+        ? {
+            ...input.remoteComparison,
+            commitsMissingFromOrigin: truncate(input.remoteComparison.commitsMissingFromOrigin, 800),
+            commitsMissingFromUpstream: truncate(input.remoteComparison.commitsMissingFromUpstream, 800),
+            diffstatOriginToUpstream: truncate(input.remoteComparison.diffstatOriginToUpstream, 800),
+            diffstatUpstreamToOrigin: truncate(input.remoteComparison.diffstatUpstreamToOrigin, 800),
+          }
+        : null,
+    };
   }
 }
