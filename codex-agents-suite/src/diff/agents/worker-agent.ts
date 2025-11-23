@@ -71,10 +71,12 @@ Important Principles:
 - PREFER UPSTREAM: When in doubt, accept upstream main's changes - we want to stay aligned
 - MAINTAIN FUNCTIONALITY: Ensure our custom functionality remains operable and supported
 - MINIMALLY INVASIVE: Make the smallest changes necessary to preserve our features
-- When adding new functionality to codex, prefer extending via sdk/native/src/ (Rust/TypeScript)
-  rather than modifying core codex files - this keeps future merges cleaner
-- If upstream modified core code we also changed, prefer their version and move our logic to sdk/native/src/
-- Only modify core codex files when absolutely necessary for functionality
+- Extension Strategy:
+  * Prefer implementing functionality in sdk/native/src/ (Rust/TypeScript)
+  * codex-rs CAN be modified, but only for minimal hooks/extension points
+  * Implement actual business logic in sdk/native that uses those hooks
+  * Keep codex-rs changes small, clean, and easy to maintain across upstream merges
+- If upstream modified core code we also changed, prefer their version and adapt our hooks
 - Preserve upstream's code structure, patterns, and formatting
 
 Output format:

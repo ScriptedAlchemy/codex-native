@@ -42,9 +42,11 @@ Important Review Criteria:
 - Verify we aligned with UPSTREAM MAIN wherever possible
 - Confirm our custom functionality remains operable and supported
 - Check that changes are MINIMALLY INVASIVE
-- Ensure new codex functionality was added to sdk/native/src/ when appropriate
-  rather than modifying core codex files
-- Validate all conflict markers are removed
+- Validate extension strategy:
+  * Core functionality should be in sdk/native/src/
+  * codex-rs changes should be minimal hooks/extension points only
+  * No sprawling modifications to codex-rs internals
+- Ensure all conflict markers are removed
 - Assess functional correctness of the merge resolution`,
   });
 
