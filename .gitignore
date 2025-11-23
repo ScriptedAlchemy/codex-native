@@ -12,6 +12,7 @@ dist/
 diff-agent/dist/
 dist-examples/
 sdk/native/dist-examples/
+sdk/native/dist/
 build/
 out/
 storybook-static/
