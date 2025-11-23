@@ -382,13 +382,14 @@ jobs:
       - name: Restore cargo home cache
         id: cache_cargo_home_restore
         uses: actions/cache/restore@v4
+        continue-on-error: true
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-          key: cargo-home-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('codex-rs/rust-toolchain.toml') }}
+          key: cargo-home-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ hashFiles('codex-rs/rust-toolchain.toml') }}
           restore-keys: |
             cargo-home-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-
 
@@ -417,11 +418,12 @@ jobs:
         if: ${{ env.USE_SCCACHE == 'true' && env.SCCACHE_GHA_ENABLED != 'true' }}
         id: cache_sccache_restore
         uses: actions/cache/restore@v4
+        continue-on-error: true
         with:
           path: ${{ github.workspace }}/.sccache/
-          key: sccache-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
+          key: sccache-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
           restore-keys: |
-            sccache-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-${{ hashFiles('**/Cargo.lock') }}-
+            sccache-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
             sccache-${{ matrix.runner }}-${{ matrix.target }}-${{ matrix.profile }}-
 
       - uses: taiki-e/install-action@44c6d64aa62cd779e873306675c7a58e86d6d532 # v2
