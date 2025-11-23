@@ -38,10 +38,6 @@ export interface CodexProviderOptions extends CodexOptions {
    */
   approvalMode?: ThreadOptions["approvalMode"];
   /**
-   * Approval policy forwarded to threads created by this provider.
-   */
-  approvalMode?: ThreadOptions["approvalMode"];
-  /**
    * Use local OSS provider via Ollama (pulls models as needed)
    */
   oss?: boolean;

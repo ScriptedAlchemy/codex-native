@@ -29,7 +29,7 @@ pub struct RateLimitStatusPayload {
         with = "::serde_with::rust::double_option",
         skip_serializing_if = "Option::is_none"
     )]
-    pub credits: Option<Option<Box<models::CreditStatusDetails>>>,
+    pub credits: Option<Option<Box<models::RateLimitStatusDetails>>>,
 }
 
 impl RateLimitStatusPayload {
