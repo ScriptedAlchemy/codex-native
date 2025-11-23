@@ -1,5 +1,5 @@
 import http from "node:http";
-import { evCompleted, evAssistantMessage } from "../src/index";
+import { evCompleted, evAssistantMessage, evResponseCreated, evResponseStarted, evResponseDone, evThreadStarted, evTurnStarted, evTurnCompleted } from "../src/index";
 
 const DEFAULT_RESPONSE_ID = "resp_mock";
 const DEFAULT_MESSAGE_ID = "msg_mock";
@@ -41,6 +41,7 @@ interface TestProxyResult {
     body: string;
     json: any;
     headers: Record<string, string>;
+    path: string;
   }>;
 }
 
@@ -54,6 +55,7 @@ export async function startResponsesTestProxy(options: TestProxyOptions): Promis
     body: string;
     json: any;
     headers: Record<string, string>;
+    path: string;
   }> = [];
 
   function readRequestBody(req: http.IncomingMessage): Promise<string> {
@@ -73,10 +75,12 @@ export async function startResponsesTestProxy(options: TestProxyOptions): Promis
 
   const server = http.createServer((req, res) => {
     async function handle() {
-      if (req.method === "POST" && req.url === "/responses") {
+      const path = req.url || "";
+      const isResponsesEndpoint = req.method === "POST" && (path === "/responses" || path.endsWith("/responses"));
+      if (isResponsesEndpoint) {
         const body = await readRequestBody(req);
         const json = JSON.parse(body);
-        requests.push({ body, json, headers: { ...req.headers } as Record<string, string> });
+        requests.push({ body, json, headers: { ...req.headers } as Record<string, string>, path });
 
         const status = options.statusCode ?? 200;
         res.statusCode = status;
@@ -144,12 +148,12 @@ export function sse(...events: SseEvent[]): SseResponse {
 }
 
 export function responseStarted(responseId: string = DEFAULT_RESPONSE_ID): SseEvent {
-  return {
-    type: "response.created",
-    response: {
-      id: responseId,
-    },
-  };
+  // Use the real SSE generator from Rust
+  return JSON.parse(evResponseCreated(responseId));
+}
+
+export function responseStartedMinimal(responseId: string = DEFAULT_RESPONSE_ID): SseEvent {
+  return JSON.parse(evResponseStarted(responseId));
 }
 
 export function assistantMessage(text: string, itemId: string = DEFAULT_MESSAGE_ID): SseEvent {
@@ -201,4 +205,35 @@ export function responseCompleted(
     (response.response as any).output_text = finalText;
   }
   return response;
+}
+
+export function responseDoneMinimal(
+  responseId: string = DEFAULT_RESPONSE_ID,
+  usage: Usage = DEFAULT_COMPLETED_USAGE,
+  finalText?: string
+): SseEvent {
+  const evt = JSON.parse(evResponseDone(responseId));
+  evt.response.usage = {
+    input_tokens: usage.input_tokens,
+    input_tokens_details: usage.input_tokens_details || null,
+    output_tokens: usage.output_tokens,
+    output_tokens_details: usage.output_tokens_details || null,
+    total_tokens: usage.total_tokens,
+  };
+  if (typeof finalText === "string") {
+    evt.response.output_text = finalText;
+  }
+  return evt;
+}
+
+export function threadStarted(threadId: string = "thread_1"): SseEvent {
+  return JSON.parse(evThreadStarted(threadId));
+}
+
+export function turnStarted(): SseEvent {
+  return JSON.parse(evTurnStarted());
+}
+
+export function turnCompleted(): SseEvent {
+  return JSON.parse(evTurnCompleted());
 }

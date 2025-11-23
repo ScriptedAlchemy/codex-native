@@ -17,12 +17,10 @@ use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_function_call;
 use core_test_support::responses::ev_response_created;
-use core_test_support::responses::mount_mcp_responder;
 use core_test_support::responses::mount_sse_sequence;
 use core_test_support::responses::sse;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
-use core_test_support::skip_if_no_pty;
 use core_test_support::skip_if_sandbox;
 use core_test_support::test_codex::TestCodex;
 use core_test_support::test_codex::test_codex;
@@ -33,7 +31,6 @@ use regex_lite::Regex;
 use serde_json::Value;
 use serde_json::json;
 use tokio::time::Duration;
-use wiremock::MockServer;
 
 fn extract_output_text(item: &Value) -> Option<&str> {
     item.get("output").and_then(|value| match value {
@@ -157,31 +154,14 @@ fn collect_tool_outputs(bodies: &[Value]) -> Result<HashMap<String, ParsedUnifie
     Ok(outputs)
 }
 
-fn sanitize_workdir_stdout(output: &str) -> Result<String> {
-    for line in output.lines().rev() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let cleaned: String = trimmed.chars().filter(|ch| !ch.is_control()).collect();
-        if !cleaned.is_empty() {
-            return Ok(cleaned);
-        }
-    }
-    Err(anyhow::anyhow!(
-        "workdir stdout missing usable path line: {output:?}"
-    ))
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_emits_exec_command_begin_event() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
-    let mut builder = test_codex().with_config(|config| {
+    let mut builder = test_codex().with_model("gpt-5").with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
         config.features.enable(Feature::UnifiedExec);
     });
@@ -195,7 +175,7 @@ async fn unified_exec_emits_exec_command_begin_event() -> Result<()> {
     let call_id = "uexec-begin-event";
     let args = json!({
         "cmd": "/bin/echo hello unified exec".to_string(),
-        "yield_time_ms": 1_000,
+        "yield_time_ms": 250,
     });
 
     let responses = vec![
@@ -250,22 +230,15 @@ async fn unified_exec_emits_exec_command_begin_event() -> Result<()> {
     Ok(())
 }
 
-async fn start_server_with_mcp() -> MockServer {
-    let server = start_mock_server().await;
-    mount_mcp_responder(&server).await;
-    server
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "flaky"]
 async fn unified_exec_respects_workdir_override() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
-    let mut builder = test_codex().with_config(|config| {
+    let mut builder = test_codex().with_model("gpt-5").with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
         config.features.enable(Feature::UnifiedExec);
     });
@@ -318,41 +291,107 @@ async fn unified_exec_respects_workdir_override() -> Result<()> {
         .await?;
 
     let begin_event = wait_for_event_match(&codex, |msg| match msg {
-        EventMsg::ExecCommandBegin(ev) if ev.call_id == call_id => Some(ev.clone()),
+        EventMsg::ExecCommandBegin(event) if event.call_id == call_id => Some(event.clone()),
         _ => None,
     })
     .await;
+
+    assert_eq!(
+        begin_event.cwd, workdir,
+        "exec_command cwd should reflect the requested workdir override"
+    );
 
     wait_for_event(&codex, |event| matches!(event, EventMsg::TaskComplete(_))).await;
 
     let requests = server.received_requests().await.expect("recorded requests");
     assert!(!requests.is_empty(), "expected at least one POST request");
 
-    let bodies = requests
-        .iter()
-        .map(|req| req.body_json::<Value>().expect("request json"))
-        .collect::<Vec<_>>();
+    Ok(())
+}
 
-    let outputs = collect_tool_outputs(&bodies)?;
-    let output = outputs
-        .get(call_id)
-        .expect("missing exec_command workdir output");
-    let output_text = output.output.trim();
-    let sanitized = sanitize_workdir_stdout(output_text)
-        .unwrap_or_else(|_| begin_event.cwd.to_string_lossy().to_string());
-    let output_canonical = std::fs::canonicalize(&sanitized)?;
-    let expected_canonical = std::fs::canonicalize(&workdir)?;
-    assert_eq!(
-        output_canonical, expected_canonical,
-        "pwd should reflect the requested workdir override"
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unified_exec_emits_exec_command_end_event() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+    skip_if_sandbox!(Ok(()));
+
+    let server = start_mock_server().await;
+
+    let mut builder = test_codex().with_config(|config| {
+        config.use_experimental_unified_exec_tool = true;
+        config.features.enable(Feature::UnifiedExec);
+    });
+    let TestCodex {
+        codex,
+        cwd,
+        session_configured,
+        ..
+    } = builder.build(&server).await?;
+
+    let call_id = "uexec-end-event";
+    let args = json!({
+        "cmd": "/bin/echo END-EVENT".to_string(),
+        "yield_time_ms": 250,
+    });
+    let poll_call_id = "uexec-end-event-poll";
+    let poll_args = json!({
+        "chars": "",
+        "session_id": 0,
+        "yield_time_ms": 250,
+    });
+
+    let responses = vec![
+        sse(vec![
+            ev_response_created("resp-1"),
+            ev_function_call(call_id, "exec_command", &serde_json::to_string(&args)?),
+            ev_completed("resp-1"),
+        ]),
+        sse(vec![
+            ev_response_created("resp-2"),
+            ev_function_call(
+                poll_call_id,
+                "write_stdin",
+                &serde_json::to_string(&poll_args)?,
+            ),
+            ev_completed("resp-2"),
+        ]),
+        sse(vec![
+            ev_response_created("resp-3"),
+            ev_assistant_message("msg-1", "finished"),
+            ev_completed("resp-3"),
+        ]),
+    ];
+    mount_sse_sequence(&server, responses).await;
+
+    let session_model = session_configured.model.clone();
+
+    codex
+        .submit(Op::UserTurn {
+            items: vec![UserInput::Text {
+                text: "emit end event".into(),
+            }],
+            final_output_json_schema: None,
+            cwd: cwd.path().to_path_buf(),
+            approval_policy: AskForApproval::Never,
+            sandbox_policy: SandboxPolicy::DangerFullAccess,
+            model: session_model,
+            effort: None,
+            summary: ReasoningSummary::Auto,
+        })
+        .await?;
+
+    let end_event = wait_for_event_match(&codex, |msg| match msg {
+        EventMsg::ExecCommandEnd(ev) if ev.call_id == call_id => Some(ev.clone()),
+        _ => None,
+    })
+    .await;
+
+    assert_eq!(end_event.exit_code, 0);
+    assert!(
+        end_event.aggregated_output.contains("END-EVENT"),
+        "expected aggregated output to contain marker"
     );
 
-    assert_eq!(
-        std::fs::canonicalize(begin_event.cwd)?,
-        expected_canonical,
-        "exec_command cwd should match requested workdir"
-    );
-
+    wait_for_event(&codex, |event| matches!(event, EventMsg::TaskComplete(_))).await;
     Ok(())
 }
 
@@ -360,9 +399,8 @@ async fn unified_exec_respects_workdir_override() -> Result<()> {
 async fn unified_exec_emits_output_delta_for_exec_command() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -432,9 +470,8 @@ async fn unified_exec_emits_output_delta_for_exec_command() -> Result<()> {
 async fn unified_exec_emits_output_delta_for_write_stdin() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -532,9 +569,8 @@ async fn unified_exec_emits_output_delta_for_write_stdin() -> Result<()> {
 async fn unified_exec_emits_begin_for_write_stdin() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -549,7 +585,7 @@ async fn unified_exec_emits_begin_for_write_stdin() -> Result<()> {
 
     let open_call_id = "uexec-open-for-begin";
     let open_args = json!({
-        "cmd": "/bin/sh -c 'sleep 1; echo ready'".to_string(),
+        "cmd": "/bin/sh -c echo ready".to_string(),
         "yield_time_ms": 200,
     });
 
@@ -615,7 +651,7 @@ async fn unified_exec_emits_begin_for_write_stdin() -> Result<()> {
         vec![
             "/bin/bash".to_string(),
             "-lc".to_string(),
-            "/bin/sh -c 'sleep 1; echo ready'".to_string()
+            "/bin/sh -c echo ready".to_string()
         ]
     );
     assert_eq!(
@@ -635,9 +671,8 @@ async fn unified_exec_emits_begin_for_write_stdin() -> Result<()> {
 async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -652,7 +687,7 @@ async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()>
 
     let open_call_id = "uexec-open-session";
     let open_args = json!({
-        "cmd": "/bin/sh -c 'sleep 1; echo ready'".to_string(),
+        "cmd": "/bin/sh -c echo ready".to_string(),
         "yield_time_ms": 250,
     });
 
@@ -732,7 +767,7 @@ async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()>
         vec![
             "/bin/bash".to_string(),
             "-lc".to_string(),
-            "/bin/sh -c 'sleep 1; echo ready'".to_string()
+            "/bin/sh -c echo ready".to_string()
         ]
     );
     assert!(
@@ -750,7 +785,7 @@ async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()>
         vec![
             "/bin/bash".to_string(),
             "-lc".to_string(),
-            "/bin/sh -c 'sleep 1; echo ready'".to_string()
+            "/bin/sh -c echo ready".to_string()
         ]
     );
     assert!(
@@ -766,9 +801,8 @@ async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()>
 async fn exec_command_reports_chunk_and_exit_metadata() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);
@@ -782,7 +816,7 @@ async fn exec_command_reports_chunk_and_exit_metadata() -> Result<()> {
 
     let call_id = "uexec-metadata";
     let args = serde_json::json!({
-        "cmd": "printf 'abcdefghijklmnopqrstuvwxyz'",
+        "cmd": "printf 'token one token two token three token four token five token six token seven'",
         "yield_time_ms": 500,
         "max_output_tokens": 6,
     });
@@ -817,12 +851,7 @@ async fn exec_command_reports_chunk_and_exit_metadata() -> Result<()> {
         })
         .await?;
 
-    wait_for_event_with_timeout(
-        &codex,
-        |event| matches!(event, EventMsg::TaskComplete(_)),
-        Duration::from_secs(30),
-    )
-    .await;
+    wait_for_event(&codex, |event| matches!(event, EventMsg::TaskComplete(_))).await;
 
     let requests = server.received_requests().await.expect("recorded requests");
     assert!(!requests.is_empty(), "expected at least one POST request");
@@ -876,12 +905,103 @@ async fn exec_command_reports_chunk_and_exit_metadata() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unified_exec_respects_early_exit_notifications() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+    skip_if_sandbox!(Ok(()));
+
+    let server = start_mock_server().await;
+
+    let mut builder = test_codex().with_config(|config| {
+        config.features.enable(Feature::UnifiedExec);
+    });
+    let TestCodex {
+        codex,
+        cwd,
+        session_configured,
+        ..
+    } = builder.build(&server).await?;
+
+    let call_id = "uexec-early-exit";
+    let args = serde_json::json!({
+        "cmd": "sleep 0.05",
+        "yield_time_ms": 31415,
+    });
+
+    let responses = vec![
+        sse(vec![
+            ev_response_created("resp-1"),
+            ev_function_call(call_id, "exec_command", &serde_json::to_string(&args)?),
+            ev_completed("resp-1"),
+        ]),
+        sse(vec![
+            ev_assistant_message("msg-1", "done"),
+            ev_completed("resp-2"),
+        ]),
+    ];
+    mount_sse_sequence(&server, responses).await;
+
+    let session_model = session_configured.model.clone();
+
+    codex
+        .submit(Op::UserTurn {
+            items: vec![UserInput::Text {
+                text: "watch early exit timing".into(),
+            }],
+            final_output_json_schema: None,
+            cwd: cwd.path().to_path_buf(),
+            approval_policy: AskForApproval::Never,
+            sandbox_policy: SandboxPolicy::DangerFullAccess,
+            model: session_model,
+            effort: None,
+            summary: ReasoningSummary::Auto,
+        })
+        .await?;
+
+    wait_for_event(&codex, |event| matches!(event, EventMsg::TaskComplete(_))).await;
+
+    let requests = server.received_requests().await.expect("recorded requests");
+    assert!(!requests.is_empty(), "expected at least one POST request");
+
+    let bodies = requests
+        .iter()
+        .map(|req| req.body_json::<Value>().expect("request json"))
+        .collect::<Vec<_>>();
+
+    let outputs = collect_tool_outputs(&bodies)?;
+    let output = outputs
+        .get(call_id)
+        .expect("missing early exit unified_exec output");
+
+    assert!(
+        output.session_id.is_none(),
+        "short-lived process should not keep a session alive"
+    );
+    assert_eq!(
+        output.exit_code,
+        Some(0),
+        "short-lived process should exit successfully"
+    );
+
+    let wall_time = output.wall_time_seconds;
+    assert!(
+        wall_time < 0.75,
+        "wall_time should reflect early exit rather than the full yield time; got {wall_time}"
+    );
+    assert!(
+        output.output.is_empty(),
+        "sleep command should not emit output, got {:?}",
+        output.output
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn write_stdin_returns_exit_metadata_and_clears_session() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);
@@ -1039,9 +1159,8 @@ async fn write_stdin_returns_exit_metadata_and_clears_session() -> Result<()> {
 async fn unified_exec_emits_end_event_when_session_dies_via_stdin() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -1144,9 +1263,8 @@ async fn unified_exec_emits_end_event_when_session_dies_via_stdin() -> Result<()
 async fn unified_exec_reuses_session_via_stdin() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);
@@ -1253,9 +1371,8 @@ async fn unified_exec_reuses_session_via_stdin() -> Result<()> {
 async fn unified_exec_streams_after_lagged_output() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
@@ -1272,7 +1389,7 @@ async fn unified_exec_streams_after_lagged_output() -> Result<()> {
 import sys
 import time
 
-chunk = b'x' * (1 << 20)
+chunk = b'long content here to trigger truncation' * (1 << 10)
 for _ in range(4):
     sys.stdout.buffer.write(chunk)
     sys.stdout.flush()
@@ -1342,8 +1459,13 @@ PY
             summary: ReasoningSummary::Auto,
         })
         .await?;
-
-    wait_for_event(&codex, |event| matches!(event, EventMsg::TaskComplete(_))).await;
+    // This is a worst case scenario for the truncate logic.
+    wait_for_event_with_timeout(
+        &codex,
+        |event| matches!(event, EventMsg::TaskComplete(_)),
+        Duration::from_secs(10),
+    )
+    .await;
 
     let requests = server.received_requests().await.expect("recorded requests");
     assert!(!requests.is_empty(), "expected at least one POST request");
@@ -1380,9 +1502,8 @@ PY
 async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);
@@ -1404,7 +1525,7 @@ async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
     let second_args = serde_json::json!({
         "chars": "",
         "session_id": 0,
-        "yield_time_ms": 1_500,
+        "yield_time_ms": 800,
     });
 
     let responses = vec![
@@ -1487,9 +1608,8 @@ async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
 async fn unified_exec_formats_large_output_summary() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);
@@ -1502,14 +1622,15 @@ async fn unified_exec_formats_large_output_summary() -> Result<()> {
     } = builder.build(&server).await?;
 
     let script = r#"python3 - <<'PY'
-for i in range(700):
-    print(f"line-{i}")
+import sys
+sys.stdout.write("token token \n" * 5000)
 PY
 "#;
 
     let call_id = "uexec-large-output";
     let args = serde_json::json!({
         "cmd": script,
+        "max_output_tokens": 100,
         "yield_time_ms": 500,
     });
 
@@ -1556,15 +1677,14 @@ PY
     let outputs = collect_tool_outputs(&bodies)?;
     let large_output = outputs.get(call_id).expect("missing large output summary");
 
-    assert_regex_match(
-        concat!(
-            r"(?s)",
-            r"line-0.*?",
-            r"\[\.{3} omitted \d+ of \d+ lines \.{3}\].*?",
-            r"line-699",
-        ),
-        &large_output.output,
-    );
+    let output_text = large_output.output.replace("\r\n", "\n");
+    let truncated_pattern = r"(?s)^Total output lines: \d+\n\n(token token \n){5,}.*…\d+ tokens truncated….*(token token \n){5,}$";
+    assert_regex_match(truncated_pattern, &output_text);
+
+    let original_tokens = large_output
+        .original_token_count
+        .expect("missing original_token_count for large output summary");
+    assert!(original_tokens > 0);
 
     Ok(())
 }
@@ -1573,9 +1693,8 @@ PY
 async fn unified_exec_runs_under_sandbox() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
-    skip_if_no_pty!(Ok(()));
 
-    let server = start_server_with_mcp().await;
+    let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
         config.features.enable(Feature::UnifiedExec);

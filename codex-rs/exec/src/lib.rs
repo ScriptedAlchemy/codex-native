@@ -6,29 +6,31 @@
 
 mod cli;
 mod event_processor;
-mod event_processor_bridge;
 mod event_processor_with_human_output;
 pub mod event_processor_with_jsonl_output;
 pub mod exec_events;
 
 pub use cli::Cli;
-pub use cli::Color;
-pub use cli::Command;
-pub use cli::ResumeArgs;
+use codex_common::oss::ensure_oss_provider_ready;
+use codex_common::oss::get_default_model_for_oss_provider;
 use codex_core::AuthManager;
-use codex_core::BUILT_IN_OSS_MODEL_PROVIDER_ID;
 use codex_core::ConversationManager;
+use codex_core::LMSTUDIO_OSS_PROVIDER_ID;
 use codex_core::NewConversation;
+use codex_core::OLLAMA_OSS_PROVIDER_ID;
 use codex_core::auth::enforce_login_restrictions;
 use codex_core::config::Config;
 use codex_core::config::ConfigOverrides;
+use codex_core::config::find_codex_home;
+use codex_core::config::load_config_as_toml_with_cli_overrides;
+use codex_core::config::resolve_oss_provider;
 use codex_core::git_info::get_git_repo_root;
 use codex_core::protocol::AskForApproval;
 use codex_core::protocol::Event;
 use codex_core::protocol::EventMsg;
 use codex_core::protocol::Op;
 use codex_core::protocol::SessionSource;
-use codex_ollama::DEFAULT_OSS_MODEL;
+use codex_protocol::approvals::ElicitationAction;
 use codex_protocol::config_types::SandboxMode;
 use codex_protocol::user_input::UserInput;
 use event_processor_with_human_output::EventProcessorWithHumanOutput;
@@ -48,7 +50,6 @@ use tracing_subscriber::prelude::*;
 use crate::cli::Command as ExecCommand;
 use crate::event_processor::CodexStatus;
 use crate::event_processor::EventProcessor;
-use crate::event_processor_bridge::callback_event_processor;
 use codex_core::default_client::set_default_originator;
 use codex_core::find_conversation_path_by_id_str;
 
@@ -62,6 +63,7 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
         images,
         model: model_cli_arg,
         oss,
+        oss_provider,
         config_profile,
         full_auto,
         dangerously_bypass_approvals_and_sandbox,
@@ -81,7 +83,21 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
     let prompt_arg = match &command {
         // Allow prompt before the subcommand by falling back to the parent-level prompt
         // when the Resume subcommand did not provide its own prompt.
-        Some(ExecCommand::Resume(args)) => args.prompt.clone().or(prompt),
+        Some(ExecCommand::Resume(args)) => {
+            let resume_prompt = args
+                .prompt
+                .clone()
+                // When using `resume --last <PROMPT>`, clap still parses the first positional
+                // as `session_id`. Reinterpret it as the prompt so the flag works with JSON mode.
+                .or_else(|| {
+                    if args.last {
+                        args.session_id.clone()
+                    } else {
+                        None
+                    }
+                });
+            resume_prompt.or(prompt)
+        }
         None => prompt,
     };
 
@@ -151,21 +167,64 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
         sandbox_mode_cli_arg.map(Into::<SandboxMode>::into)
     };
 
-    // When using `--oss`, let the bootstrapper pick the model (defaulting to
-    // gpt-oss:20b) and ensure it is present locally. Also, force the built‑in
-    // `oss` model provider.
-    let model = if let Some(model) = model_cli_arg {
-        Some(model)
-    } else if oss {
-        Some(DEFAULT_OSS_MODEL.to_owned())
-    } else {
-        None // No model specified, will use the default.
+    // Parse `-c` overrides from the CLI.
+    let cli_kv_overrides = match config_overrides.parse_overrides() {
+        Ok(v) => v,
+        #[allow(clippy::print_stderr)]
+        Err(e) => {
+            eprintln!("Error parsing -c overrides: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    // we load config.toml here to determine project state.
+    #[allow(clippy::print_stderr)]
+    let config_toml = {
+        let codex_home = match find_codex_home() {
+            Ok(codex_home) => codex_home,
+            Err(err) => {
+                eprintln!("Error finding codex home: {err}");
+                std::process::exit(1);
+            }
+        };
+
+        match load_config_as_toml_with_cli_overrides(&codex_home, cli_kv_overrides.clone()).await {
+            Ok(config_toml) => config_toml,
+            Err(err) => {
+                eprintln!("Error loading config.toml: {err}");
+                std::process::exit(1);
+            }
+        }
     };
 
     let model_provider = if oss {
-        Some(BUILT_IN_OSS_MODEL_PROVIDER_ID.to_string())
+        let resolved = resolve_oss_provider(
+            oss_provider.as_deref(),
+            &config_toml,
+            config_profile.clone(),
+        );
+
+        if let Some(provider) = resolved {
+            Some(provider)
+        } else {
+            return Err(anyhow::anyhow!(
+                "No default OSS provider configured. Use --local-provider=provider or set oss_provider to either {LMSTUDIO_OSS_PROVIDER_ID} or {OLLAMA_OSS_PROVIDER_ID} in config.toml"
+            ));
+        }
     } else {
-        None // No specific model provider override.
+        None // No OSS mode enabled
+    };
+
+    // When using `--oss`, let the bootstrapper pick the model based on selected provider
+    let model = if let Some(model) = model_cli_arg {
+        Some(model)
+    } else if oss {
+        model_provider
+            .as_ref()
+            .and_then(|provider_id| get_default_model_for_oss_provider(provider_id))
+            .map(std::borrow::ToOwned::to_owned)
+    } else {
+        None // No model specified, will use the default.
     };
 
     // Load configuration and determine approval policy
@@ -177,7 +236,7 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
         approval_policy: Some(AskForApproval::Never),
         sandbox_mode,
         cwd: cwd.map(|p| p.canonicalize().unwrap_or(p)),
-        model_provider,
+        model_provider: model_provider.clone(),
         codex_linux_sandbox_exe,
         base_instructions: None,
         developer_instructions: None,
@@ -187,14 +246,6 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
         tools_web_search_request: None,
         experimental_sandbox_command_assessment: None,
         additional_writable_roots: add_dir,
-    };
-    // Parse `-c` overrides.
-    let cli_kv_overrides = match config_overrides.parse_overrides() {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("Error parsing -c overrides: {e}");
-            std::process::exit(1);
-        }
     };
 
     let config = Config::load_with_cli_overrides(cli_kv_overrides, overrides).await?;
@@ -238,7 +289,18 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
     };
 
     if oss {
-        codex_ollama::ensure_oss_ready(&config)
+        // We're in the oss section, so provider_id should be Some
+        // Let's handle None case gracefully though just in case
+        let provider_id = match model_provider.as_ref() {
+            Some(id) => id,
+            None => {
+                error!("OSS provider unexpectedly not set when oss flag is used");
+                return Err(anyhow::anyhow!(
+                    "OSS provider not set but oss flag was used"
+                ));
+            }
+        };
+        ensure_oss_provider_ready(provider_id, &config)
             .await
             .map_err(|e| anyhow::anyhow!("OSS setup failed: {e}"))?;
     }
@@ -354,6 +416,16 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
     // exit with a non-zero status for automation-friendly signaling.
     let mut error_seen = false;
     while let Some(event) = rx.recv().await {
+        if let EventMsg::ElicitationRequest(ev) = &event.msg {
+            // Automatically cancel elicitation requests in exec mode.
+            conversation
+                .submit(Op::ResolveElicitation {
+                    server_name: ev.server_name.clone(),
+                    request_id: ev.id.clone(),
+                    decision: ElicitationAction::Cancel,
+                })
+                .await?;
+        }
         if matches!(event.msg, EventMsg::Error(_)) {
             error_seen = true;
         }
@@ -373,280 +445,6 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
         std::process::exit(1);
     }
 
-    Ok(())
-}
-
-/// Run codex-exec with a callback that receives each streamed ThreadEvent.
-pub async fn run_with_thread_event_callback<F>(
-    cli: Cli,
-    codex_linux_sandbox_exe: Option<PathBuf>,
-    callback: F,
-) -> anyhow::Result<()>
-where
-    F: FnMut(exec_events::ThreadEvent) + Send + 'static,
-{
-    if let Err(err) = set_default_originator("codex_exec".to_string()) {
-        tracing::warn!(?err, "Failed to set codex exec originator override {err:?}");
-    }
-
-    let Cli {
-        command,
-        images,
-        model: model_cli_arg,
-        oss,
-        config_profile,
-        full_auto,
-        dangerously_bypass_approvals_and_sandbox,
-        cwd,
-        skip_git_repo_check,
-        add_dir,
-        color,
-        last_message_file,
-        json: _json_mode,
-        sandbox_mode: sandbox_mode_cli_arg,
-        prompt,
-        output_schema: output_schema_path,
-        config_overrides,
-    } = cli;
-
-    let prompt_arg = match &command {
-        Some(cli::Command::Resume(args)) => args.prompt.clone().or(prompt),
-        None => prompt,
-    };
-
-    let prompt = match prompt_arg {
-        Some(p) if p != "-" => p,
-        maybe_dash => {
-            let force_stdin = matches!(maybe_dash.as_deref(), Some("-"));
-            if std::io::stdin().is_terminal() && !force_stdin {
-                eprintln!(
-                    "No prompt provided. Either specify one as an argument or pipe the prompt into stdin."
-                );
-                std::process::exit(1);
-            }
-            if !force_stdin {
-                eprintln!("Reading prompt from stdin...");
-            }
-            let mut buffer = String::new();
-            if let Err(e) = std::io::stdin().read_to_string(&mut buffer) {
-                eprintln!("Failed to read prompt from stdin: {e}");
-                std::process::exit(1);
-            } else if buffer.trim().is_empty() {
-                eprintln!("No prompt provided via stdin.");
-                std::process::exit(1);
-            }
-            buffer
-        }
-    };
-
-    let output_schema = load_output_schema(output_schema_path);
-
-    let (_stdout_with_ansi, stderr_with_ansi) = match color {
-        cli::Color::Always => (true, true),
-        cli::Color::Never => (false, false),
-        cli::Color::Auto => (
-            supports_color::on_cached(Stream::Stdout).is_some(),
-            supports_color::on_cached(Stream::Stderr).is_some(),
-        ),
-    };
-
-    let default_level = "error";
-    let env_filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(default_level))
-        .unwrap_or_else(|_| EnvFilter::new(default_level));
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .with_ansi(stderr_with_ansi)
-        .with_writer(std::io::stderr)
-        .with_filter(env_filter);
-
-    let sandbox_mode = if full_auto {
-        Some(codex_protocol::config_types::SandboxMode::WorkspaceWrite)
-    } else if dangerously_bypass_approvals_and_sandbox {
-        Some(codex_protocol::config_types::SandboxMode::DangerFullAccess)
-    } else {
-        sandbox_mode_cli_arg.map(Into::<codex_protocol::config_types::SandboxMode>::into)
-    };
-
-    let model = if let Some(model) = model_cli_arg {
-        Some(model)
-    } else if oss {
-        Some(codex_ollama::DEFAULT_OSS_MODEL.to_owned())
-    } else {
-        None
-    };
-    let model_provider = if oss {
-        Some(codex_core::BUILT_IN_OSS_MODEL_PROVIDER_ID.to_string())
-    } else {
-        None
-    };
-
-    let overrides = codex_core::config::ConfigOverrides {
-        model,
-        review_model: None,
-        config_profile,
-        approval_policy: Some(codex_core::protocol::AskForApproval::Never),
-        sandbox_mode,
-        cwd: cwd.map(|p| p.canonicalize().unwrap_or(p)),
-        model_provider,
-        codex_linux_sandbox_exe,
-        base_instructions: None,
-        developer_instructions: None,
-        compact_prompt: None,
-        include_apply_patch_tool: None,
-        show_raw_agent_reasoning: oss.then_some(true),
-        tools_web_search_request: None,
-        experimental_sandbox_command_assessment: None,
-        additional_writable_roots: add_dir,
-    };
-    let cli_kv_overrides = match config_overrides.parse_overrides() {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("Error parsing -c overrides: {e}");
-            std::process::exit(1);
-        }
-    };
-    let config =
-        codex_core::config::Config::load_with_cli_overrides(cli_kv_overrides, overrides).await?;
-    if let Err(err) = codex_core::auth::enforce_login_restrictions(&config).await {
-        eprintln!("{err}");
-        std::process::exit(1);
-    }
-
-    let otel = codex_core::otel_init::build_provider(&config, env!("CARGO_PKG_VERSION"));
-    #[allow(clippy::print_stderr)]
-    let otel = match otel {
-        Ok(otel) => otel,
-        Err(e) => {
-            eprintln!("Could not create otel exporter: {e}");
-            std::process::exit(1);
-        }
-    };
-    if let Some(provider) = otel.as_ref() {
-        let otel_layer = OpenTelemetryTracingBridge::new(&provider.logger).with_filter(
-            tracing_subscriber::filter::filter_fn(codex_core::otel_init::codex_export_filter),
-        );
-        let _ = tracing_subscriber::registry()
-            .with(fmt_layer)
-            .with(otel_layer)
-            .try_init();
-    } else {
-        let _ = tracing_subscriber::registry().with(fmt_layer).try_init();
-    }
-
-    if oss {
-        codex_ollama::ensure_oss_ready(&config)
-            .await
-            .map_err(|e| anyhow::anyhow!("OSS setup failed: {e}"))?;
-    }
-
-    let default_cwd = config.cwd.to_path_buf();
-    if !skip_git_repo_check && codex_core::git_info::get_git_repo_root(&default_cwd).is_none() {
-        eprintln!("Not inside a trusted directory and --skip-git-repo-check was not specified.");
-        std::process::exit(1);
-    }
-
-    let auth_manager = AuthManager::shared(
-        config.codex_home.clone(),
-        true,
-        config.cli_auth_credentials_store_mode,
-    );
-    let conversation_manager = codex_core::ConversationManager::new(
-        auth_manager.clone(),
-        codex_core::protocol::SessionSource::Exec,
-    );
-
-    // Handle resume subcommand similar to run_main
-    let codex_core::NewConversation {
-        conversation_id: _,
-        conversation,
-        session_configured,
-    } = if let Some(cli::Command::Resume(args)) = &command {
-        let resume_path = resolve_resume_path(&config, args).await?;
-        if let Some(path) = resume_path {
-            conversation_manager
-                .resume_conversation_from_rollout(config.clone(), path, auth_manager.clone())
-                .await?
-        } else {
-            conversation_manager
-                .new_conversation(config.clone())
-                .await?
-        }
-    } else {
-        conversation_manager
-            .new_conversation(config.clone())
-            .await?
-    };
-
-    let mut event_processor: Box<dyn crate::event_processor::EventProcessor> =
-        callback_event_processor(Box::new(callback), last_message_file.clone());
-
-    // Print effective configuration
-    event_processor.print_config_summary(&config, &prompt, &session_configured);
-
-    let prompt_items: Vec<codex_protocol::user_input::UserInput> = images
-        .into_iter()
-        .map(|path| codex_protocol::user_input::UserInput::LocalImage { path })
-        .chain(std::iter::once(
-            codex_protocol::user_input::UserInput::Text { text: prompt },
-        ))
-        .collect();
-
-    let task_id = conversation
-        .submit(codex_core::protocol::Op::UserTurn {
-            items: prompt_items,
-            cwd: default_cwd,
-            approval_policy: config.approval_policy,
-            sandbox_policy: config.sandbox_policy.clone(),
-            model: config.model.clone(),
-            effort: config.model_reasoning_effort,
-            summary: config.model_reasoning_summary,
-            final_output_json_schema: output_schema,
-        })
-        .await?;
-    info!("Sent prompt with event ID: {task_id}");
-
-    // Mirror run_main event loop with CTRL-C handling
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<codex_core::protocol::Event>();
-    {
-        let conversation = conversation.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = tokio::signal::ctrl_c() => {
-                        tracing::debug!("Keyboard interrupt");
-                        conversation.submit(codex_core::protocol::Op::Interrupt).await.ok();
-                        break;
-                    }
-                    res = conversation.next_event() => match res {
-                        Ok(event) => {
-                            let is_shutdown_complete = matches!(event.msg, codex_core::protocol::EventMsg::ShutdownComplete);
-                            if let Err(e) = tx.send(event) {
-                                error!("Error sending event: {e:?}");
-                                break;
-                            }
-                            if is_shutdown_complete {
-                                info!("Received shutdown event, exiting event loop.");
-                                break;
-                            }
-                        },
-                        Err(e) => {
-                            error!("Error receiving event: {e:?}");
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    while let Some(event) = rx.recv().await {
-        let shutdown = event_processor.process_event(event);
-        match shutdown {
-            crate::event_processor::CodexStatus::Running => continue,
-            crate::event_processor::CodexStatus::InitiateShutdown => break,
-            crate::event_processor::CodexStatus::Shutdown => break,
-        }
-    }
     Ok(())
 }
 

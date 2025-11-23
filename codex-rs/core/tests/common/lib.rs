@@ -3,6 +3,7 @@
 use portable_pty::PtySize;
 use portable_pty::native_pty_system;
 use tempfile::TempDir;
+use shlex;
 
 use codex_core::CodexConversation;
 use codex_core::config::Config;
@@ -195,6 +196,15 @@ pub fn can_open_pty() -> bool {
             pixel_height: 0,
         })
         .is_ok()
+}
+
+pub fn format_with_current_shell(command: &str) -> Vec<String> {
+    codex_core::shell::default_user_shell().derive_exec_args(command, true)
+}
+
+pub fn format_with_current_shell_display(command: &str) -> String {
+    let args = format_with_current_shell(command);
+    shlex::try_join(args.iter().map(String::as_str)).expect("serialize current shell command")
 }
 
 pub mod fs_wait {

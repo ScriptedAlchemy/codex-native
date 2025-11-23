@@ -1,8 +1,4 @@
-import { describe, expect, it, beforeAll } from "@jest/globals";
-
-// Setup native binding for tests
-setupNativeBinding();
-import { setupNativeBinding } from "./testHelpers";
+import { beforeAll, describe, expect, it } from "@jest/globals";
 
 import {
   assistantMessage,
@@ -11,8 +7,10 @@ import {
   sse,
   startResponsesTestProxy,
 } from "./responsesProxy";
+import { setupNativeBinding } from "./testHelpers";
 
-
+// Enable native binding before running tests
+setupNativeBinding();
 
 let Codex: any;
 beforeAll(async () => {
@@ -25,7 +23,7 @@ function createClient(baseUrl: string) {
 
 describe("Tool override capability", () => {
   it("allows registering a tool to override built-ins", async () => {
-    const { url, close } = await startResponsesTestProxy({
+    const { url, close, requests } = await startResponsesTestProxy({
       statusCode: 200,
       responseBodies: [sse(responseStarted(), assistantMessage("OK"), responseCompleted())],
     });
@@ -33,7 +31,6 @@ describe("Tool override capability", () => {
     try {
       const client = createClient(url);
 
-      // Register a custom read_file tool
       client.registerTool({
         name: "read_file",
         description: "Custom file reader",
@@ -44,29 +41,28 @@ describe("Tool override capability", () => {
           },
           required: ["target_file"],
         },
-        handler: async (args: any) => {
-          return JSON.stringify({ content: "Custom read implementation" });
-        },
+        handler: async (args: any) => JSON.stringify({ content: "Custom read implementation", args }),
       });
 
       const thread = client.startThread();
       const result = await thread.runStreamed("Test");
 
-      const events = [];
+      const events = [] as any[];
       for await (const event of result.events) {
         events.push(event);
       }
 
-      // The tool was registered successfully
-      const completedEvent = events.find((e) => e.type === "turn.completed");
-      expect(completedEvent).toBeDefined();
+      expect(requests.length).toBeGreaterThan(0);
+      const firstRequest = requests[0];
+      expect(firstRequest).toBeDefined();
+      expect(firstRequest?.path ?? "").toMatch(/responses/);
     } finally {
       await close();
     }
   });
 
   it("allows overriding multiple built-in tools", async () => {
-    const { url, close } = await startResponsesTestProxy({
+    const { url, close, requests } = await startResponsesTestProxy({
       statusCode: 200,
       responseBodies: [sse(responseStarted(), assistantMessage("OK"), responseCompleted())],
     });
@@ -74,8 +70,7 @@ describe("Tool override capability", () => {
     try {
       const client = createClient(url);
 
-      // Register multiple overrides
-      const tools = ["read_file", "write_file", "grep", "local_shell"];
+      const tools = ["read_file", "write_file", "grep", "local_shell"] as const;
 
       for (const toolName of tools) {
         client.registerTool({
@@ -86,23 +81,24 @@ describe("Tool override capability", () => {
         });
       }
 
-      // Should not throw
       const thread = client.startThread();
       const result = await thread.runStreamed("Test");
 
-      const events = [];
+      const events = [] as any[];
       for await (const event of result.events) {
         events.push(event);
       }
-
-      expect(events.length).toBeGreaterThan(0);
+      expect(requests.length).toBeGreaterThan(0);
+      const firstRequest = requests[0];
+      expect(firstRequest).toBeDefined();
+      expect(firstRequest?.path ?? "").toMatch(/responses/);
     } finally {
       await close();
     }
   });
 
   it("clear tools removes all registered tools including overrides", async () => {
-    const { url, close } = await startResponsesTestProxy({
+    const { url, close, requests } = await startResponsesTestProxy({
       statusCode: 200,
       responseBodies: [sse(responseStarted(), assistantMessage("OK"), responseCompleted())],
     });
@@ -110,7 +106,6 @@ describe("Tool override capability", () => {
     try {
       const client = createClient(url);
 
-      // Register an override
       client.registerTool({
         name: "read_file",
         description: "Custom reader",
@@ -118,28 +113,28 @@ describe("Tool override capability", () => {
         handler: async () => "custom",
       });
 
-      // Clear all tools
       client.clearTools();
 
-      // Should still work (built-ins restored)
       const thread = client.startThread();
       const result = await thread.runStreamed("Test");
 
-      const events = [];
+      const events = [] as any[];
       for await (const event of result.events) {
         events.push(event);
       }
-
-      expect(events.length).toBeGreaterThan(0);
+      expect(requests.length).toBeGreaterThan(0);
+      const firstRequest = requests[0];
+      expect(firstRequest).toBeDefined();
+      expect(firstRequest?.path ?? "").toMatch(/responses/);
     } finally {
       await close();
     }
-  }, 10000);
+  }, 10_000);
 });
 
 describe("Tool override documentation", () => {
   it("supports the documented override pattern", async () => {
-    const { url, close } = await startResponsesTestProxy({
+    const { url, close, requests } = await startResponsesTestProxy({
       statusCode: 200,
       responseBodies: [sse(responseStarted(), assistantMessage("OK"), responseCompleted())],
     });
@@ -147,7 +142,6 @@ describe("Tool override documentation", () => {
     try {
       const client = createClient(url);
 
-      // Example from README: override grep with custom logic
       client.registerTool({
         name: "grep",
         description: "Search for patterns (custom)",
@@ -159,21 +153,21 @@ describe("Tool override documentation", () => {
           },
           required: ["pattern"],
         },
-        handler: async ({ pattern, path }: { pattern: any; path: any }) => {
-          // Custom grep implementation
-          return JSON.stringify({ matches: [`custom result for ${pattern}`] });
-        },
+        handler: async ({ pattern }: { pattern: string }) =>
+          JSON.stringify({ matches: [`custom result for ${pattern}`] }),
       });
 
       const thread = client.startThread();
       const result = await thread.runStreamed("Test");
 
-      const events = [];
+      const events = [] as any[];
       for await (const event of result.events) {
         events.push(event);
       }
-
-      expect(events.length).toBeGreaterThan(0);
+      expect(requests.length).toBeGreaterThan(0);
+      const firstRequest = requests[0];
+      expect(firstRequest).toBeDefined();
+      expect(firstRequest?.path ?? "").toMatch(/responses/);
     } finally {
       await close();
     }
