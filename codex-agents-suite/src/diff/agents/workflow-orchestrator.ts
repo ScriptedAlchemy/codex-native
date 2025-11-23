@@ -22,6 +22,7 @@ export class AgentWorkflowOrchestrator {
   private supervisorLogThread: Thread | null;
   private coordinatorThread: Thread | null = null;
   private readonly activeFiles = new Set<string>();
+  private readonly pathLocks = new Map<string, Promise<void>>();
 
   constructor(private readonly config: AgentWorkflowConfig) {
     this.git = new GitRepo(this.config.workingDirectory);
@@ -120,7 +121,9 @@ export class AgentWorkflowOrchestrator {
     const active = new Set<Promise<void>>();
 
     const schedule = (conflict: ConflictContext): void => {
-      const task = this.handleConflict(conflict, coordinatorPlan, remoteComparison)
+      const prior = this.pathLocks.get(conflict.path) ?? Promise.resolve();
+      const task = prior
+        .then(() => this.handleConflict(conflict, coordinatorPlan, remoteComparison))
         .then((outcome) => {
           outcomes.push(outcome);
         })
@@ -135,8 +138,10 @@ export class AgentWorkflowOrchestrator {
         .finally(() => {
           this.activeFiles.delete(conflict.path);
           active.delete(task);
+          this.pathLocks.delete(conflict.path);
         });
       active.add(task);
+      this.pathLocks.set(conflict.path, task);
     };
 
     for (const conflict of simpleConflicts) {

@@ -23,6 +23,13 @@ export type SolverConfig = {
    * Complex conflicts are still processed sequentially to keep logging legible.
    */
   maxConcurrentSimpleWorkers?: number;
+  /** Threshold to route conflicts to OpenCode fallback. Default 1200. */
+  openCodeSeverityThreshold?: number;
+  /** Optional custom instructions for agents. */
+  coordinatorInstructions?: string;
+  workerInstructions?: string;
+  reviewerInstructions?: string;
+  supervisorInstructions?: string;
 };
 
 export type RepoSnapshot = {

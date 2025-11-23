@@ -24,5 +24,10 @@ export function convertToAgentConfig(config: SolverConfig): AgentWorkflowConfig 
     reasoningEffort: config.reasoningEffort,
     originRef: config.originRef,
     upstreamRef: config.upstreamRef,
+    openCodeSeverityThreshold: config.openCodeSeverityThreshold,
+    coordinatorInstructions: config.coordinatorInstructions,
+    workerInstructions: config.workerInstructions,
+    reviewerInstructions: config.reviewerInstructions,
+    supervisorInstructions: config.supervisorInstructions,
   };
 }
