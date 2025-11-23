@@ -99,6 +99,7 @@ export class AgentWorkflowOrchestrator {
       model: this.config.coordinatorModel,
       coordinatorInstructions: this.config.coordinatorInstructions,
       approvalSupervisor: this.approvalSupervisor,
+      reasoningEffort: this.config.reasoningEffort ?? "high",
     });
 
     const slimInput = this.shrinkCoordinatorInput(input);
@@ -199,6 +200,7 @@ export class AgentWorkflowOrchestrator {
       model: this.config.reviewerModel,
       reviewerInstructions: this.config.reviewerInstructions,
       approvalSupervisor: this.approvalSupervisor,
+      reasoningEffort: this.config.reasoningEffort ?? "high",
     });
 
     const status = await this.git.getStatusShort();
@@ -277,6 +279,7 @@ export class AgentWorkflowOrchestrator {
       conflictPath: conflict.path,
       workerInstructions: this.config.workerInstructions,
       approvalSupervisor: this.approvalSupervisor,
+      reasoningEffort: this.config.reasoningEffort ?? "high",
     });
 
     try {

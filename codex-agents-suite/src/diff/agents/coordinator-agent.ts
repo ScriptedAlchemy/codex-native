@@ -15,7 +15,11 @@ import type { AgentConfig, AgentFactory, CoordinatorInput } from "./types.js";
  * Create a Coordinator Agent using the @openai/agents framework
  */
 export function createCoordinatorAgent(
-  config: AgentConfig & { model?: string; approvalSupervisor?: ApprovalSupervisor | null }
+  config: AgentConfig & {
+    model?: string;
+    approvalSupervisor?: ApprovalSupervisor | null;
+    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  }
 ): AgentFactory {
   const provider = new CodexProvider({
     defaultModel: config.model || DEFAULT_COORDINATOR_MODEL,
@@ -25,6 +29,7 @@ export function createCoordinatorAgent(
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     skipGitRepoCheck: config.skipGitRepoCheck ?? false,
+    reasoningEffort: config.reasoningEffort ?? "high",
   });
 
   if (config.approvalSupervisor?.isAvailable?.()) {

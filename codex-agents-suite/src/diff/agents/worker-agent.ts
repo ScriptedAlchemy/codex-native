@@ -36,7 +36,12 @@ const DEFAULT_LOW_REASONING_MATCHERS = [
  * Create worker agent
  */
 export function createWorkerAgent(
-  config: AgentConfig & { model?: string; conflictPath?: string; approvalSupervisor?: ApprovalSupervisor | null }
+  config: AgentConfig & {
+    model?: string;
+    conflictPath?: string;
+    approvalSupervisor?: ApprovalSupervisor | null;
+    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  }
 ): AgentFactory {
   const provider = new CodexProvider({
     defaultModel: config.model || DEFAULT_WORKER_MODEL,
@@ -46,6 +51,7 @@ export function createWorkerAgent(
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     skipGitRepoCheck: config.skipGitRepoCheck ?? false,
+    reasoningEffort: config.reasoningEffort ?? "high",
   });
 
   if (config.approvalSupervisor?.isAvailable?.()) {

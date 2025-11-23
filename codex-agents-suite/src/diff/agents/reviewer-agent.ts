@@ -12,7 +12,11 @@ import { DEFAULT_REVIEWER_MODEL } from "../merge/constants.js";
 import type { AgentConfig, AgentFactory, ReviewerInput } from "./types.js";
 
 export function createReviewerAgent(
-  config: AgentConfig & { model?: string; approvalSupervisor?: ApprovalSupervisor | null }
+  config: AgentConfig & {
+    model?: string;
+    approvalSupervisor?: ApprovalSupervisor | null;
+    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  }
 ): AgentFactory {
   const provider = new CodexProvider({
     defaultModel: config.model || DEFAULT_REVIEWER_MODEL,
@@ -22,6 +26,7 @@ export function createReviewerAgent(
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     skipGitRepoCheck: config.skipGitRepoCheck ?? false,
+    reasoningEffort: config.reasoningEffort ?? "high",
   });
 
   if (config.approvalSupervisor?.isAvailable?.()) {

@@ -59,6 +59,18 @@ export interface CodexProviderOptions extends CodexOptions {
    * @default "danger-full-access"
    */
   sandboxMode?: ThreadOptions["sandboxMode"];
+
+  /**
+   * Reasoning effort level for reasoning-capable models
+   * @default "medium"
+   */
+  reasoningEffort?: ThreadOptions["reasoningEffort"];
+
+  /**
+   * Reasoning summary preference for reasoning-capable models
+   * @default "auto"
+   */
+  reasoningSummary?: ThreadOptions["reasoningSummary"];
 }
 
 /**
@@ -202,6 +214,8 @@ class CodexModel implements Model {
       skipGitRepoCheck: this.options.skipGitRepoCheck,
       sandboxMode: this.options.sandboxMode ?? "danger-full-access",
       approvalMode: this.options.approvalMode,
+      reasoningEffort: this.options.reasoningEffort,
+      reasoningSummary: this.options.reasoningSummary,
     };
   }
 
