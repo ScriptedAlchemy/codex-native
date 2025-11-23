@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use assert_cmd::Command;
 use pretty_assertions::assert_eq;
 use std::fs;

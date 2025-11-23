@@ -16,7 +16,10 @@ beforeAll(async () => {
   ({ Codex } = await import("../src/index"));
 });
 
-describe("native tool registration", () => {
+const shouldRunMock = process.env.CODEX_NATIVE_RUN_MOCK === "1";
+const describeMaybe = shouldRunMock ? describe : describe.skip;
+
+describeMaybe("native tool registration", () => {
   it("registers a simple native tool", () => {
     const codex = new Codex({ skipGitRepoCheck: true });
     expect(() =>

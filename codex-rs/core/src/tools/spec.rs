@@ -1490,9 +1490,6 @@ mod tests {
                 "read_mcp_resource",
                 "update_plan",
                 "apply_patch",
-                "grep_files",
-                "read_file",
-                "list_dir",
                 "view_image",
             ],
         );
@@ -1544,14 +1541,15 @@ mod tests {
     #[test]
     fn test_build_specs_shell_command_present() {
         assert_model_tools(
-            "codex-mini-latest",
-            Features::with_defaults().enable(Feature::ShellCommandTool),
+            "gpt-5.1-codex-max",
+            Features::with_defaults().enable(Feature::ShellTool),
             &[
                 "shell_command",
                 "list_mcp_resources",
                 "list_mcp_resource_templates",
                 "read_mcp_resource",
                 "update_plan",
+                "apply_patch",
                 "grep_files",
                 "read_file",
                 "list_dir",

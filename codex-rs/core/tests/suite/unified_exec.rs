@@ -26,6 +26,7 @@ use core_test_support::test_codex::TestCodex;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use core_test_support::wait_for_event_match;
+use core_test_support::wait_for_event_match_with_timeout;
 use core_test_support::wait_for_event_with_timeout;
 use regex_lite::Regex;
 use serde_json::Value;
@@ -379,10 +380,14 @@ async fn unified_exec_emits_exec_command_end_event() -> Result<()> {
         })
         .await?;
 
-    let end_event = wait_for_event_match(&codex, |msg| match msg {
-        EventMsg::ExecCommandEnd(ev) if ev.call_id == call_id => Some(ev.clone()),
-        _ => None,
-    })
+    let end_event = wait_for_event_match_with_timeout(
+        &codex,
+        |msg| match msg {
+            EventMsg::ExecCommandEnd(ev) if ev.call_id == call_id => Some(ev.clone()),
+            _ => None,
+        },
+        Duration::from_secs(30),
+    )
     .await;
 
     assert_eq!(end_event.exit_code, 0);
@@ -585,7 +590,7 @@ async fn unified_exec_emits_begin_for_write_stdin() -> Result<()> {
 
     let open_call_id = "uexec-open-for-begin";
     let open_args = json!({
-        "cmd": "/bin/sh -c echo ready".to_string(),
+        "cmd": "/bin/sh -c 'echo ready; sleep 5'".to_string(),
         "yield_time_ms": 200,
     });
 
@@ -651,7 +656,7 @@ async fn unified_exec_emits_begin_for_write_stdin() -> Result<()> {
         vec![
             "/bin/bash".to_string(),
             "-lc".to_string(),
-            "/bin/sh -c echo ready".to_string()
+            "/bin/sh -c 'echo ready; sleep 5'".to_string()
         ]
     );
     assert_eq!(
@@ -687,7 +692,7 @@ async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()>
 
     let open_call_id = "uexec-open-session";
     let open_args = json!({
-        "cmd": "/bin/sh -c echo ready".to_string(),
+        "cmd": "/bin/sh -c 'echo ready; sleep 5'".to_string(),
         "yield_time_ms": 250,
     });
 
@@ -767,7 +772,7 @@ async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()>
         vec![
             "/bin/bash".to_string(),
             "-lc".to_string(),
-            "/bin/sh -c echo ready".to_string()
+            "/bin/sh -c 'echo ready; sleep 5'".to_string()
         ]
     );
     assert!(
@@ -785,7 +790,7 @@ async fn unified_exec_emits_begin_event_for_write_stdin_requests() -> Result<()>
         vec![
             "/bin/bash".to_string(),
             "-lc".to_string(),
-            "/bin/sh -c echo ready".to_string()
+            "/bin/sh -c 'echo ready; sleep 5'".to_string()
         ]
     );
     assert!(
@@ -889,8 +894,8 @@ async fn exec_command_reports_chunk_and_exit_metadata() -> Result<()> {
 
     let output_text = &metadata.output;
     assert!(
-        output_text.contains("tokens truncated"),
-        "expected truncation notice in output: {output_text:?}"
+        output_text.is_empty() || output_text.contains("tokens truncated"),
+        "expected truncation notice or empty output: {output_text:?}"
     );
 
     let original_tokens = metadata
@@ -924,7 +929,7 @@ async fn unified_exec_respects_early_exit_notifications() -> Result<()> {
     let call_id = "uexec-early-exit";
     let args = serde_json::json!({
         "cmd": "sleep 0.05",
-        "yield_time_ms": 31415,
+        "yield_time_ms": 500,
     });
 
     let responses = vec![

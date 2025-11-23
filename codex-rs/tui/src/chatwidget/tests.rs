@@ -196,8 +196,11 @@ fn background_events_render_in_history() {
     });
 
     let cells = drain_insert_history(&mut rx);
-    let last = lines_to_single_string(cells.last().expect("background cell"));
-    assert!(last.contains("Subsystem warmed up"));
+    assert!(
+        cells.is_empty(),
+        "background events no longer add history cells"
+    );
+    assert_eq!(chat.current_status_header, "Subsystem warmed up");
 }
 
 #[test]
@@ -214,12 +217,15 @@ fn lsp_background_events_emit_notifications() {
     });
 
     let cells = drain_insert_history(&mut rx);
-    let last = lines_to_single_string(cells.last().expect("diagnostic cell"));
-    assert!(last.contains("LSP diagnostics detected"));
-    assert!(matches!(
-        chat.pending_notification,
-        Some(Notification::LspDiagnostics { .. })
-    ));
+    assert!(
+        cells.is_empty(),
+        "background events no longer add history cells"
+    );
+    assert_eq!(
+        chat.current_status_header,
+        "LSP diagnostics detected:\n• src/lib.rs\n  - [ERROR] Missing semicolon"
+    );
+    assert!(chat.pending_notification.is_none());
 }
 
 /// Completing review with findings shows the selection popup and finishes with
@@ -2211,10 +2217,9 @@ fn background_event_updates_status_header() {
     assert!(chat.bottom_pane.status_indicator_visible());
     assert_eq!(chat.current_status_header, "Waiting for `vim`");
     let history_cells = drain_insert_history(&mut rx);
-    assert_eq!(history_cells.len(), 1);
-    assert_eq!(
-        lines_to_single_string(&history_cells[0]),
-        "ℹ Waiting for `vim`\n"
+    assert!(
+        history_cells.is_empty(),
+        "background events now only update status header"
     );
 }
 

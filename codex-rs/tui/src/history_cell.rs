@@ -1258,6 +1258,7 @@ pub(crate) fn new_error_event(message: String) -> PlainHistoryCell {
     PlainHistoryCell { lines }
 }
 
+#[allow(dead_code)]
 pub(crate) fn new_background_event(message: String) -> PlainHistoryCell {
     let icon = "ℹ".dim();
     let lines = if message.trim().is_empty() {
@@ -1268,6 +1269,7 @@ pub(crate) fn new_background_event(message: String) -> PlainHistoryCell {
     PlainHistoryCell { lines }
 }
 
+#[allow(dead_code)]
 pub(crate) fn new_diagnostic_event(message: String) -> PlainHistoryCell {
     let mut lines: Vec<Line<'static>> = Vec::new();
     let normalized = message.trim_matches('\n');

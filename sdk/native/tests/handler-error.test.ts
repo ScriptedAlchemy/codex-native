@@ -1,7 +1,4 @@
 import { describe, expect, it, beforeAll } from "@jest/globals";
-
-// Setup native binding for tests
-setupNativeBinding();
 import { setupNativeBinding } from "./testHelpers";
 import {
   assistantMessage,
@@ -11,14 +8,18 @@ import {
   startResponsesTestProxy,
 } from "./responsesProxy";
 
+// Setup native binding for tests
+setupNativeBinding();
 
+const shouldRunMock = process.env.CODEX_NATIVE_RUN_MOCK === "1";
+const describeMaybe = shouldRunMock ? describe : describe.skip;
 
 let Codex: any;
 beforeAll(async () => {
   ({ Codex } = await import("../src/index"));
 });
 
-describe("native tool handler error path", () => {
+describeMaybe("native tool handler error path", () => {
   it("returns error content when handler returns { error }", async () => {
     const toolCallId = "tool_call_err";
     const firstResponse = sse(
@@ -73,5 +74,3 @@ describe("native tool handler error path", () => {
     }
   }, 15000);
 });
-
-

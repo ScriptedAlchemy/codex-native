@@ -204,10 +204,40 @@ export function evResponseCreated(id: string): string {
   return (binding as any).evResponseCreated(id);
 }
 
+export function evResponseStarted(id: string): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evResponseStarted(id);
+}
+
+export function evResponseDone(id: string): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evResponseDone(id);
+}
+
 export function evAssistantMessage(id: string, text: string): string {
   const binding = getNativeBinding();
   if (!binding) throw new Error("Native binding not available");
   return (binding as any).evAssistantMessage(id, text);
+}
+
+export function evThreadStarted(id: string): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evThreadStarted(id);
+}
+
+export function evTurnStarted(): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evTurnStarted();
+}
+
+export function evTurnCompleted(): string {
+  const binding = getNativeBinding();
+  if (!binding) throw new Error("Native binding not available");
+  return (binding as any).evTurnCompleted();
 }
 
 export function evFunctionCall(callId: string, name: string, args: string): string {

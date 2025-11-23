@@ -2,8 +2,8 @@
 
 use portable_pty::PtySize;
 use portable_pty::native_pty_system;
-use tempfile::TempDir;
 use shlex;
+use tempfile::TempDir;
 
 use codex_core::CodexConversation;
 use codex_core::config::Config;

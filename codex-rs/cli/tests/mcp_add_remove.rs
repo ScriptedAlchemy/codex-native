@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::path::Path;
 
 use anyhow::Result;

@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::mem::swap;
 use std::path::Path;
 use std::path::PathBuf;

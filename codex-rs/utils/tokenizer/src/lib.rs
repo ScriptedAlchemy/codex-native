@@ -84,8 +84,8 @@ impl Tokenizer {
         }
 
         let encoding = match name {
-            "o200k_base" => tiktoken_rs::get_bpe_from_tokenizer(tiktoken_rs::cl100k_base().0.clone(), "o200k_base"),
-            "cl100k_base" => tiktoken_rs::get_bpe_from_tokenizer(tiktoken_rs::cl100k_base().0.clone(), "cl100k_base"),
+            "o200k_base" => tiktoken_rs::o200k_base(),
+            "cl100k_base" => tiktoken_rs::cl100k_base(),
             other => return Err(TokenizerError::UnknownEncoding(other.to_string())),
         }
         .map_err(|e| TokenizerError::Other(e.into()))?;

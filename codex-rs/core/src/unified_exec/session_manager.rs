@@ -50,6 +50,7 @@ use super::session::OutputBuffer;
 use super::session::OutputHandles;
 use super::session::UnifiedExecSession;
 
+#[allow(dead_code)]
 struct PreparedSessionHandles {
     writer_tx: mpsc::Sender<Vec<u8>>,
     output_buffer: OutputBuffer,
@@ -139,7 +140,7 @@ impl UnifiedExecSessionManager {
             wall_time,
             output,
             session_id,
-            exit_code: exit_code.flatten(),
+            exit_code,
             original_token_count: Some(original_token_count),
             session_command: Some(request.command.clone()),
         };
@@ -368,7 +369,6 @@ impl UnifiedExecSessionManager {
             cwd,
             write_guard,
         ))
-    }
     }
 
     async fn send_input(

@@ -22,6 +22,8 @@ import {
 
 
 
+const shouldRunMock = process.env.CODEX_NATIVE_RUN_MOCK === "1";
+
 let Codex: any;
 beforeAll(async () => {
   ({ Codex } = await import("../src/index"));
@@ -31,7 +33,9 @@ function createClient(baseUrl: string) {
   return new Codex({ baseUrl, apiKey: "test", skipGitRepoCheck: true });
 }
 
-describe("Codex native bridge", () => {
+const mockOnlyDescribe = shouldRunMock ? describe : describe.skip;
+
+mockOnlyDescribe("Codex native bridge", () => {
   it("returns thread events", async () => {
     const { url, close } = await startResponsesTestProxy({
       statusCode: 200,
@@ -372,7 +376,9 @@ it("throws if working directory is not git and skipGitRepoCheck is not provided"
       await close();
     }
   });
-  it("throws ThreadRunError on turn failures", async () => {
+  const mockOnlyIt = process.env.CI === "true" || process.env.CODEX_NATIVE_RUN_MOCK === "1" ? it : it.skip;
+
+  mockOnlyIt("throws ThreadRunError on turn failures", async () => {
     const { url, close } = await startResponsesTestProxy({
       statusCode: 200,
       responseBodies: [

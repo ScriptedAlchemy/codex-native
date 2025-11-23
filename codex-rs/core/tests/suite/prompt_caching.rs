@@ -152,7 +152,6 @@ async fn prompt_tools_are_consistent_across_requests() -> anyhow::Result<()> {
         .await?;
     wait_for_event(&codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
 
-<<<<<<< HEAD
     let expected_tools_names = vec![
         "shell_command",
         "list_mcp_resources",
@@ -160,19 +159,11 @@ async fn prompt_tools_are_consistent_across_requests() -> anyhow::Result<()> {
         "read_mcp_resource",
         "update_plan",
         "apply_patch",
+        "grep_files",
+        "read_file",
+        "list_dir",
         "view_image",
     ];
-=======
-    let expected_tools_names = vec![
-        "shell_command",
-        "list_mcp_resources",
-        "list_mcp_resource_templates",
-        "read_mcp_resource",
-        "update_plan",
-        "apply_patch",
-        "view_image",
-    ];
->>>>>>> upstream/main
     let body0 = req1.single_request().body_json();
 
     let expected_instructions = if expected_tools_names.contains(&"apply_patch") {

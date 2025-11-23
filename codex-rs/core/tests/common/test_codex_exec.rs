@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used)]
+#![allow(clippy::expect_used, deprecated)]
 use codex_core::auth::CODEX_API_KEY_ENV_VAR;
 use std::path::Path;
 use tempfile::TempDir;

@@ -25,11 +25,8 @@ use mcp_types::ReadResourceResult;
 use mcp_types::RequestId;
 use reqwest::header::HeaderMap;
 use rmcp::model::CallToolRequestParam;
-use rmcp::model::ClientNotification;
 use rmcp::model::CreateElicitationRequestParam;
 use rmcp::model::CreateElicitationResult;
-use rmcp::model::CustomClientNotification;
-use rmcp::model::Extensions;
 use rmcp::model::InitializeRequestParam;
 use rmcp::model::PaginatedRequestParam;
 use rmcp::model::ReadResourceRequestParam;
@@ -372,18 +369,11 @@ impl RmcpClient {
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<()> {
-        let service: Arc<RunningService<RoleClient, LoggingClientHandler>> = self.service().await?;
-        service.service();
-        service
-            .send_notification(ClientNotification::CustomClientNotification(
-                CustomClientNotification {
-                    method: method.to_string(),
-                    params,
-                    extensions: Extensions::new(),
-                },
-            ))
-            .await?;
-        Ok(())
+        let _ = (method, params);
+        // Custom client notifications are not supported with rmcp 0.9 API.
+        Err(anyhow::anyhow!(
+            "Custom client notifications are not supported with the current rmcp version"
+        ))
     }
 
     async fn service(&self) -> Result<Arc<RunningService<RoleClient, LoggingClientHandler>>> {

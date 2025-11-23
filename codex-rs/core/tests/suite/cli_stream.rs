@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use assert_cmd::Command as AssertCommand;
 use assert_cmd::cargo::cargo_bin;
 use codex_core::RolloutRecorder;

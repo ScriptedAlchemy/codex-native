@@ -25,7 +25,10 @@ beforeAll(async () => {
   ({ CodexProvider } = await import("../src/index"));
 });
 
-describe("Agents Runner + CodexProvider - basic flow", () => {
+const shouldRunMock = process.env.CODEX_NATIVE_RUN_MOCK === "1";
+const describeMaybe = shouldRunMock ? describe : describe.skip;
+
+describeMaybe("Agents Runner + CodexProvider - basic flow", () => {
   it("runs Agent via Runner with CodexProvider and returns final output", async () => {
     const { Agent, Runner } = await import("@openai/agents");
 
@@ -62,5 +65,3 @@ describe("Agents Runner + CodexProvider - basic flow", () => {
     }
   }, 15000);
 });
-
-

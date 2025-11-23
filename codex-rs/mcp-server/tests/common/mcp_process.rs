@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::AtomicI64;

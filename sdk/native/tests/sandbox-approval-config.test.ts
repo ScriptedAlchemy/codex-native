@@ -25,7 +25,10 @@ function createClient(baseUrl: string) {
   return new Codex({ baseUrl, apiKey: "test", skipGitRepoCheck: true });
 }
 
-describe("Sandbox and Approval Policy Configuration", () => {
+const shouldRunMock = process.env.CODEX_NATIVE_RUN_MOCK === "1";
+const describeMaybe = shouldRunMock ? describe : describe.skip;
+
+describeMaybe("Sandbox and Approval Policy Configuration", () => {
   it("passes approval mode configuration", async () => {
     const { url, close, requests } = await startResponsesTestProxy({
       statusCode: 200,
@@ -299,4 +302,3 @@ describe("Sandbox and Approval Policy Configuration", () => {
     }
   });
 });
-

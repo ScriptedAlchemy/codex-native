@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
