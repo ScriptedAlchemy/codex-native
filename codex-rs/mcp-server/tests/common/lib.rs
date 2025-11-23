@@ -10,9 +10,54 @@ pub use responses::create_apply_patch_sse_response;
 pub use responses::create_final_assistant_message_sse_response;
 pub use responses::create_shell_command_sse_response;
 use serde::de::DeserializeOwned;
+use std::env;
+use std::path::PathBuf;
 
 pub fn to_response<T: DeserializeOwned>(response: JSONRPCResponse) -> anyhow::Result<T> {
     let value = serde_json::to_value(response.result)?;
     let codex_response = serde_json::from_value(value)?;
     Ok(codex_response)
+}
+
+pub fn find_binary(name: &str) -> anyhow::Result<PathBuf> {
+    let env_keys = [
+        format!("CARGO_BIN_EXE_{name}"),
+        format!("CARGO_BIN_EXE_{}", name.replace('-', "_")),
+    ];
+    for key in env_keys {
+        if let Ok(path) = env::var(&key) {
+            return Ok(PathBuf::from(path));
+        }
+    }
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or_else(|| anyhow::anyhow!("failed to locate workspace root from {manifest_dir:?}"))?;
+    let exe_name = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    };
+    let candidates = [
+        workspace_root
+            .join("target")
+            .join("test-cache")
+            .join(&exe_name),
+        workspace_root.join("target").join("debug").join(&exe_name),
+        workspace_root
+            .join("target")
+            .join("release")
+            .join(&exe_name),
+    ];
+    for candidate in candidates {
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "Unable to locate binary {name}; checked env vars and target directories"
+    ))
 }

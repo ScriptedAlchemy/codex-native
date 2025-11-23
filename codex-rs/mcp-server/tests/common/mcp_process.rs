@@ -14,6 +14,7 @@ use tokio::process::ChildStdout;
 use anyhow::Context;
 use codex_mcp_server::CodexToolCallParam;
 
+use crate::find_binary;
 use mcp_types::CallToolRequestParams;
 use mcp_types::ClientCapabilities;
 use mcp_types::Implementation;
@@ -55,9 +56,8 @@ impl McpProcess {
         codex_home: &Path,
         env_overrides: &[(&str, Option<&str>)],
     ) -> anyhow::Result<Self> {
-        // Use assert_cmd to locate the binary path and then switch to tokio::process::Command
-        let program = std::env::var("CARGO_BIN_EXE_codex-mcp-server")
-            .context("CARGO_BIN_EXE_codex-mcp-server not set; build codex-mcp-server")?;
+        let program = find_binary("codex-mcp-server")
+            .context("codex-mcp-server binary not found; run `cargo build -p codex-mcp-server`")?;
         let mut cmd = Command::new(program);
 
         cmd.stdin(Stdio::piped());

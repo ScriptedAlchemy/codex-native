@@ -12,6 +12,7 @@ use tokio::process::Child;
 use tokio::process::ChildStdin;
 use tokio::process::ChildStdout;
 
+use crate::find_binary;
 use anyhow::Context;
 use codex_app_server_protocol::AddConversationListenerParams;
 use codex_app_server_protocol::ArchiveConversationParams;
@@ -75,9 +76,8 @@ impl McpProcess {
         codex_home: &Path,
         env_overrides: &[(&str, Option<&str>)],
     ) -> anyhow::Result<Self> {
-        // Use the build-time-provided path to the codex-app-server binary.
-        let program = std::env::var("CARGO_BIN_EXE_codex-app-server")
-            .context("CARGO_BIN_EXE_codex-app-server not set; build codex-app-server")?;
+        let program = find_binary("codex-app-server")
+            .context("codex-app-server binary not found; run `cargo build -p codex-app-server`")?;
         let mut cmd = Command::new(program);
 
         cmd.stdin(Stdio::piped());
