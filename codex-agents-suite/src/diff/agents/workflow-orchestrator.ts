@@ -122,6 +122,11 @@ export class AgentWorkflowOrchestrator {
     const maxConcurrent = Math.max(1, this.config.maxConcurrentSimpleWorkers ?? 1);
     const active = new Set<Promise<void>>();
 
+    logInfo(
+      "worker",
+      `Queue split: ${simpleConflicts.length} simple, ${complexConflicts.length} complex (max ${maxConcurrent} simple in parallel)`,
+    );
+
     const schedule = (conflict: ConflictContext): void => {
       const prior = this.pathLocks.get(conflict.path) ?? Promise.resolve();
       const task = prior
@@ -183,7 +188,7 @@ export class AgentWorkflowOrchestrator {
     remoteComparison: CoordinatorInput["remoteComparison"],
     validationMode = false,
   ): Promise<string | null> {
-    logInfo("reviewer", "Running reviewer agent...");
+    logInfo(validationMode ? "validation" : "reviewer", "Running reviewer agent...");
 
     const { agent } = createReviewerAgent({
       workingDirectory: this.config.workingDirectory,
@@ -259,6 +264,7 @@ export class AgentWorkflowOrchestrator {
       highReasoningMatchers: this.config.highReasoningMatchers,
       lowReasoningMatchers: this.config.lowReasoningMatchers,
     });
+    logInfo("worker", `Selected model '${model}'`, conflict.path);
 
     const { agent } = createWorkerAgent({
       workingDirectory: this.config.workingDirectory,
@@ -304,6 +310,7 @@ export class AgentWorkflowOrchestrator {
     coordinatorPlan: string | null,
     remoteComparison: RemoteComparison | null,
   ): Promise<WorkerOutcome> {
+    logInfo("worker", "Delegating to OpenCode (complex/unresolved)", conflict.path);
     const outcome = await runOpenCodeResolution(conflict, {
       workingDirectory: this.config.workingDirectory,
       sandboxMode: this.config.sandboxMode,
