@@ -29,8 +29,8 @@ pub enum ReasoningEffort {
     Low,
     #[default]
     Medium,
-    #[serde(alias = "xhigh")]
     High,
+    XHigh,
 }
 
 /// A summary of the reasoning performed by the model. This can be useful for
@@ -118,7 +118,7 @@ mod tests {
     fn parsing_xhigh_falls_back_to_high() {
         let parsed: ReasoningEffort =
             serde_json::from_str("\"xhigh\"").expect("xhigh should deserialize");
-        assert_eq!(parsed, ReasoningEffort::High);
+        assert_eq!(parsed, ReasoningEffort::XHigh);
     }
 
     #[test]

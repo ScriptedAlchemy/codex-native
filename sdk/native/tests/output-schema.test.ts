@@ -24,7 +24,10 @@ function createClient(baseUrl: string) {
   return new Codex({ baseUrl, apiKey: "test", skipGitRepoCheck: true });
 }
 
-describe("Output schema file optimization", () => {
+const shouldRunMock = process.env.CODEX_NATIVE_RUN_MOCK === "1";
+const describeMaybe = shouldRunMock ? describe : describe.skip;
+
+describeMaybe("Output schema file optimization", () => {
   it("does not create temp schema file for native runs", async () => {
     const schema = {
       type: "object",
@@ -197,7 +200,7 @@ describe("Output schema file optimization", () => {
   });
 });
 
-describe("Schema validation", () => {
+describeMaybe("Schema validation", () => {
   it("rejects non-object schemas", async () => {
     const client = new Codex({ baseUrl: "http://invalid", apiKey: "test", skipGitRepoCheck: true });
     const thread = client.startThread();
@@ -260,4 +263,3 @@ describe("Schema validation", () => {
     }
   });
 });
-

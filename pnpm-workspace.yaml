@@ -4,8 +4,8 @@ packages:
   - codex-cli
   - codex-rs/responses-api-proxy/npm
   - sdk/typescript
-  - sdk/native
   - codex-agents-suite
+  - shell-tool-mcp
 
 ignoredBuiltDependencies:
   - esbuild

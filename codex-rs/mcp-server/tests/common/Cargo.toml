@@ -8,7 +8,6 @@ path = "lib.rs"
 
 [dependencies]
 anyhow = { workspace = true }
-assert_cmd = { workspace = true }
 codex-core = { workspace = true }
 codex-mcp-server = { workspace = true }
 mcp-types = { workspace = true }
@@ -23,3 +22,5 @@ tokio = { workspace = true, features = [
     "rt-multi-thread",
 ] }
 wiremock = { workspace = true }
+core_test_support = { path = "../../../core/tests/common" }
+shlex = { workspace = true }

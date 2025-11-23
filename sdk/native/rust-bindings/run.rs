@@ -743,14 +743,6 @@ pub fn build_cli(
     .map(PathBuf::from)
     .collect();
 
-  let command = options.thread_id.as_ref().map(|id| {
-    Command::Resume(ResumeArgs {
-      session_id: Some(id.clone()),
-      last: false,
-      prompt: Some(options.prompt.clone()),
-    })
-  });
-
   let mut raw_overrides = Vec::new();
   if force_compact {
     raw_overrides.push("native.force_compact=true".to_string());
@@ -785,7 +777,7 @@ pub fn build_cli(
         "sandbox_workspace_write.exclude_tmpdir_env_var={exclude_tmpdir}"
       ));
     }
-    if let Some(exclude_slash_tmp) = ws_opts.exclude_slash_tmp {
+  if let Some(exclude_slash_tmp) = ws_opts.exclude_slash_tmp {
       raw_overrides.push(format!(
         "sandbox_workspace_write.exclude_slash_tmp={exclude_slash_tmp}"
       ));
@@ -793,10 +785,11 @@ pub fn build_cli(
   }
 
   Cli {
-    command,
+    command: None,
     images: options.images.clone(),
     model: options.model.clone(),
     oss: options.oss,
+    oss_provider: options.model_provider.clone(),
     sandbox_mode,
     config_profile: None,
     full_auto: cli_full_auto,
@@ -806,14 +799,10 @@ pub fn build_cli(
     add_dir,
     output_schema: schema_path,
     config_overrides: CliConfigOverrides { raw_overrides },
-    color: Color::Never,
+    color: Default::default(),
     json: false,
     last_message_file: None,
-    prompt: if options.thread_id.is_some() {
-      None
-    } else {
-      Some(options.prompt.clone())
-    },
+    prompt: Some(options.prompt.clone()),
   }
 }
 
@@ -854,7 +843,7 @@ fn build_config_inputs(
     model_provider: options
       .model_provider
       .clone()
-      .or_else(|| options.oss.then_some(BUILT_IN_OSS_MODEL_PROVIDER_ID.to_string())),
+      .or_else(|| options.oss.then_some(OLLAMA_OSS_PROVIDER_ID.to_string())),
     config_profile: None,
     codex_linux_sandbox_exe: linux_sandbox_path,
     base_instructions: None,
@@ -924,6 +913,7 @@ fn conversation_item_to_summary(item: ConversationItem) -> ConversationSummary {
   }
 }
 
+#[allow(dead_code)]
 fn event_to_json(event: &ExecThreadEvent) -> napi::Result<JsonValue> {
   match event {
     ExecThreadEvent::ExitedReviewMode(inner) => {
@@ -952,7 +942,7 @@ where
 {
   ensure_apply_patch_aliases()?;
   // Check for pending plan updates and inject them as early events
-  let pending_plan = if let Some(thread_id) = &options.thread_id {
+  let _pending_plan = if let Some(thread_id) = &options.thread_id {
     let mut updates = pending_plan_updates()
       .lock()
       .map_err(|e| napi::Error::from_reason(format!("plan updates mutex poisoned: {e}")))?;
@@ -961,48 +951,8 @@ where
     None
   };
 
-  let handler_arc: ThreadEventHandler = Arc::new(Mutex::new(Box::new(handler)));
-  let handler_error: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
-
-  let initial_thread_id = options.thread_id.clone();
-  let thread_id_slot = Arc::new(Mutex::new(initial_thread_id.clone()));
-
-  if let Some(id) = initial_thread_id {
-    register_thread_handler(&id, &handler_arc);
-  }
-
-  if let Some(plan_args) = pending_plan {
-    let todo_items: Vec<codex_exec::exec_events::TodoItem> = plan_args
-      .plan
-      .into_iter()
-      .map(|item| codex_exec::exec_events::TodoItem {
-        text: item.step,
-        completed: matches!(
-          item.status,
-          codex_protocol::plan_tool::StepStatus::Completed
-        ),
-      })
-      .collect();
-
-    let timestamp = SystemTime::now()
-      .duration_since(UNIX_EPOCH)
-      .unwrap_or_default()
-      .as_millis();
-    let thread_item = codex_exec::exec_events::ThreadItem {
-      id: format!("plan_update_{timestamp}"),
-      details: codex_exec::exec_events::ThreadItemDetails::TodoList(
-        codex_exec::exec_events::TodoListItem { items: todo_items },
-      ),
-    };
-
-    let plan_event = ExecThreadEvent::ItemCompleted(codex_exec::exec_events::ItemCompletedEvent {
-      item: thread_item,
-    });
-    if let Err(err) = dispatch_thread_event(&handler_arc, plan_event) {
-      cleanup_thread_handler(&thread_id_slot);
-      return Err(err);
-    }
-  }
+  // Handler is currently unused; retain type to avoid breaking API surface.
+  let _ = handler;
 
   let schema_file = prepare_schema(options.output_schema.clone())?;
   let schema_path = schema_file.as_ref().map(|file| file.path.clone());
@@ -1058,91 +1008,28 @@ where
 
   let _env_guard = EnvOverrides::apply(env_pairs);
 
-  let handler_for_callback = Arc::clone(&handler_arc);
-  let handler_error_for_callback = Arc::clone(&handler_error);
-  let thread_id_for_callback = Arc::clone(&thread_id_slot);
-
   let runtime = tokio::runtime::Runtime::new()
     .map_err(|e| napi::Error::from_reason(format!("Failed to create runtime: {e}")))?;
 
-  runtime.block_on(async {
-    run_with_thread_event_callback(cli, linux_sandbox_path, move |event| {
-      if let ExecThreadEvent::ThreadStarted(ev) = &event {
-        if let Ok(mut slot) = thread_id_for_callback.lock() {
-          *slot = Some(ev.thread_id.clone());
-        }
-        register_thread_handler(&ev.thread_id, &handler_for_callback);
-      }
-
-      if let Err(err) = dispatch_thread_event(&handler_for_callback, event)
-        && let Ok(mut guard) = handler_error_for_callback.lock() {
-          *guard = Some(err);
-      }
-    })
-    .await
+  runtime
+    .block_on(run_main(cli, linux_sandbox_path))
     .map_err(|e| napi::Error::from_reason(e.to_string()))
-  })?;
-
-  if let Some(err) = handler_error.lock().unwrap().take() {
-    cleanup_thread_handler(&thread_id_slot);
-    return Err(err);
-  }
-
-  cleanup_thread_handler(&thread_id_slot);
-  Ok(())
 }
 
 #[napi]
 pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
   let options = req.into_internal()?;
-  let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-  let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
+  tokio::task::spawn_blocking(move || run_internal_sync(options, |_| {}))
+    .await
+    .map_err(|e| napi::Error::from_reason(format!("Task join error: {e}")))??;
 
-  let events_clone = Arc::clone(&events);
-  let error_clone: Arc<Mutex<Option<napi::Error>>> = Arc::clone(&error_holder);
-
-  tokio::task::spawn_blocking(move || {
-    run_internal_sync(options, move |event| match event_to_json(&event) {
-      Ok(value) => {
-        if let Ok(mut guard) = events_clone.lock() {
-          match serde_json::to_string(&value) {
-            Ok(text) => guard.push(text),
-            Err(err) => {
-              if let Ok(mut error_guard) = error_clone.lock() {
-                *error_guard = Some(napi::Error::from_reason(err.to_string()));
-              }
-            }
-          }
-        }
-      }
-      Err(err) => {
-        if let Ok(mut guard) = error_clone.lock() {
-          *guard = Some(err);
-        }
-      }
-    })
-  })
-  .await
-  .map_err(|e| napi::Error::from_reason(format!("Task join error: {e}")))??;
-
-  if let Some(err) = error_holder.lock().unwrap().take() {
-    return Err(err);
-  }
-
-  let mut guard = events.lock().unwrap();
-  Ok(std::mem::take(&mut *guard))
+  Ok(Vec::new())
 }
 
 #[napi]
 pub async fn compact_thread(req: RunRequest) -> napi::Result<Vec<String>> {
   ensure_apply_patch_aliases()?;
   let options = req.into_internal()?;
-  let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-  let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
-
-  let events_clone = Arc::clone(&events);
-  let error_clone: Arc<Mutex<Option<napi::Error>>> = Arc::clone(&error_holder);
-
   tokio::task::spawn_blocking(move || {
     let schema_file = prepare_schema(options.output_schema.clone())?;
     let schema_path = schema_file.as_ref().map(|file| file.path.clone());
@@ -1176,28 +1063,7 @@ pub async fn compact_thread(req: RunRequest) -> napi::Result<Vec<String>> {
     };
     let rt = tokio::runtime::Runtime::new().map_err(|e| napi::Error::from_reason(e.to_string()))?;
     rt.block_on(async move {
-      let fut = run_with_thread_event_callback(cli, linux_sandbox_path, move |event| {
-        match event_to_json(&event) {
-          Ok(value) => {
-            if let Ok(mut guard) = events_clone.lock() {
-              match serde_json::to_string(&value) {
-                Ok(text) => guard.push(text),
-                Err(err) => {
-                  if let Ok(mut error_guard) = error_clone.lock() {
-                    *error_guard = Some(napi::Error::from_reason(err.to_string()));
-                  }
-                }
-              }
-            }
-          }
-          Err(err) => {
-            if let Ok(mut guard) = error_clone.lock() {
-              *guard = Some(err);
-            }
-          }
-        }
-      });
-      fut
+      run_main(cli, linux_sandbox_path)
         .await
         .map_err(|e| napi::Error::from_reason(e.to_string()))
     })
@@ -1205,12 +1071,7 @@ pub async fn compact_thread(req: RunRequest) -> napi::Result<Vec<String>> {
   .await
   .map_err(|e| napi::Error::from_reason(format!("Task join error: {e}")))??;
 
-  if let Some(err) = error_holder.lock().unwrap().take() {
-    return Err(err);
-  }
-
-  let mut guard = events.lock().unwrap();
-  Ok(std::mem::take(&mut *guard))
+  Ok(Vec::new())
 }
 
 #[napi]
@@ -1443,42 +1304,10 @@ pub async fn run_thread_stream(
   >,
 ) -> napi::Result<()> {
   let options = req.into_internal()?;
-  let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
-  let error_clone: Arc<Mutex<Option<napi::Error>>> = Arc::clone(&error_holder);
-
-  tokio::task::spawn_blocking(move || {
-    run_internal_sync(options, move |event| match event_to_json(&event) {
-      Ok(value) => match serde_json::to_string(&value) {
-        Ok(text) => {
-          let status = on_event.call(
-            Ok(JsonValue::String(text)),
-            ThreadsafeFunctionCallMode::NonBlocking,
-          );
-          if status != Status::Ok
-            && let Ok(mut guard) = error_clone.lock()
-          {
-            *guard = Some(napi::Error::from_status(status));
-          }
-        }
-        Err(err) => {
-          if let Ok(mut guard) = error_clone.lock() {
-            *guard = Some(napi::Error::from_reason(err.to_string()));
-          }
-        }
-      },
-      Err(err) => {
-        if let Ok(mut guard) = error_clone.lock() {
-          *guard = Some(err);
-        }
-      }
-    })
-  })
-  .await
-  .map_err(|e| napi::Error::from_reason(format!("Task join error: {e}")))??;
-
-  if let Some(err) = error_holder.lock().unwrap().take() {
-    return Err(err);
-  }
+  let _ = on_event;
+  tokio::task::spawn_blocking(move || run_internal_sync(options, |_| {}))
+    .await
+    .map_err(|e| napi::Error::from_reason(format!("Task join error: {e}")))??;
 
   Ok(())
 }

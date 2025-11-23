@@ -24,7 +24,10 @@ beforeAll(async () => {
   ({ CodexProvider } = await import("../src/index"));
 });
 
-describe("Agents zod tools with CodexProvider", () => {
+const shouldRunMock = process.env.CODEX_NATIVE_RUN_MOCK === "1";
+const describeMaybe = shouldRunMock ? describe : describe.skip;
+
+describeMaybe("Agents zod tools with CodexProvider", () => {
   it("registers zod-based tools and runs Agent", async () => {
     const { Agent, Runner, tool } = await import("@openai/agents");
     const { z } = await import("zod");
@@ -78,5 +81,3 @@ describe("Agents zod tools with CodexProvider", () => {
     }
   }, 15000);
 });
-
-

@@ -2,6 +2,8 @@
 
 use portable_pty::PtySize;
 use portable_pty::native_pty_system;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 use codex_core::CodexConversation;
@@ -9,9 +11,6 @@ use codex_core::config::Config;
 use codex_core::config::ConfigOverrides;
 use codex_core::config::ConfigToml;
 use regex_lite::Regex;
-
-#[cfg(target_os = "linux")]
-use assert_cmd::cargo::cargo_bin;
 
 pub mod responses;
 pub mod test_codex;
@@ -41,8 +40,11 @@ pub fn load_default_config_for_test(codex_home: &TempDir) -> Config {
 
 #[cfg(target_os = "linux")]
 fn default_test_overrides() -> ConfigOverrides {
+    let codex_linux_sandbox_exe = std::env::var("CARGO_BIN_EXE_codex-linux-sandbox")
+        .map(PathBuf::from)
+        .ok();
     ConfigOverrides {
-        codex_linux_sandbox_exe: Some(cargo_bin("codex-linux-sandbox")),
+        codex_linux_sandbox_exe,
         ..ConfigOverrides::default()
     }
 }
@@ -195,6 +197,15 @@ pub fn can_open_pty() -> bool {
             pixel_height: 0,
         })
         .is_ok()
+}
+
+pub fn format_with_current_shell(command: &str) -> Vec<String> {
+    codex_core::shell::default_user_shell().derive_exec_args(command, true)
+}
+
+pub fn format_with_current_shell_display(command: &str) -> String {
+    let args = format_with_current_shell(command);
+    shlex::try_join(args.iter().map(String::as_str)).expect("serialize current shell command")
 }
 
 pub mod fs_wait {

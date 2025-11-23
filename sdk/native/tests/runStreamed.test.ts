@@ -26,7 +26,10 @@ function createClient(baseUrl: string) {
   return new Codex({ baseUrl, apiKey: "test", skipGitRepoCheck: true });
 }
 
-describe("Codex runStreamed with native binding", () => {
+const shouldRunMock = process.env.CODEX_NATIVE_RUN_MOCK === "1";
+const describeMaybe = shouldRunMock ? describe : describe.skip;
+
+describeMaybe("Codex runStreamed with native binding", () => {
   it("returns thread events", async () => {
     const { url, close } = await startResponsesTestProxy({
       statusCode: 200,

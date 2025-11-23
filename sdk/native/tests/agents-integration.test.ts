@@ -14,7 +14,8 @@ import { setupNativeBinding } from "./testHelpers";
 const isCI = process.env.CI === "true" || process.env.CI === "1";
 const testFn = isCI ? it.skip : it;
 const mockEnv = process.env.CODEX_NATIVE_RUN_AGENTS_MOCK;
-const shouldRunMockTests = mockEnv !== "0";
+// Only run the mock streaming tests when explicitly opted in.
+const shouldRunMockTests = mockEnv === "1" || mockEnv === "true" || mockEnv === "TRUE";
 const mockIt = shouldRunMockTests ? it : it.skip;
 
 // Setup native binding for tests

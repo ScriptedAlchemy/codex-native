@@ -126,6 +126,16 @@ export declare function evFunctionCall(callId: string, name: string, args: strin
 
 export declare function evResponseCreated(id: string): string
 
+export declare function evResponseDone(id: string): string
+
+export declare function evResponseStarted(id: string): string
+
+export declare function evThreadStarted(threadId: string): string
+
+export declare function evTurnCompleted(): string
+
+export declare function evTurnStarted(): string
+
 export declare function fastEmbedEmbed(req: FastEmbedEmbedRequest): Promise<Array<Array<number>>>
 
 export interface FastEmbedEmbedRequest {
@@ -423,6 +433,7 @@ export interface TuiRequest {
   prompt?: string
   images?: Array<string>
   model?: string
+  modelProvider?: string
   oss?: boolean
   sandboxMode?: string
   approvalMode?: string

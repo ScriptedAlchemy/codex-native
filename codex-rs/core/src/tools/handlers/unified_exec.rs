@@ -1,8 +1,5 @@
 use std::path::PathBuf;
 
-use crate::context_manager::MODEL_FORMAT_MAX_BYTES;
-use crate::context_manager::MODEL_FORMAT_MAX_LINES;
-use crate::context_manager::format_output_for_model_body;
 use crate::function_tool::FunctionCallError;
 use crate::is_safe_command::is_known_safe_command;
 use crate::protocol::EventMsg;
@@ -18,7 +15,10 @@ use crate::tools::events::ToolEventCtx;
 use crate::tools::events::ToolEventStage;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
+use crate::truncate::TruncationPolicy;
+use crate::truncate::formatted_truncate_text;
 use crate::unified_exec::ExecCommandRequest;
+use crate::unified_exec::MODEL_FORMAT_MAX_BYTES;
 use crate::unified_exec::UnifiedExecContext;
 use crate::unified_exec::UnifiedExecResponse;
 use crate::unified_exec::UnifiedExecSessionManager;
@@ -267,10 +267,9 @@ fn format_response(response: &UnifiedExecResponse) -> String {
     }
 
     sections.push("Output:".to_string());
-    let formatted = format_output_for_model_body(
+    let formatted = formatted_truncate_text(
         &response.output,
-        MODEL_FORMAT_MAX_BYTES,
-        MODEL_FORMAT_MAX_LINES,
+        TruncationPolicy::Bytes(MODEL_FORMAT_MAX_BYTES),
     );
     sections.push(formatted);
 

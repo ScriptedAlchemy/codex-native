@@ -70,12 +70,14 @@ fn active_thread_handlers() -> &'static Mutex<HashMap<String, ThreadEventHandler
   HANDLERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+#[allow(dead_code)]
 fn register_thread_handler(thread_id: &str, handler: &ThreadEventHandler) {
   if let Ok(mut map) = active_thread_handlers().lock() {
     map.insert(thread_id.to_string(), Arc::clone(handler));
   }
 }
 
+#[allow(dead_code)]
 fn unregister_thread_handler(thread_id: &str) {
   if let Ok(mut map) = active_thread_handlers().lock() {
     map.remove(thread_id);
@@ -90,6 +92,7 @@ fn dispatch_thread_event(handler: &ThreadEventHandler, event: ExecThreadEvent) -
   Ok(())
 }
 
+#[allow(dead_code)]
 fn cleanup_thread_handler(slot: &Arc<Mutex<Option<String>>>) {
   if let Ok(mut guard) = slot.lock()
     && let Some(id) = guard.take() {

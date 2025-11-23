@@ -19,6 +19,8 @@ pub struct TuiRequest {
   #[napi(js_name = "images")]
   pub images: Option<Vec<String>>,
   pub model: Option<String>,
+  #[napi(js_name = "modelProvider")]
+  pub model_provider: Option<String>,
   pub oss: Option<bool>,
   #[napi(js_name = "sandboxMode")]
   pub sandbox_mode: Option<String>,
@@ -92,8 +94,10 @@ impl TuiRequest {
       resume_picker: self.resume_picker.unwrap_or(false),
       resume_last: self.resume_last.unwrap_or(false),
       resume_session_id: self.resume_session_id,
+      resume_show_all: false,
       model: self.model,
       oss: self.oss.unwrap_or(false),
+      oss_provider: self.model_provider,
       config_profile: self.config_profile,
       sandbox_mode,
       approval_policy: approval_mode,

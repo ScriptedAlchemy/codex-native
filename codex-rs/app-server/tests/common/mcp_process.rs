@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::collections::VecDeque;
 use std::path::Path;
 use std::process::Stdio;
@@ -10,8 +12,8 @@ use tokio::process::Child;
 use tokio::process::ChildStdin;
 use tokio::process::ChildStdout;
 
+use crate::find_binary;
 use anyhow::Context;
-use assert_cmd::prelude::*;
 use codex_app_server_protocol::AddConversationListenerParams;
 use codex_app_server_protocol::ArchiveConversationParams;
 use codex_app_server_protocol::CancelLoginAccountParams;
@@ -35,6 +37,7 @@ use codex_app_server_protocol::NewConversationParams;
 use codex_app_server_protocol::RemoveConversationListenerParams;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ResumeConversationParams;
+use codex_app_server_protocol::ReviewStartParams;
 use codex_app_server_protocol::SendUserMessageParams;
 use codex_app_server_protocol::SendUserTurnParams;
 use codex_app_server_protocol::ServerRequest;
@@ -45,7 +48,6 @@ use codex_app_server_protocol::ThreadResumeParams;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnStartParams;
-use std::process::Command as StdCommand;
 use tokio::process::Command;
 
 pub struct McpProcess {
@@ -74,12 +76,8 @@ impl McpProcess {
         codex_home: &Path,
         env_overrides: &[(&str, Option<&str>)],
     ) -> anyhow::Result<Self> {
-        // Use assert_cmd to locate the binary path and then switch to tokio::process::Command
-        let std_cmd = StdCommand::cargo_bin("codex-app-server")
-            .context("should find binary for codex-mcp-server")?;
-
-        let program = std_cmd.get_program().to_owned();
-
+        let program = find_binary("codex-app-server")
+            .context("codex-app-server binary not found; run `cargo build -p codex-app-server`")?;
         let mut cmd = Command::new(program);
 
         cmd.stdin(Stdio::piped());
@@ -375,6 +373,15 @@ impl McpProcess {
     ) -> anyhow::Result<i64> {
         let params = Some(serde_json::to_value(params)?);
         self.send_request("turn/interrupt", params).await
+    }
+
+    /// Send a `review/start` JSON-RPC request (v2).
+    pub async fn send_review_start_request(
+        &mut self,
+        params: ReviewStartParams,
+    ) -> anyhow::Result<i64> {
+        let params = Some(serde_json::to_value(params)?);
+        self.send_request("review/start", params).await
     }
 
     /// Send a `cancelLoginChatGpt` JSON-RPC request.

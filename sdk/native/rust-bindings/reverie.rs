@@ -576,7 +576,7 @@ async fn load_reverie_conversations(
     None,
     &[],
     None,
-    BUILT_IN_OSS_MODEL_PROVIDER_ID,
+    OLLAMA_OSS_PROVIDER_ID,
   )
   .await?;
 
