@@ -137,8 +137,8 @@ impl TestCodexBuilder {
         let mut config = load_default_config_for_test(home);
         config.cwd = cwd.path().to_path_buf();
         config.model_provider = model_provider;
-        if let Ok(cmd) = assert_cmd::Command::cargo_bin("codex") {
-            config.codex_linux_sandbox_exe = Some(PathBuf::from(cmd.get_program().to_os_string()));
+        if let Ok(path) = std::env::var("CARGO_BIN_EXE_codex") {
+            config.codex_linux_sandbox_exe = Some(PathBuf::from(path));
         }
 
         let mut mutators = vec![];

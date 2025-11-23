@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin;
 use pretty_assertions::assert_eq;
 
 #[cfg(unix)]
@@ -49,7 +50,7 @@ fn pipes_stdin_and_stdout_through_socket() -> anyhow::Result<()> {
         Ok(())
     });
 
-    Command::cargo_bin("codex-stdio-to-uds")?
+    Command::new(cargo_bin!("codex-stdio-to-uds"))
         .arg(&socket_path)
         .write_stdin("request")
         .assert()

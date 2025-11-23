@@ -2,6 +2,8 @@
 
 use portable_pty::PtySize;
 use portable_pty::native_pty_system;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 use codex_core::CodexConversation;
@@ -38,8 +40,11 @@ pub fn load_default_config_for_test(codex_home: &TempDir) -> Config {
 
 #[cfg(target_os = "linux")]
 fn default_test_overrides() -> ConfigOverrides {
+    let codex_linux_sandbox_exe = std::env::var("CARGO_BIN_EXE_codex-linux-sandbox")
+        .map(PathBuf::from)
+        .ok();
     ConfigOverrides {
-        codex_linux_sandbox_exe: Some(assert_cmd::cargo::cargo_bin!("codex-linux-sandbox")),
+        codex_linux_sandbox_exe,
         ..ConfigOverrides::default()
     }
 }

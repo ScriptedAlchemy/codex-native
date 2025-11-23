@@ -7,6 +7,7 @@
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
+use std::env;
 use std::process::Command;
 use std::process::Stdio;
 use tempfile::TempDir;
@@ -31,7 +32,9 @@ fn run_live(prompt: &str) -> (assert_cmd::assert::Assert, TempDir) {
     // implementation). Instead we configure the std `Command` ourselves, then later hand the
     // resulting `Output` to `assert_cmd` for the familiar assertions.
 
-    let mut cmd = Command::cargo_bin("codex-rs").unwrap();
+    let binary = env::var("CARGO_BIN_EXE_codex-rs")
+        .expect("CARGO_BIN_EXE_codex-rs must be set; build codex-rs first");
+    let mut cmd = Command::new(binary);
     cmd.current_dir(dir.path());
     cmd.env("OPENAI_API_KEY", require_api_key());
 

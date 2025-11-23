@@ -10,6 +10,9 @@ use std::process::ExitStatus;
 use tokio::fs::create_dir_all;
 use tokio::process::Child;
 
+#[cfg(target_os = "linux")]
+use assert_cmd::cargo::cargo_bin;
+
 #[cfg(target_os = "macos")]
 async fn spawn_command_under_sandbox(
     command: Vec<String>,
@@ -41,7 +44,7 @@ async fn spawn_command_under_sandbox(
     env: HashMap<String, String>,
 ) -> std::io::Result<Child> {
     use codex_core::landlock::spawn_command_under_linux_sandbox;
-    let codex_linux_sandbox_exe = assert_cmd::cargo::cargo_bin("codex-exec");
+    let codex_linux_sandbox_exe = cargo_bin!("codex-exec");
     spawn_command_under_linux_sandbox(
         codex_linux_sandbox_exe,
         command,

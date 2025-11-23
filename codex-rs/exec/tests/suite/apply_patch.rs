@@ -1,6 +1,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, unused_imports, deprecated)]
 
 use anyhow::Context;
+use assert_cmd::cargo::cargo_bin;
 use assert_cmd::prelude::*;
 use codex_core::CODEX_APPLY_PATCH_ARG1;
 use core_test_support::responses::ev_apply_patch_custom_tool_call;
@@ -23,9 +24,8 @@ fn test_standalone_exec_cli_can_use_apply_patch() -> anyhow::Result<()> {
     let absolute_path = tmp.path().join(relative_path);
     fs::write(&absolute_path, "original content\n")?;
 
-    Command::cargo_bin("codex-exec")
-        .context("should find binary for codex-exec")?
-        .arg(CODEX_APPLY_PATCH_ARG1)
+    let mut cmd = Command::new(cargo_bin!("codex-exec"));
+    cmd.arg(CODEX_APPLY_PATCH_ARG1)
         .arg(
             r#"*** Begin Patch
 *** Update File: source.txt

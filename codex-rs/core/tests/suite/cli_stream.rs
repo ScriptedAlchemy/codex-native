@@ -1,7 +1,6 @@
 #![allow(deprecated)]
 
 use assert_cmd::Command as AssertCommand;
-use assert_cmd::cargo::cargo_bin;
 use codex_core::RolloutRecorder;
 use codex_core::protocol::GitInfo;
 use core_test_support::fs_wait;
@@ -245,8 +244,11 @@ async fn integration_creates_and_checks_session_file() -> anyhow::Result<()> {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cli_responses_fixture.sse");
 
     // 4. Run the codex CLI and invoke `exec`, which is what records a session.
-    let bin = cargo_bin("codex");
-    let mut cmd = AssertCommand::new(bin);
+    let bin = match codex_bin_or_skip("integration_creates_and_checks_session_file") {
+        Some(path) => path,
+        None => return Ok(()),
+    };
+    let mut cmd = AssertCommand::new(bin.clone());
     cmd.arg("exec")
         .arg("--skip-git-repo-check")
         .arg("-C")
@@ -366,8 +368,7 @@ async fn integration_creates_and_checks_session_file() -> anyhow::Result<()> {
     // Second run: resume should update the existing file.
     let marker2 = format!("integration-resume-{}", Uuid::new_v4());
     let prompt2 = format!("echo {marker2}");
-    let bin2 = cargo_bin("codex");
-    let mut cmd2 = AssertCommand::new(bin2);
+    let mut cmd2 = AssertCommand::new(bin.clone());
     cmd2.arg("exec")
         .arg("--skip-git-repo-check")
         .arg("-C")
