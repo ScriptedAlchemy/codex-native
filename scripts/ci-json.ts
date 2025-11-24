@@ -32,6 +32,17 @@ type CiJobResult = {
 
 const CI_JOBS: CiJob[] = [
   { name: "ci:prebuild", command: "pnpm run ci:prebuild" },
+  { name: "ascii:root-readme", command: "python3 scripts/asciicheck.py README.md" },
+  { name: "toc:root-readme", command: "python3 scripts/readme_toc.py README.md" },
+  {
+    name: "ascii:cli-readme",
+    command: "python3 scripts/asciicheck.py codex-cli/README.md",
+  },
+  {
+    name: "toc:cli-readme",
+    command: "python3 scripts/readme_toc.py codex-cli/README.md",
+  },
+  { name: "format:prettier", command: "pnpm run format" },
   { name: "ci:format", command: "pnpm run ci:format" },
   { name: "ci:codespell", command: "pnpm run ci:codespell" },
   { name: "ci:mcp-types", command: "pnpm run ci:mcp-types" },
