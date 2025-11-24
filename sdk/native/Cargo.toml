@@ -27,12 +27,11 @@ chrono = "0.4"
 
 [dependencies.napi]
 version = "3"
-features = ["tokio_rt","serde-json","compat-mode","napi8"]
+features = ["tokio_rt","serde-json","napi8"]
 optional = true
 
 [dependencies.napi-derive]
 version = "3"
-features = ["compat-mode"]
 optional = true
 
 [dependencies.serde]

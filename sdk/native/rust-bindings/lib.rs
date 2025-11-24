@@ -11,8 +11,6 @@
 // ============================================================================
 
 #![deny(clippy::all)]
-#![allow(deprecated)]
-
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::Path;
@@ -75,14 +73,11 @@ use codex_protocol::config_types::SandboxMode;
 use codex_tui::AppExitInfo;
 use codex_tui::Cli as TuiCli;
 use codex_tui::update_action::UpdateAction;
-#[allow(deprecated)]
-use napi::JsObject;
 use napi::bindgen_prelude::Env;
 use napi::bindgen_prelude::Function;
 use napi::bindgen_prelude::Status;
 use napi::threadsafe_function::ThreadsafeFunction;
 use napi::threadsafe_function::ThreadsafeFunctionCallMode;
-use napi_derive::module_exports;
 use napi_derive::napi;
 use ratatui::backend::Backend;
 use ratatui::backend::ClearType;
@@ -164,20 +159,6 @@ const ORIGINATOR_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 const NATIVE_ORIGINATOR: &str = "codex_sdk_native";
 
 static APPLY_PATCH_TEMP_DIR: OnceLock<Mutex<TempDir>> = OnceLock::new();
-
-#[allow(deprecated)]
-#[module_exports]
-fn init_exports(_exports: JsObject, env: Env) -> napi::Result<()> {
-  // Ensure the shared Tokio runtime used by napi-rs is initialized for async exports.
-  napi::bindgen_prelude::start_async_runtime();
-  // Register cleanup to drop any lingering tool registrations and handlers before the
-  // environment shuts down to avoid late TSFN callbacks during process teardown.
-  env.add_env_cleanup_hook((), |()| {
-    clear_all_state();
-    napi::bindgen_prelude::shutdown_async_runtime();
-  })?;
-  Ok(())
-}
 
 #[napi]
 pub fn ensure_tokio_runtime() {
