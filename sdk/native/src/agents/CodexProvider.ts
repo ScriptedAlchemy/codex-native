@@ -1,4 +1,4 @@
-import { Codex } from "../codex";
+import { Codex, type ApprovalRequest } from "../codex";
 import type { Thread } from "../thread";
 import type { ThreadEvent, Usage as CodexUsage } from "../events";
 import type { ThreadItem } from "../items";
@@ -133,6 +133,13 @@ export class CodexProvider implements ModelProvider {
   getModel(modelName?: string): Model {
     const model = modelName || this.options.defaultModel;
     return new CodexModel(this.getCodex(), model, this.options);
+  }
+
+  /**
+   * Register a programmatic approval callback on the underlying Codex instance.
+   */
+  setApprovalCallback(callback: (request: ApprovalRequest) => boolean | Promise<boolean>): void {
+    this.getCodex().setApprovalCallback(callback);
   }
 }
 

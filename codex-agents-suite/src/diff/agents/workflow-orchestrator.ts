@@ -3,7 +3,6 @@ import { Codex, type Thread, LspManager, formatDiagnosticsWithSummary } from "@c
 import type { AgentWorkflowConfig, CoordinatorInput } from "./types.js";
 import type { WorkerOutcome, ConflictContext, RemoteComparison } from "../merge/types.js";
 import { createCoordinatorAgent } from "./coordinator-agent.js";
-import { createWorkerAgent, selectWorkerModel, selectReasoningEffort, formatWorkerInput } from "./worker-agent.js";
 import { createReviewerAgent, formatReviewerInput } from "./reviewer-agent.js";
 import { runOpenCodeResolution } from "./opencode-wrapper.js";
 import { ApprovalSupervisor } from "../merge/supervisor.js";
@@ -191,7 +190,7 @@ export class AgentWorkflowOrchestrator {
         this.activeFiles.delete(conflict.path);
       }
       this.activeFiles.add(conflict.path);
-      const outcome = await this.handleConflict(conflict, coordinatorPlan, remoteComparison, true);
+      const outcome = await this.handleConflict(conflict, coordinatorPlan, remoteComparison);
       outcomes.push(outcome);
       this.activeFiles.delete(conflict.path);
     }
@@ -309,72 +308,10 @@ export class AgentWorkflowOrchestrator {
     conflict: ConflictContext,
     coordinatorPlan: string | null,
     remoteComparison: RemoteComparison | null,
-    forceOpenCode = false,
   ): Promise<WorkerOutcome> {
     // Default: Delegate all conflicts to OpenCode with supervisor oversight
     // Supervisor provides multi-turn guidance and feedback
     return await this.runOpenCode(conflict, coordinatorPlan, remoteComparison);
-  }
-
-  private async runWorkerAgent(
-    conflict: ConflictContext,
-    coordinatorPlan: string | null,
-    remoteComparison: RemoteComparison | null,
-  ): Promise<WorkerOutcome> {
-    const model = selectWorkerModel(conflict, {
-      defaultModel: this.config.workerModel,
-      highReasoningModel: this.config.workerModelHigh,
-      lowReasoningModel: this.config.workerModelLow,
-      highReasoningMatchers: this.config.highReasoningMatchers,
-      lowReasoningMatchers: this.config.lowReasoningMatchers,
-    });
-
-    const reasoningEffort = selectReasoningEffort(conflict, {
-      defaultReasoningEffort: this.config.reasoningEffort as "minimal" | "low" | "medium" | "high" | "xhigh" | undefined,
-      highReasoningMatchers: this.config.highReasoningMatchers,
-      lowReasoningMatchers: this.config.lowReasoningMatchers,
-    });
-
-    logInfo("worker", `Selected model '${model}' with reasoning effort '${reasoningEffort}'`, conflict.path);
-
-    const { agent } = createWorkerAgent({
-      workingDirectory: this.config.workingDirectory,
-      baseUrl: this.config.baseUrl,
-      apiKey: this.config.apiKey,
-      sandboxMode: this.config.sandboxMode,
-      approvalMode: this.config.approvalMode,
-      skipGitRepoCheck: this.config.skipGitRepoCheck,
-      model,
-      conflictPath: conflict.path,
-      workerInstructions: this.config.workerInstructions,
-      approvalSupervisor: this.approvalSupervisor,
-      reasoningEffort,
-    });
-
-    try {
-      const workerPrompt = formatWorkerInput({ conflict, coordinatorPlan, remoteInfo: remoteComparison });
-      const result = await run(agent, workerPrompt);
-      if (!result?.finalOutput || typeof result.finalOutput !== "string") {
-        throw new Error("Worker produced invalid output");
-      }
-
-      const summary = result.finalOutput;
-      const resolved = await this.isResolved(conflict.path);
-
-      return {
-        path: conflict.path,
-        success: resolved,
-        summary: summary ?? undefined,
-        error: resolved ? undefined : "Conflict still present after worker run",
-      };
-    } catch (error: any) {
-      logWarn("worker", `Worker failed: ${error}`, conflict.path);
-      return {
-        path: conflict.path,
-        success: false,
-        error: error?.message ?? "Unknown worker error",
-      };
-    }
   }
 
   private async runOpenCode(
@@ -383,11 +320,14 @@ export class AgentWorkflowOrchestrator {
     remoteComparison: RemoteComparison | null,
   ): Promise<WorkerOutcome> {
     logInfo("worker", "Delegating to OpenCode with supervisor oversight", conflict.path);
+    const supervisorModel = this.config.workerModelHigh ?? this.config.workerModel;
+    const openCodeModel = this.config.workerModel ?? this.config.workerModelLow ?? supervisorModel;
     const outcome = await runOpenCodeResolution(conflict, {
       workingDirectory: this.config.workingDirectory,
       sandboxMode: this.config.sandboxMode,
       approvalSupervisor: this.approvalSupervisor,
-      model: this.config.workerModelHigh ?? this.config.workerModel,
+      supervisorModel,
+      openCodeModel,
       baseUrl: this.config.baseUrl,
       apiKey: this.config.apiKey,
       coordinatorPlan,

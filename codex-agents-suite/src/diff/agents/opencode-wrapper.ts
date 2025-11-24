@@ -1,156 +1,321 @@
 /**
- * OpenCode wrapper with supervisory conversation support.
+ * Dual-Agent Merge Resolution
  *
- * The worker supervises OpenCode by:
- * 1. Delegating the conflict resolution task to OpenCode
- * 2. Monitoring OpenCode's progress and responses
- * 3. Providing feedback/guidance as needed
- * 4. Deciding when resolution is complete
+ * Architecture (based on sdk/native/examples/dual-agent-with-approvals.ts):
+ * - Supervisor (GPT Codex): Smart model that analyzes conflicts and creates strategic plans
+ * - OpenCode Agent: Cheap model that executes file edits and requests supervisor approval
+ * - Approval Flow: OpenCode requests actions → Supervisor approves/denies → OpenCode proceeds
  *
- * Uses the lower-level Codex thread API (outside @openai/agents) so we can run
- * high-reasoning tool executions with explicit approval supervision.
+ * The supervisor provides high-level strategic guidance while OpenCode does the actual work.
+ * This is cost-effective: smart model for analysis, cheap model for execution.
  */
 
-import { Codex, type ApprovalMode, type SandboxMode, logger } from "@codex-native/sdk";
+import { CodexProvider, OpenCodeAgent, type ApprovalMode, type SandboxMode, type PermissionRequest } from "@codex-native/sdk";
+import { Agent, Runner } from "@openai/agents";
 import { buildWorkerPrompt } from "../merge/prompts.js";
 import { GitRepo } from "../merge/git.js";
 import type { ApprovalSupervisor } from "../merge/supervisor.js";
 import type { ConflictContext, RemoteComparison, WorkerOutcome } from "../merge/types.js";
-import { logInfo } from "../merge/logging.js";
+import { logInfo, logWarn } from "../merge/logging.js";
 
 export interface OpenCodeOptions {
   workingDirectory: string;
   sandboxMode: SandboxMode;
   approvalSupervisor?: ApprovalSupervisor | null;
-  model: string;
+  supervisorModel: string; // Smart model for supervisor (e.g., gpt-5.1-codex-max)
+  openCodeModel: string;   // Cheap model for OpenCode worker (e.g., claude-sonnet-4-5)
   baseUrl?: string;
   apiKey?: string;
   coordinatorPlan?: string | null;
   remoteInfo?: RemoteComparison | null;
   approvalMode?: ApprovalMode;
-  supervisorPrompt?: string | null;
   maxSupervisionTurns?: number;
+}
+
+/**
+ * Supervisor agent that creates strategic plans and approves OpenCode's actions
+ */
+class MergeSupervisorAgent {
+  private runner: Runner;
+  private agent: Agent;
+  private plan: string = "";
+
+  constructor(
+    codexProvider: CodexProvider,
+    private conflict: ConflictContext,
+    coordinatorPlan: string | null,
+    remoteInfo: { originRef?: string | null; upstreamRef?: string | null } | null,
+  ) {
+    this.runner = new Runner({ modelProvider: codexProvider });
+
+    this.agent = new Agent({
+      name: `MergeSupervisor[${conflict.path}]`,
+      model: codexProvider.getModel(codexProvider.options.defaultModel || "gpt-5.1-codex-max"),
+      instructions: `You are an intelligent merge conflict supervisor for ${conflict.path}.
+
+Your role:
+1. Analyze the three-way merge conflict
+2. Create strategic resolution plan
+3. Approve/deny OpenCode's file operations to ensure they align with the plan
+4. Verify conflict resolution quality
+
+When creating plans:
+- PREFER UPSTREAM: Accept upstream main's changes when in doubt
+- MAINTAIN FUNCTIONALITY: Ensure custom functionality remains operable
+- MINIMALLY INVASIVE: Make smallest changes necessary
+
+When reviewing approval requests:
+- Check if action aligns with strategic plan
+- Evaluate safety (avoid destructive operations)
+- Consider merge context and intent
+- Provide clear reasoning
+
+Safe actions to APPROVE:
+- Reading files (read_file, git show, git diff)
+- Analyzing code (grep, ls, find)
+- Writing resolved conflict files
+- Running validation (rg '<<<<<<<' to check markers)
+- Test execution
+
+Actions requiring review:
+- Deleting files
+- Modifying files outside conflict scope
+- Running builds (heavy operations)
+
+Response format for approvals:
+{
+  "decision": "APPROVE" | "DENY",
+  "reason": "Clear explanation"
+}`,
+      outputType: {
+        type: "json_schema",
+        schema: {
+          type: "object",
+          properties: {
+            decision: {
+              type: "string",
+              enum: ["APPROVE", "DENY"],
+              description: "The approval decision",
+            },
+            reason: {
+              type: "string",
+              description: "Reasoning for the decision",
+            },
+          },
+          required: ["decision", "reason"],
+          additionalProperties: false,
+        },
+        name: "ApprovalDecision",
+        strict: true,
+      },
+    });
+  }
+
+  async createPlan(coordinatorPlan: string | null, remoteInfo: { originRef?: string | null; upstreamRef?: string | null } | null): Promise<string> {
+    logInfo("supervisor", "Analyzing conflict and creating strategic plan...", this.conflict.path);
+
+    const prompt = buildWorkerPrompt(this.conflict, coordinatorPlan, {
+      originRef: remoteInfo?.originRef,
+      upstreamRef: remoteInfo?.upstreamRef,
+    });
+
+    logInfo("conversation", `\n${"=".repeat(80)}\n[Supervisor Analysis]\n${prompt}\n${"=".repeat(80)}`, this.conflict.path);
+
+    const result = await this.runner.run(this.agent, prompt);
+    this.plan = result.finalOutput as string;
+
+    logInfo("conversation", `\n${"=".repeat(80)}\n[Supervisor Plan]\n${this.plan}\n${"=".repeat(80)}`, this.conflict.path);
+
+    return this.plan;
+  }
+
+  async reviewApproval(request: PermissionRequest): Promise<boolean> {
+    logInfo("approval", `\n📋 Approval Request: ${request.type} - ${request.title}`, this.conflict.path);
+
+    const prompt = `Review this approval request from OpenCode:
+
+TYPE: ${request.type}
+TITLE: ${request.title}
+DETAILS: ${JSON.stringify(request.details, null, 2)}
+
+CURRENT PLAN:
+${this.plan || "No plan available"}
+
+CONFLICT FILE: ${this.conflict.path}
+
+Should this action be approved? Consider:
+1. Does it align with the strategic plan?
+2. Is it safe and necessary?
+3. Does it help resolve the conflict?
+
+Respond with your decision.`;
+
+    try {
+      // Temporarily switch agent to approval output schema
+      const originalOutputType = this.agent.outputType;
+      this.agent.outputType = {
+        type: "json_schema",
+        schema: {
+          type: "object",
+          properties: {
+            decision: { type: "string", enum: ["APPROVE", "DENY"] },
+            reason: { type: "string" },
+          },
+          required: ["decision", "reason"],
+          additionalProperties: false,
+        },
+        name: "ApprovalDecision",
+        strict: true,
+      };
+
+      const result = await this.runner.run(this.agent, prompt);
+      const decision = result.finalOutput as any;
+
+      // Restore original output type
+      this.agent.outputType = originalOutputType;
+
+      if (decision.decision === "APPROVE") {
+        logInfo("approval", `✅ APPROVED: ${decision.reason}`, this.conflict.path);
+        return true;
+      } else {
+        logWarn("approval", `❌ DENIED: ${decision.reason}`, this.conflict.path);
+        return false;
+      }
+    } catch (error: any) {
+      logWarn("approval", `❌ ERROR: ${error.message} - Denying by default`, this.conflict.path);
+      return false; // Fail closed
+    }
+  }
 }
 
 export async function runOpenCodeResolution(
   conflict: ConflictContext,
   options: OpenCodeOptions,
 ): Promise<WorkerOutcome> {
-  const codex = new Codex({
-    baseUrl: options.baseUrl,
-    apiKey: options.apiKey,
-  });
-
-  if (options.approvalSupervisor?.isAvailable()) {
-    codex.setApprovalCallback(async (req) => options.approvalSupervisor!.handleApproval(req));
-  }
-
-  const thread = codex.startThread({
-    model: options.model,
-    sandboxMode: options.sandboxMode,
-    approvalMode: options.approvalMode ?? "on-request",
-    workingDirectory: options.workingDirectory,
-    skipGitRepoCheck: true,
-  });
-
-  const initialPrompt = buildWorkerPrompt(conflict, options.coordinatorPlan ?? null, {
-    originRef: options.remoteInfo?.originRef,
-    upstreamRef: options.remoteInfo?.upstreamRef,
-  });
-
   const git = new GitRepo(options.workingDirectory);
   const conversationLog: string[] = [];
-  const maxTurns = options.maxSupervisionTurns ?? 3;
-  let turnCount = 0;
 
   try {
-    // Turn 1: Initial task delegation to OpenCode
-    logInfo("opencode", `Turn ${++turnCount}: Delegating conflict resolution...`, conflict.path);
-    logInfo("conversation", `\n${"=".repeat(80)}\n[Supervisor → OpenCode]\n${initialPrompt}\n${"=".repeat(80)}`, conflict.path);
-    conversationLog.push(`[Supervisor → OpenCode] ${initialPrompt.slice(0, 200)}...`);
+    // Phase 1: Create supervisor (smart model)
+    logInfo("supervisor", "Initializing dual-agent workflow...", conflict.path);
 
-    let turn = await thread.run(initialPrompt);
-    let response = turn.finalResponse ?? "";
-    conversationLog.push(`[OpenCode → Supervisor] ${response.slice(0, 200)}...`);
-    logInfo("conversation", `\n${"=".repeat(80)}\n[OpenCode → Supervisor]\n${response}\n${"=".repeat(80)}`, conflict.path);
-    logInfo("opencode", `Turn ${turnCount} complete`, conflict.path);
-
-    // Check if resolved
-    let remaining = await git.listConflictPaths();
-    let resolved = !remaining.includes(conflict.path);
-
-    // Supervision loop: Continue if not resolved and within turn limit
-    while (!resolved && turnCount < maxTurns) {
-      logInfo("opencode", `Turn ${++turnCount}: Providing supervisor feedback...`, conflict.path);
-
-      // Supervisor feedback based on current state
-      const feedback = await buildSupervisorFeedback(conflict, response, remaining, options);
-      conversationLog.push(`[Supervisor → OpenCode] ${feedback.slice(0, 200)}...`);
-      logInfo("conversation", `\n${"=".repeat(80)}\n[Supervisor → OpenCode]\n${feedback}\n${"=".repeat(80)}`, conflict.path);
-
-      turn = await thread.run(feedback);
-      response = turn.finalResponse ?? "";
-      conversationLog.push(`[OpenCode → Supervisor] ${response.slice(0, 200)}...`);
-      logInfo("conversation", `\n${"=".repeat(80)}\n[OpenCode → Supervisor]\n${response}\n${"=".repeat(80)}`, conflict.path);
-      logInfo("opencode", `Turn ${turnCount} complete`, conflict.path);
-
-      remaining = await git.listConflictPaths();
-      resolved = !remaining.includes(conflict.path);
-
-      if (resolved) {
-        logInfo("opencode", `Resolved after ${turnCount} supervision turns`, conflict.path);
-        break;
-      }
+    const codexProvider = new CodexProvider({
+      defaultModel: options.supervisorModel,
+      workingDirectory: options.workingDirectory,
+      skipGitRepoCheck: true,
+      baseUrl: options.baseUrl,
+      apiKey: options.apiKey,
+    });
+    if (options.approvalSupervisor?.isAvailable()) {
+      codexProvider.setApprovalCallback((req) => options.approvalSupervisor!.handleApproval(req));
     }
 
-    const conversationSummary = conversationLog.join("\n\n");
+    const supervisor = new MergeSupervisorAgent(
+      codexProvider,
+      conflict,
+      options.coordinatorPlan ?? null,
+      {
+        originRef: options.remoteInfo?.originRef,
+        upstreamRef: options.remoteInfo?.upstreamRef,
+      },
+    );
+
+    // Phase 2: Supervisor creates strategic plan
+    const plan = await supervisor.createPlan(options.coordinatorPlan ?? null, {
+      originRef: options.remoteInfo?.originRef,
+      upstreamRef: options.remoteInfo?.upstreamRef,
+    });
+
+    conversationLog.push(`[Supervisor Plan] ${plan.slice(0, 200)}...`);
+
+    // Phase 3: Create OpenCode agent (cheap model) with approval callback
+    logInfo("opencode", "Creating OpenCode execution agent...", conflict.path);
+
+    const approvalHandler = async (request: PermissionRequest): Promise<boolean> => {
+      return await supervisor.reviewApproval(request);
+    };
+
+    const opencodeAgent = new OpenCodeAgent({
+      model: options.openCodeModel,
+      onApprovalRequest: approvalHandler,
+      config: {
+        workingDirectory: options.workingDirectory,
+        sandboxMode: options.sandboxMode,
+        approvalMode: options.approvalMode ?? "on-request",
+      },
+    });
+
+    // Phase 4: OpenCode executes plan
+    const executionPrompt = `Execute this merge conflict resolution plan:
+
+${plan}
+
+File to resolve: ${conflict.path}
+
+Requirements:
+1. Follow the strategic plan exactly
+2. Remove all conflict markers
+3. Verify with: rg '<<<<<<<' ${conflict.path}
+4. Report completion status`;
+
+    logInfo("conversation", `\n${"=".repeat(80)}\n[Supervisor → OpenCode]\n${executionPrompt}\n${"=".repeat(80)}`, conflict.path);
+    conversationLog.push(`[Supervisor → OpenCode] ${executionPrompt.slice(0, 200)}...`);
+
+    logInfo("opencode", "OpenCode executing plan...", conflict.path);
+
+    // Execute with streaming to show progress
+    const result = await opencodeAgent.delegateStreaming(executionPrompt, (event) => {
+      // Log interesting events
+      const props = (event as any)?.properties ?? {};
+      if (event.type === "message.part.updated") {
+        const part = props.info as { type: string; text?: string };
+        if (part?.type === "text" && part.text) {
+          logInfo("opencode", `Response: ${part.text.trim().slice(0, 100)}...`, conflict.path);
+        }
+      } else if (event.type === "command.executed") {
+        const command = props as { name?: string; arguments?: string };
+        const summary = [command.name, command.arguments].filter(Boolean).join(" ");
+        logInfo("opencode", `Executed: ${summary}`, conflict.path);
+      }
+    });
+
+    const response = result.output || "(no response)";
+    conversationLog.push(`[OpenCode → Supervisor] ${response.slice(0, 200)}...`);
+    logInfo("conversation", `\n${"=".repeat(80)}\n[OpenCode → Supervisor]\n${response}\n${"=".repeat(80)}`, conflict.path);
+
+    // Phase 5: Verify resolution
+    const remaining = await git.listConflictPaths();
+    const resolved = !remaining.includes(conflict.path);
+
+    if (!result.success) {
+      logWarn("opencode", `Execution failed: ${result.error}`, conflict.path);
+      return {
+        path: conflict.path,
+        success: false,
+        error: result.error || "OpenCode execution failed",
+        summary: `${response}\n\n--- Dual-Agent Conversation ---\n${conversationLog.join("\n\n")}`,
+      };
+    }
+
+    if (resolved) {
+      logInfo("opencode", "✅ Conflict resolved successfully!", conflict.path);
+    } else {
+      logWarn("opencode", "⚠️  Conflict markers still present", conflict.path);
+    }
 
     return {
       path: conflict.path,
       success: resolved,
-      summary: `${response}\n\n--- Supervision Conversation ---\n${conversationSummary}`,
-      threadId: thread.id ?? undefined,
-      error: resolved ? undefined : `Not resolved after ${turnCount} supervision turns`,
+      summary: `${response}\n\n--- Dual-Agent Conversation ---\n${conversationLog.join("\n\n")}`,
+      error: resolved ? undefined : "Conflict markers still present",
     };
   } catch (error: any) {
-    logger.scope("worker", conflict.path).warn(`OpenCode supervision failed: ${String(error)}`);
+    logWarn("supervisor", `Dual-agent workflow failed: ${error.message}`, conflict.path);
     return {
       path: conflict.path,
       success: false,
       error: error?.message ?? String(error),
-      threadId: thread.id ?? undefined,
+      summary: conversationLog.length > 0 ? `--- Conversation Log ---\n${conversationLog.join("\n\n")}` : undefined,
     };
   }
-}
-
-async function buildSupervisorFeedback(
-  conflict: ConflictContext,
-  previousResponse: string,
-  remainingConflicts: string[],
-  options: OpenCodeOptions,
-): Promise<string> {
-  const git = new GitRepo(options.workingDirectory);
-
-  // Check current state of the file
-  const stillHasConflict = remainingConflicts.includes(conflict.path);
-
-  if (stillHasConflict) {
-    // Get current conflict markers count
-    const content = await git.readWorkingFile(conflict.path);
-    const markerCount = content ? (content.match(/^<<<<<<<|^=======|^>>>>>>>/gm) || []).length : 0;
-
-    return `The conflict in ${conflict.path} still has ${markerCount} conflict markers remaining.
-
-Previous attempt summary:
-${previousResponse.slice(0, 500)}
-
-Please review the file and resolve the remaining conflict markers. Remember:
-- PREFER UPSTREAM: When in doubt, accept upstream main's changes
-- MAINTAIN FUNCTIONALITY: Ensure our custom functionality remains operable
-- Never leave conflict markers in the file
-
-Please complete the resolution now.`;
-  }
-
-  return `Good progress on ${conflict.path}. Please verify the resolution is complete and functional.`;
 }
