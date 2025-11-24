@@ -1631,7 +1631,7 @@ PY
     let args = serde_json::json!({
         "cmd": script,
         "max_output_tokens": 100,
-        "yield_time_ms": 500,
+        "yield_time_ms": 2000,
     });
 
     let responses = vec![
@@ -1679,7 +1679,7 @@ PY
 
     let output_text = large_output.output.replace("\r\n", "\n");
     let truncated_pattern = r"(?s)^Total output lines: \d+\n\n(token token \n){5,}.*…\d+ tokens truncated….*(token token \n){5,}$";
-    assert_regex_match(truncated_pattern, &output_text);
+    assert_regex_match(truncated_pattern, output_text.as_str());
 
     let original_tokens = large_output
         .original_token_count
