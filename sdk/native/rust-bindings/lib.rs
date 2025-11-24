@@ -11,6 +11,7 @@
 // ============================================================================
 
 #![deny(clippy::all)]
+#![allow(deprecated)]
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -74,6 +75,7 @@ use codex_protocol::config_types::SandboxMode;
 use codex_tui::AppExitInfo;
 use codex_tui::Cli as TuiCli;
 use codex_tui::update_action::UpdateAction;
+#[allow(deprecated)]
 use napi::JsObject;
 use napi::bindgen_prelude::Env;
 use napi::bindgen_prelude::Function;
