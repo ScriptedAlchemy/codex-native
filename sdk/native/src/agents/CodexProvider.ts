@@ -71,6 +71,12 @@ export interface CodexProviderOptions extends CodexOptions {
    * @default "auto"
    */
   reasoningSummary?: ThreadOptions["reasoningSummary"];
+
+  /**
+   * Enable LSP diagnostics for threads created by this provider
+   * @default true
+   */
+  enableLsp?: boolean;
 }
 
 /**
@@ -193,6 +199,10 @@ class CodexModel implements Model {
   }
 
   private ensureDiagnosticsBridge(thread: Thread): void {
+    // Skip LSP attachment if explicitly disabled
+    if (this.options.enableLsp === false) {
+      return;
+    }
     if (this.diagnosticsThread === thread && this.detachDiagnostics) {
       return;
     }

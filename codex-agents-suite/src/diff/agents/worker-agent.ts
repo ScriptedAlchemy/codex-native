@@ -52,6 +52,7 @@ export function createWorkerAgent(
     apiKey: config.apiKey,
     skipGitRepoCheck: config.skipGitRepoCheck ?? false,
     reasoningEffort: config.reasoningEffort ?? "high",
+    enableLsp: false, // Disable LSP during initial conflict resolution
   });
 
   if (config.approvalSupervisor?.isAvailable?.()) {

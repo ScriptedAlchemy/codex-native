@@ -1,5 +1,5 @@
 import { run } from "@openai/agents";
-import { Codex, type Thread } from "@codex-native/sdk";
+import { Codex, type Thread, LspManager, formatDiagnosticsWithSummary } from "@codex-native/sdk";
 import type { AgentWorkflowConfig, CoordinatorInput } from "./types.js";
 import type { WorkerOutcome, ConflictContext, RemoteComparison } from "../merge/types.js";
 import { createCoordinatorAgent } from "./coordinator-agent.js";
@@ -50,8 +50,20 @@ export class AgentWorkflowOrchestrator {
       input.remoteComparison ?? null,
     );
 
-    // Phase 3: Reviewer validates overall outcome
-    const reviewerSummary = await this.runReviewerPhase(workerOutcomes, input.remoteComparison);
+    // Phase 2.5: Post-resolution LSP validation (collect diagnostics after conflicts resolved)
+    let lspDiagnosticsSummary: string | null = null;
+    if (workerOutcomes.every((o) => o.success)) {
+      lspDiagnosticsSummary = await this.collectPostResolutionDiagnostics(
+        workerOutcomes.map((o) => o.path),
+      );
+    }
+
+    // Phase 3: Reviewer validates overall outcome (with LSP diagnostics if available)
+    const reviewerSummary = await this.runReviewerPhase(
+      workerOutcomes,
+      input.remoteComparison,
+      lspDiagnosticsSummary,
+    );
 
     const success = workerOutcomes.every((o) => o.success) && (await this.isAllResolved());
     if (success) {
@@ -187,6 +199,7 @@ export class AgentWorkflowOrchestrator {
   private async runReviewerPhase(
     outcomes: WorkerOutcome[],
     remoteComparison: CoordinatorInput["remoteComparison"],
+    lspDiagnostics: string | null = null,
     validationMode = false,
   ): Promise<string | null> {
     logInfo(validationMode ? "validation" : "reviewer", "Running reviewer agent...");
@@ -349,6 +362,36 @@ export class AgentWorkflowOrchestrator {
   private async isAllResolved(): Promise<boolean> {
     const remaining = await this.git.listConflictPaths();
     return remaining.length === 0;
+  }
+
+  private async collectPostResolutionDiagnostics(resolvedFiles: string[]): Promise<string | null> {
+    try {
+      logInfo("lsp", `Collecting diagnostics for ${resolvedFiles.length} resolved files...`);
+
+      const lspManager = new LspManager({
+        workingDirectory: this.config.workingDirectory,
+        waitForDiagnostics: true,
+      });
+
+      const diagnostics = await lspManager.collectDiagnostics(resolvedFiles);
+      await lspManager.dispose();
+
+      if (diagnostics.length === 0) {
+        logInfo("lsp", "No LSP diagnostics found - all files passed validation!");
+        return null;
+      }
+
+      const summary = formatDiagnosticsWithSummary(diagnostics, this.config.workingDirectory, {
+        minSeverity: "warning", // Show warnings and errors, skip info/hints
+        maxPerFile: 10,
+      });
+
+      logInfo("lsp", `Found diagnostics in ${diagnostics.length} files`);
+      return summary;
+    } catch (error) {
+      logWarn("lsp", `Failed to collect LSP diagnostics: ${error}`);
+      return null;
+    }
   }
 
   private buildSupervisor(): { supervisor: ApprovalSupervisor | null; logThread: Thread | null } {

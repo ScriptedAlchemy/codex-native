@@ -27,6 +27,7 @@ export function createReviewerAgent(
     apiKey: config.apiKey,
     skipGitRepoCheck: config.skipGitRepoCheck ?? false,
     reasoningEffort: config.reasoningEffort ?? "high",
+    enableLsp: true, // Enable LSP for reviewer to validate post-merge code quality
   });
 
   if (config.approvalSupervisor?.isAvailable?.()) {
