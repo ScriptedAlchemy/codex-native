@@ -78,6 +78,11 @@ export {
   DEFAULT_SERVERS,
   findServerForFile,
   resolveWorkspaceRoot,
+  formatDiagnosticsForBackgroundEvent,
+  formatDiagnosticsForTool,
+  formatDiagnosticsWithSummary,
+  filterBySeverity,
+  summarizeDiagnostics,
 } from "./lsp";
 export type {
   FileDiagnostics,
@@ -86,6 +91,7 @@ export type {
   LspServerConfig,
   NormalizedDiagnostic,
   WorkspaceLocator,
+  DiagnosticSeverity,
 } from "./lsp";
 
 // OpenAI Agents framework integration
