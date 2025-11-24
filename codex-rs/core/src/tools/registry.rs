@@ -450,8 +450,32 @@ impl ToolRegistryBuilder {
     // }
 
     pub fn build(self) -> (Vec<ConfiguredToolSpec>, ToolRegistry) {
-        let registry = ToolRegistry::new(self.handlers, self.interceptors);
-        (self.specs, registry)
+        let mut specs = self.specs;
+        let mut handlers = self.handlers;
+        let mut interceptors = self.interceptors;
+
+        // Attach any external tools registered by native bindings for this build.
+        for external in take_pending_external_tools() {
+            let name = external.spec.name().to_string();
+            specs.push(ConfiguredToolSpec::new(
+                external.spec,
+                external.supports_parallel_tool_calls,
+            ));
+            if handlers.insert(name.clone(), external.handler).is_some() {
+                warn!("overwriting handler for tool {name}");
+            }
+        }
+
+        // Attach any external interceptors that wrap builtin or external tools.
+        for external in take_pending_external_interceptors() {
+            interceptors
+                .entry(external.name.clone())
+                .or_default()
+                .push(external.handler);
+        }
+
+        let registry = ToolRegistry::new(handlers, interceptors);
+        (specs, registry)
     }
 }
 
