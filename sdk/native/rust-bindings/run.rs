@@ -292,9 +292,9 @@ impl RunRequest {
             "Invalid model \"{trimmed}\" for OSS mode. Use models prefixed with \"gpt-oss:\", e.g. \"gpt-oss:20b\"."
           )));
         }
-      } else if trimmed != "gpt-5" && trimmed != "gpt-5-codex" && trimmed != "gpt-5-codex-mini" && trimmed != "gpt-5.1" && trimmed != "gpt-5.1-codex" && trimmed != "gpt-5.1-codex-mini" {
+      } else if trimmed != "gpt-5" && trimmed != "gpt-5-codex" && trimmed != "gpt-5-codex-mini" && trimmed != "gpt-5.1" && trimmed != "gpt-5.1-codex" && trimmed != "gpt-5.1-codex-mini" && trimmed != "gpt-5.1-codex-max" {
         return Err(napi::Error::from_reason(format!(
-          "Invalid model \"{trimmed}\". Supported models are \"gpt-5\", \"gpt-5-codex\", \"gpt-5-codex-mini\", \"gpt-5.1\", \"gpt-5.1-codex\", or \"gpt-5.1-codex-mini\"."
+          "Invalid model \"{trimmed}\". Supported models are \"gpt-5\", \"gpt-5-codex\", \"gpt-5-codex-mini\", \"gpt-5.1\", \"gpt-5.1-codex\", \"gpt-5.1-codex-mini\", or \"gpt-5.1-codex-max\"."
         )));
       }
     }
