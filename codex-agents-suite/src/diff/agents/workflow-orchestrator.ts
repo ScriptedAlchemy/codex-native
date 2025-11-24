@@ -310,21 +310,9 @@ export class AgentWorkflowOrchestrator {
     remoteComparison: RemoteComparison | null,
     forceOpenCode = false,
   ): Promise<WorkerOutcome> {
-    const workerOutcome = forceOpenCode
-      ? null
-      : await this.runWorkerAgent(conflict, coordinatorPlan, remoteComparison);
-
-    if (workerOutcome?.success) {
-      return workerOutcome;
-    }
-
-    // Fallback to OpenCode for complex or unresolved conflicts
-    const openCodeOutcome = await this.runOpenCode(conflict, coordinatorPlan, remoteComparison);
-    if (openCodeOutcome.success) {
-      return openCodeOutcome;
-    }
-
-    return workerOutcome ?? openCodeOutcome;
+    // Default: Delegate to OpenCode with supervision
+    // Worker acts as supervisor, providing guidance and feedback
+    return await this.runOpenCode(conflict, coordinatorPlan, remoteComparison);
   }
 
   private async runWorkerAgent(
@@ -393,7 +381,7 @@ export class AgentWorkflowOrchestrator {
     coordinatorPlan: string | null,
     remoteComparison: RemoteComparison | null,
   ): Promise<WorkerOutcome> {
-    logInfo("worker", "Delegating to OpenCode (complex/unresolved)", conflict.path);
+    logInfo("worker", "Delegating to OpenCode with supervisor oversight", conflict.path);
     const outcome = await runOpenCodeResolution(conflict, {
       workingDirectory: this.config.workingDirectory,
       sandboxMode: this.config.sandboxMode,
