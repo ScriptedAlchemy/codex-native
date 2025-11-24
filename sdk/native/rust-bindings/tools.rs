@@ -190,6 +190,16 @@ pub fn clear_registered_tools() -> napi::Result<()> {
   Ok(())
 }
 
+pub(crate) fn clear_all_state() {
+  let _ = clear_registered_tools();
+  if let Ok(mut handlers) = active_thread_handlers().lock() {
+    handlers.clear();
+  }
+  if let Ok(mut updates) = pending_plan_updates().lock() {
+    updates.clear();
+  }
+}
+
 #[napi]
 pub fn register_approval_callback(
   env: Env,

@@ -78,16 +78,50 @@ const spawnOptions = {
   env: process.env,
 };
 
-let result;
-if (usePnpmExec) {
-  const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  result = spawnSync(pnpmCommand, ["exec", "jest", ...sanitizedArgs], spawnOptions);
-} else {
+function runJest(args, options = spawnOptions) {
+  if (usePnpmExec) {
+    const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+    return spawnSync(pnpmCommand, ["exec", "jest", ...args], options);
+  }
   const isCmd = process.platform === "win32" && jestBin.toLowerCase().endsWith(".cmd");
-  result = isCmd
-    ? spawnSync(jestBin, sanitizedArgs, { ...spawnOptions, shell: true })
-    : spawnSync(jestBin, sanitizedArgs, spawnOptions);
+  return isCmd
+    ? spawnSync(jestBin, args, { ...options, shell: true })
+    : spawnSync(jestBin, args, options);
 }
+
+const splitRuns = process.env.JEST_SPLIT_RUN !== "0";
+
+if (splitRuns) {
+  const listResult = runJest(["--listTests", "--runInBand"], {
+    ...spawnOptions,
+    stdio: ["inherit", "pipe", "inherit"],
+  });
+  if (listResult.error) {
+    console.error(listResult.error);
+    process.exit(1);
+  }
+  const stdout = listResult.stdout?.toString().trim() ?? "";
+  const tests = stdout.split("\n").filter(Boolean);
+  if (listResult.status !== 0 || tests.length === 0) {
+    console.error("Failed to enumerate Jest tests; falling back to single run.");
+  } else {
+    const passthrough = sanitizedArgs.filter((arg) => arg.startsWith("-"));
+    for (const testPath of tests) {
+      const perTestArgs = [...passthrough, "--runTestsByPath", testPath];
+      const result = runJest(perTestArgs, spawnOptions);
+      if (result.error) {
+        console.error(result.error);
+        process.exit(1);
+      }
+      if (typeof result.status === "number" && result.status !== 0) {
+        process.exit(result.status);
+      }
+    }
+    process.exit(0);
+  }
+}
+
+const result = runJest(sanitizedArgs, spawnOptions);
 
 if (result.error) {
   console.error(result.error);
@@ -99,4 +133,3 @@ if (typeof result.status === "number") {
 }
 
 process.exit(1);
-
