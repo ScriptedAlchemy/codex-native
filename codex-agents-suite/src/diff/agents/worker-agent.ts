@@ -112,6 +112,54 @@ export function formatWorkerInput(input: WorkerInput): string {
 }
 
 /**
+ * Select reasoning effort based on file path and conflict severity
+ */
+export function selectReasoningEffort(
+  conflict: ConflictContext,
+  config: {
+    defaultReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+    highReasoningMatchers?: string[];
+    lowReasoningMatchers?: string[];
+  }
+): "minimal" | "low" | "medium" | "high" | "xhigh" {
+  const markerCount = conflict.conflictMarkers ?? 0;
+  const lineCount = conflict.lineCount ?? 0;
+  const severityScore = markerCount * 10 + lineCount;
+
+  // Very high severity → xhigh reasoning
+  if (severityScore > 1200) {
+    return "xhigh";
+  }
+
+  // High severity → high reasoning
+  if (severityScore > 800) {
+    return "high";
+  }
+
+  const highMatchers =
+    config.highReasoningMatchers && config.highReasoningMatchers.length > 0
+      ? config.highReasoningMatchers
+      : DEFAULT_HIGH_REASONING_MATCHERS;
+  const lowMatchers =
+    config.lowReasoningMatchers && config.lowReasoningMatchers.length > 0
+      ? config.lowReasoningMatchers
+      : DEFAULT_LOW_REASONING_MATCHERS;
+
+  // Check file patterns
+  const matchesHigh = highMatchers.some((pattern) => simpleGlobMatch(conflict.path, pattern));
+  if (matchesHigh) {
+    return "high";
+  }
+
+  const matchesLow = lowMatchers.some((pattern) => simpleGlobMatch(conflict.path, pattern));
+  if (matchesLow) {
+    return "low";
+  }
+
+  return config.defaultReasoningEffort ?? "medium";
+}
+
+/**
  * Select model based on file path and conflict severity
  */
 export function selectWorkerModel(

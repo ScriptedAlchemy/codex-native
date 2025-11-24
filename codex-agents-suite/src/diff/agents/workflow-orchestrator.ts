@@ -3,7 +3,7 @@ import { Codex, type Thread } from "@codex-native/sdk";
 import type { AgentWorkflowConfig, CoordinatorInput } from "./types.js";
 import type { WorkerOutcome, ConflictContext, RemoteComparison } from "../merge/types.js";
 import { createCoordinatorAgent } from "./coordinator-agent.js";
-import { createWorkerAgent, selectWorkerModel, formatWorkerInput } from "./worker-agent.js";
+import { createWorkerAgent, selectWorkerModel, selectReasoningEffort, formatWorkerInput } from "./worker-agent.js";
 import { createReviewerAgent, formatReviewerInput } from "./reviewer-agent.js";
 import { runOpenCodeResolution } from "./opencode-wrapper.js";
 import { ApprovalSupervisor } from "../merge/supervisor.js";
@@ -266,7 +266,14 @@ export class AgentWorkflowOrchestrator {
       highReasoningMatchers: this.config.highReasoningMatchers,
       lowReasoningMatchers: this.config.lowReasoningMatchers,
     });
-    logInfo("worker", `Selected model '${model}'`, conflict.path);
+
+    const reasoningEffort = selectReasoningEffort(conflict, {
+      defaultReasoningEffort: this.config.reasoningEffort as "minimal" | "low" | "medium" | "high" | "xhigh" | undefined,
+      highReasoningMatchers: this.config.highReasoningMatchers,
+      lowReasoningMatchers: this.config.lowReasoningMatchers,
+    });
+
+    logInfo("worker", `Selected model '${model}' with reasoning effort '${reasoningEffort}'`, conflict.path);
 
     const { agent } = createWorkerAgent({
       workingDirectory: this.config.workingDirectory,
@@ -279,7 +286,7 @@ export class AgentWorkflowOrchestrator {
       conflictPath: conflict.path,
       workerInstructions: this.config.workerInstructions,
       approvalSupervisor: this.approvalSupervisor,
-      reasoningEffort: this.config.reasoningEffort ?? "high",
+      reasoningEffort,
     });
 
     try {
