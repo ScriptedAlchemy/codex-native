@@ -1783,7 +1783,6 @@ dependencies = [
  "codex-core",
  "codex-protocol",
  "notify",
- "portable-pty",
  "regex-lite",
  "serde_json",
  "shlex",

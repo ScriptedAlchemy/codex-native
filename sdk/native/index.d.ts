@@ -118,6 +118,8 @@ export declare function emitBackgroundEvent(req: JsEmitBackgroundEventRequest): 
 
 export declare function emitPlanUpdate(req: JsEmitPlanUpdateRequest): void
 
+export declare function ensureTokioRuntime(): void
+
 export declare function evAssistantMessage(id: string, text: string): string
 
 export declare function evCompleted(id: string): string
@@ -174,6 +176,8 @@ export interface ForkResult {
 }
 
 export declare function forkThread(req: ForkRequest): Promise<ForkResult>
+
+export declare function isTokioRuntimeAvailable(): boolean
 
 export interface JsApprovalRequest {
   type: string
@@ -376,9 +380,9 @@ export interface RunRequest {
   fullAuto?: boolean
 }
 
-export declare function runThread(req: RunRequest): Promise<Array<string>>
+export declare function runThread(req: RunRequest): Promise<unknown>
 
-export declare function runThreadStream(req: RunRequest, onEvent: (err: unknown, eventJson?: string) => void): Promise<void>
+export declare function runThreadStream(req: RunRequest, onEvent: (err: unknown, eventJson?: string) => void): Promise<unknown>
 
 export declare function runTui(req: TuiRequest): Promise<TuiExitInfo>
 

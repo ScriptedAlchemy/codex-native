@@ -54,7 +54,7 @@ impl EventProcessor for CallbackEventProcessor {
     }
 }
 
-pub fn callback_event_processor(
+pub(crate) fn callback_event_processor(
     callback: Box<dyn FnMut(ThreadEvent) + Send>,
     last_message_file: Option<PathBuf>,
 ) -> Box<dyn EventProcessor> {

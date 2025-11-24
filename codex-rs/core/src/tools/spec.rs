@@ -857,6 +857,26 @@ pub(crate) fn mcp_tool_to_openai_tool(
     })
 }
 
+/// Build a function tool specification from a user-provided JSON Schema.
+/// This is used by external bindings (e.g., the Native SDK) to register
+/// custom tools without depending on the internal JsonSchema type.
+pub fn create_function_tool_spec_from_schema(
+    name: String,
+    description: Option<String>,
+    mut schema: JsonValue,
+    strict: bool,
+) -> Result<ToolSpec, serde_json::Error> {
+    sanitize_json_schema(&mut schema);
+    let parameters = serde_json::from_value::<JsonSchema>(schema)?;
+
+    Ok(ToolSpec::Function(ResponsesApiTool {
+        name,
+        description: description.unwrap_or_default(),
+        strict,
+        parameters,
+    }))
+}
+
 /// Sanitize a JSON Schema (as serde_json::Value) so it can fit our limited
 /// JsonSchema enum. This function:
 /// - Ensures every schema object has a "type". If missing, infers it from

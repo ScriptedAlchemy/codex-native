@@ -197,7 +197,7 @@ pub struct ReviewRequest {
   pub user_facing_hint: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InternalRunRequest {
   pub prompt: String,
   pub thread_id: Option<String>,
@@ -797,6 +797,7 @@ pub fn build_cli(
     images: options.images.clone(),
     model: options.model.clone(),
     oss: options.oss,
+    oss_provider: options.model_provider.clone(),
     sandbox_mode,
     config_profile: None,
     full_auto: cli_full_auto,
@@ -854,7 +855,7 @@ fn build_config_inputs(
     model_provider: options
       .model_provider
       .clone()
-      .or_else(|| options.oss.then_some(BUILT_IN_OSS_MODEL_PROVIDER_ID.to_string())),
+      .or_else(|| options.oss.then_some(codex_core::OLLAMA_OSS_PROVIDER_ID.to_string())),
     config_profile: None,
     codex_linux_sandbox_exe: linux_sandbox_path,
     base_instructions: None,
@@ -1093,16 +1094,27 @@ where
 }
 
 #[napi]
-pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
+pub fn run_thread(req: RunRequest) -> napi::Result<napi::bindgen_prelude::AsyncTask<RunThreadTask>> {
   let options = req.into_internal()?;
-  let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-  let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
+  Ok(napi::bindgen_prelude::AsyncTask::new(RunThreadTask { options }))
+}
 
-  let events_clone = Arc::clone(&events);
-  let error_clone: Arc<Mutex<Option<napi::Error>>> = Arc::clone(&error_holder);
+pub struct RunThreadTask {
+  options: InternalRunRequest,
+}
 
-  tokio::task::spawn_blocking(move || {
-    run_internal_sync(options, move |event| match event_to_json(&event) {
+impl napi::bindgen_prelude::Task for RunThreadTask {
+  type Output = Vec<String>;
+  type JsValue = Vec<String>;
+
+  fn compute(&mut self) -> napi::Result<Self::Output> {
+    let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
+
+    let events_clone = Arc::clone(&events);
+    let error_clone: Arc<Mutex<Option<napi::Error>>> = Arc::clone(&error_holder);
+
+    run_internal_sync(self.options.clone(), move |event| match event_to_json(&event) {
       Ok(value) => {
         if let Ok(mut guard) = events_clone.lock() {
           match serde_json::to_string(&value) {
@@ -1120,17 +1132,19 @@ pub async fn run_thread(req: RunRequest) -> napi::Result<Vec<String>> {
           *guard = Some(err);
         }
       }
-    })
-  })
-  .await
-  .map_err(|e| napi::Error::from_reason(format!("Task join error: {e}")))??;
+    })?;
 
-  if let Some(err) = error_holder.lock().unwrap().take() {
-    return Err(err);
+    if let Some(err) = error_holder.lock().unwrap().take() {
+      return Err(err);
+    }
+
+    let mut guard = events.lock().unwrap();
+    Ok(std::mem::take(&mut *guard))
   }
 
-  let mut guard = events.lock().unwrap();
-  Ok(std::mem::take(&mut *guard))
+  fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+    Ok(output)
+  }
 }
 
 #[napi]
@@ -1435,19 +1449,24 @@ pub fn run_apply_patch(patch: String) -> napi::Result<()> {
     .map_err(|err| napi::Error::from_reason(err.to_string()))
 }
 
-#[napi]
-pub async fn run_thread_stream(
-  req: RunRequest,
-  #[napi(ts_arg_type = "(err: unknown, eventJson?: string) => void")] on_event: ThreadsafeFunction<
-    JsonValue,
-  >,
-) -> napi::Result<()> {
-  let options = req.into_internal()?;
-  let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
-  let error_clone: Arc<Mutex<Option<napi::Error>>> = Arc::clone(&error_holder);
+pub struct RunThreadStreamTask {
+  options: InternalRunRequest,
+  on_event: Option<ThreadsafeFunction<JsonValue>>,
+}
 
-  tokio::task::spawn_blocking(move || {
-    run_internal_sync(options, move |event| match event_to_json(&event) {
+impl napi::bindgen_prelude::Task for RunThreadStreamTask {
+  type Output = ();
+  type JsValue = ();
+
+  fn compute(&mut self) -> napi::Result<Self::Output> {
+    let on_event = self
+      .on_event
+      .take()
+      .ok_or_else(|| napi::Error::from_reason("run_thread_stream task already consumed"))?;
+    let error_holder: Arc<Mutex<Option<napi::Error>>> = Arc::new(Mutex::new(None));
+    let error_clone: Arc<Mutex<Option<napi::Error>>> = Arc::clone(&error_holder);
+
+    run_internal_sync(self.options.clone(), move |event| match event_to_json(&event) {
       Ok(value) => match serde_json::to_string(&value) {
         Ok(text) => {
           let status = on_event.call(
@@ -1471,16 +1490,32 @@ pub async fn run_thread_stream(
           *guard = Some(err);
         }
       }
-    })
-  })
-  .await
-  .map_err(|e| napi::Error::from_reason(format!("Task join error: {e}")))??;
+    })?;
 
-  if let Some(err) = error_holder.lock().unwrap().take() {
-    return Err(err);
+    if let Some(err) = error_holder.lock().unwrap().take() {
+      return Err(err);
+    }
+
+    Ok(())
   }
 
-  Ok(())
+  fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+    Ok(output)
+  }
+}
+
+#[napi]
+pub fn run_thread_stream(
+  req: RunRequest,
+  #[napi(ts_arg_type = "(err: unknown, eventJson?: string) => void")] on_event: ThreadsafeFunction<
+    JsonValue,
+  >,
+) -> napi::Result<napi::bindgen_prelude::AsyncTask<RunThreadStreamTask>> {
+  let options = req.into_internal()?;
+  Ok(napi::bindgen_prelude::AsyncTask::new(RunThreadStreamTask {
+    options,
+    on_event: Some(on_event),
+  }))
 }
 
 fn build_cloud_client(

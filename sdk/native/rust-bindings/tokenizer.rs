@@ -4,6 +4,9 @@
 // Section 7: Tokenizer Helpers
 // ============================================================================
 
+use tiktoken_rs::CoreBPE;
+use tiktoken_rs::{cl100k_base, get_bpe_from_model, o200k_base};
+
 #[napi(object)]
 pub struct TokenizerBaseOptions {
   pub model: Option<String>,
@@ -20,32 +23,27 @@ pub struct TokenizerEncodeOptions {
   pub with_special_tokens: Option<bool>,
 }
 
-fn map_tokenizer_error(err: TokenizerError) -> napi::Error {
+fn map_tokenizer_error<E: std::fmt::Display>(err: E) -> napi::Error {
   napi::Error::from_reason(format!("Tokenizer error: {err}"))
 }
 
-fn parse_encoding(name: &str) -> Option<EncodingKind> {
+fn encoding_from_name(name: &str) -> Option<CoreBPE> {
   let normalized = name.replace('-', "_").to_ascii_lowercase();
   match normalized.as_str() {
-    "o200k_base" => Some(EncodingKind::O200kBase),
-    "cl100k_base" => Some(EncodingKind::Cl100kBase),
+    "o200k_base" => o200k_base().ok(),
+    "cl100k_base" => cl100k_base().ok(),
     _ => None,
   }
 }
 
-fn build_tokenizer(model: Option<&str>, encoding: Option<&str>) -> napi::Result<Tokenizer> {
+fn build_tokenizer(model: Option<&str>, encoding: Option<&str>) -> napi::Result<CoreBPE> {
   if let Some(enc_name) = encoding {
-    if let Some(kind) = parse_encoding(enc_name) {
-      Tokenizer::new(kind).map_err(map_tokenizer_error)
-    } else {
-      Err(napi::Error::from_reason(format!(
-        "Unknown tokenizer encoding: {enc_name}"
-      )))
-    }
+    encoding_from_name(enc_name)
+      .ok_or_else(|| napi::Error::from_reason(format!("Unknown tokenizer encoding: {enc_name}")))
   } else if let Some(model_name) = model {
-    Tokenizer::for_model(model_name).map_err(map_tokenizer_error)
+    get_bpe_from_model(model_name).map_err(map_tokenizer_error)
   } else {
-    Tokenizer::try_default().map_err(map_tokenizer_error)
+    cl100k_base().map_err(map_tokenizer_error)
   }
 }
 
@@ -55,7 +53,7 @@ pub fn tokenizer_count(text: String, options: Option<TokenizerBaseOptions>) -> n
     options.as_ref().and_then(|o| o.model.as_deref()),
     options.as_ref().and_then(|o| o.encoding.as_deref()),
   )?;
-  Ok(tokenizer.count(&text))
+  Ok(tokenizer.encode_ordinary(&text).len() as i64)
 }
 
 #[napi]
@@ -71,7 +69,12 @@ pub fn tokenizer_encode(
     .as_ref()
     .and_then(|o| o.with_special_tokens)
     .unwrap_or(false);
-  Ok(tokenizer.encode(&text, with_special_tokens))
+  let tokens = if with_special_tokens {
+    tokenizer.encode_with_special_tokens(&text)
+  } else {
+    tokenizer.encode_ordinary(&text)
+  };
+  Ok(tokens.into_iter().map(|t| t as i32).collect())
 }
 
 #[napi]
@@ -83,6 +86,9 @@ pub fn tokenizer_decode(
     options.as_ref().and_then(|o| o.model.as_deref()),
     options.as_ref().and_then(|o| o.encoding.as_deref()),
   )?;
-  tokenizer.decode(&tokens).map_err(map_tokenizer_error)
+  let ids: Vec<u32> = tokens
+    .iter()
+    .map(|t| (*t).try_into().map_err(|_| map_tokenizer_error("token id must be non-negative")))
+    .collect::<Result<_, _>>()?;
+  tokenizer.decode(ids).map_err(map_tokenizer_error)
 }
-

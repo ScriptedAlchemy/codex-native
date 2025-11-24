@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use chrono::{DateTime, Utc};
+use codex_core::OLLAMA_OSS_PROVIDER_ID;
 
 
 #[derive(Clone)]
@@ -576,7 +577,7 @@ async fn load_reverie_conversations(
     None,
     &[],
     None,
-    BUILT_IN_OSS_MODEL_PROVIDER_ID,
+    OLLAMA_OSS_PROVIDER_ID,
   )
   .await?;
 

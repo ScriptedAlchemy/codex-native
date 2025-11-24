@@ -20,7 +20,7 @@ type ParsedFailure = {
 type CiJobResult = {
   name: string;
   command: string;
-  status: "passed" | "failed" | "error";
+  status: "passed" | "failed" | "error" | "warning";
   exitCode: number;
   durationMs: number;
   stdout: string;
@@ -49,9 +49,13 @@ function runJob(job: CiJob): CiJobResult {
   });
   const durationMs = Date.now() - start;
   const exitCode = proc.status ?? 0;
-  const status: CiJobResult["status"] = exitCode === 0 ? "passed" : "failed";
+  let status: CiJobResult["status"] = exitCode === 0 ? "passed" : "failed";
+  if (status === "passed" && /\bwarning\b/i.test(proc.stderr ?? "")) {
+    status = "warning";
+  }
   const failureSummary = exitCode === 0 ? undefined : summarizeFailure(proc.stderr || proc.stdout || "");
-  const parsedFailures = exitCode === 0 ? [] : parseFailures(job.name, proc.stdout ?? "", proc.stderr ?? "");
+  const parsedFailures =
+    status === "passed" ? [] : parseFailures(job.name, proc.stdout ?? "", proc.stderr ?? "");
   return {
     name: job.name,
     command: job.command,
@@ -122,7 +126,8 @@ function writeReport(results: CiJobResult[]): void {
   const dir = path.join(process.cwd(), ".codex-ci");
   mkdirSync(dir, { recursive: true });
   const outputPath = path.join(dir, "ci-report.json");
-  const report = { generatedAt: new Date().toISOString(), results };
+  const filtered = results.filter((r) => r.status !== "passed");
+  const report = { generatedAt: new Date().toISOString(), results: filtered };
   writeFileSync(outputPath, JSON.stringify(report, null, 2));
   console.log(`📄 CI JSON report written to ${outputPath}`);
   console.log("CI_JSON_REPORT", JSON.stringify(report));

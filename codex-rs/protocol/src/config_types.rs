@@ -29,7 +29,6 @@ pub enum ReasoningEffort {
     Low,
     #[default]
     Medium,
-    #[serde(alias = "xhigh")]
     High,
     XHigh,
 }

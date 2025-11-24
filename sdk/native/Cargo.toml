@@ -32,6 +32,7 @@ optional = true
 
 [dependencies.napi-derive]
 version = "3"
+features = ["compat-mode"]
 optional = true
 
 [dependencies.serde]
@@ -70,15 +71,14 @@ path = "../../codex-rs/protocol"
 [dependencies.codex-cloud-tasks-client]
 path = "../../codex-rs/cloud-tasks-client"
 
-[dependencies.codex-utils-tokenizer]
-path = "../../codex-rs/utils/tokenizer"
-
 [dependencies.codex-tui]
 path = "../../codex-rs/tui"
 
 [dependencies.codex-apply-patch]
 path = "../../codex-rs/apply-patch"
 
+[dependencies.tiktoken-rs]
+version = "0.9"
 
 [dependencies.git2]
 version = "0.20"
@@ -105,3 +105,5 @@ strip = "symbols"
 [patch.crates-io]
 ratatui = { git = "https://github.com/nornagon/ratatui", branch = "nornagon-v0.29.0-patch" }
 crossterm = { git = "https://github.com/nornagon/crossterm", branch = "nornagon/color-query" }
+rmcp = { git = "https://github.com/bolinfest/rust-sdk", branch = "pr556" }
+rmcp-macros = { git = "https://github.com/bolinfest/rust-sdk", branch = "pr556" }

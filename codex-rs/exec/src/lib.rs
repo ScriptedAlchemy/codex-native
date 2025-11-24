@@ -4,13 +4,17 @@
 // For both modes, any other output must be written to stderr.
 #![deny(clippy::print_stdout)]
 
-mod cli;
+pub mod cli;
 mod event_processor;
+pub mod event_processor_bridge;
 mod event_processor_with_human_output;
 pub mod event_processor_with_jsonl_output;
 pub mod exec_events;
 
 pub use cli::Cli;
+pub use cli::Color;
+pub use cli::Command;
+pub use cli::ResumeArgs;
 use codex_common::oss::ensure_oss_provider_ready;
 use codex_common::oss::get_default_model_for_oss_provider;
 use codex_core::AuthManager;
@@ -33,6 +37,7 @@ use codex_core::protocol::SessionSource;
 use codex_protocol::approvals::ElicitationAction;
 use codex_protocol::config_types::SandboxMode;
 use codex_protocol::user_input::UserInput;
+use event_processor_bridge::callback_event_processor;
 use event_processor_with_human_output::EventProcessorWithHumanOutput;
 use event_processor_with_jsonl_output::EventProcessorWithJsonOutput;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
@@ -54,6 +59,22 @@ use codex_core::default_client::set_default_originator;
 use codex_core::find_conversation_path_by_id_str;
 
 pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
+    run_exec(cli, codex_linux_sandbox_exe, None).await
+}
+
+pub async fn run_with_thread_event_callback(
+    cli: Cli,
+    codex_linux_sandbox_exe: Option<PathBuf>,
+    callback: impl FnMut(exec_events::ThreadEvent) + Send + 'static,
+) -> anyhow::Result<()> {
+    run_exec(cli, codex_linux_sandbox_exe, Some(Box::new(callback))).await
+}
+
+async fn run_exec(
+    cli: Cli,
+    codex_linux_sandbox_exe: Option<PathBuf>,
+    thread_callback: Option<Box<dyn FnMut(exec_events::ThreadEvent) + Send>>,
+) -> anyhow::Result<()> {
     if let Err(err) = set_default_originator("codex_exec".to_string()) {
         tracing::warn!(?err, "Failed to set codex exec originator override {err:?}");
     }
@@ -279,13 +300,17 @@ pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> any
         let _ = tracing_subscriber::registry().with(fmt_layer).try_init();
     }
 
-    let mut event_processor: Box<dyn EventProcessor> = match json_mode {
-        true => Box::new(EventProcessorWithJsonOutput::new(last_message_file.clone())),
-        _ => Box::new(EventProcessorWithHumanOutput::create_with_ansi(
-            stdout_with_ansi,
-            &config,
-            last_message_file.clone(),
-        )),
+    let mut event_processor: Box<dyn EventProcessor> = if let Some(cb) = thread_callback {
+        callback_event_processor(cb, last_message_file.clone())
+    } else {
+        match json_mode {
+            true => Box::new(EventProcessorWithJsonOutput::new(last_message_file.clone())),
+            _ => Box::new(EventProcessorWithHumanOutput::create_with_ansi(
+                stdout_with_ansi,
+                &config,
+                last_message_file.clone(),
+            )),
+        }
     };
 
     if oss {

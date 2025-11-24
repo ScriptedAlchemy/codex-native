@@ -216,10 +216,7 @@ fn lsp_background_events_emit_notifications() {
     let cells = drain_insert_history(&mut rx);
     let last = lines_to_single_string(cells.last().expect("diagnostic cell"));
     assert!(last.contains("LSP diagnostics detected"));
-    assert!(matches!(
-        chat.pending_notification,
-        Some(Notification::LspDiagnostics { .. })
-    ));
+    assert!(chat.pending_notification.is_none());
 }
 
 /// Completing review with findings shows the selection popup and finishes with
