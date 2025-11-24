@@ -415,10 +415,33 @@ fn pre_main_hardening() {
 }
 
 fn main() -> anyhow::Result<()> {
-    arg0_dispatch_or_else(|codex_linux_sandbox_exe| async move {
-        cli_main(codex_linux_sandbox_exe).await?;
-        Ok(())
-    })
+    #[cfg(target_os = "windows")]
+    {
+        // Windows runners have a small default main-thread stack; run the CLI
+        // inside a thread with a larger stack to avoid stack overflows when
+        // tests spawn the binary.
+        let handle = std::thread::Builder::new()
+            .name("codex-main".to_string())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                arg0_dispatch_or_else(|codex_linux_sandbox_exe| async move {
+                    cli_main(codex_linux_sandbox_exe).await?;
+                    Ok(())
+                })
+            })?;
+        match handle.join() {
+            Ok(res) => res,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        arg0_dispatch_or_else(|codex_linux_sandbox_exe| async move {
+            cli_main(codex_linux_sandbox_exe).await?;
+            Ok(())
+        })
+    }
 }
 
 async fn cli_main(codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {

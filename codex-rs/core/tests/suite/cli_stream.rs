@@ -231,11 +231,6 @@ async fn integration_creates_and_checks_session_file() -> anyhow::Result<()> {
     // Honor sandbox network restrictions for CI parity with the other tests.
     skip_if_no_network!(Ok(()));
 
-    if cfg!(target_os = "windows") {
-        // Windows runners occasionally overflow the stack when spawning the CLI; skip there.
-        return Ok(());
-    }
-
     // 1. Temp home so we read/write isolated session files.
     let home = TempDir::new()?;
 
