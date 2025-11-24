@@ -264,9 +264,33 @@ Requirements:
     conversationLog.push(`[OpenCode → Supervisor] ${response.slice(0, 200)}...`);
     logInfo("conversation", `\n${"=".repeat(80)}\n[OpenCode → Supervisor]\n${response}\n${"=".repeat(80)}`, conflict.path);
 
-    // Phase 5: Verify resolution
-    const remaining = await git.listConflictPaths();
-    const resolved = !remaining.includes(conflict.path);
+    // Phase 5: Verify resolution by checking file content for conflict markers
+    // Note: Git index status (UU) remains until staged, so we check actual content instead
+    let resolved = false;
+    try {
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const execFileAsync = promisify(execFile);
+
+      // Check for conflict markers in the actual file content
+      const { stdout } = await execFileAsync("rg", ["-e", "<<<<<<<", "-e", "=======", "-e", ">>>>>>>", conflict.path], {
+        cwd: options.workingDirectory,
+      });
+
+      // If rg found markers, file is not resolved
+      resolved = false;
+      logWarn("opencode", `⚠️  Conflict markers still present in file content`, conflict.path);
+    } catch (error: any) {
+      // rg exits with code 1 when no matches found - this means file is resolved
+      if (error.code === 1) {
+        resolved = true;
+        logInfo("opencode", "✅ Conflict markers removed from file content!", conflict.path);
+      } else {
+        // Some other error (file not found, etc.)
+        logWarn("opencode", `⚠️  Error checking for conflict markers: ${error.message}`, conflict.path);
+        resolved = false;
+      }
+    }
 
     if (!result.success) {
       logWarn("opencode", `Execution failed: ${result.error}`, conflict.path);
@@ -276,12 +300,6 @@ Requirements:
         error: result.error || "OpenCode execution failed",
         summary: `${response}\n\n--- Dual-Agent Conversation ---\n${conversationLog.join("\n\n")}`,
       };
-    }
-
-    if (resolved) {
-      logInfo("opencode", "✅ Conflict resolved successfully!", conflict.path);
-    } else {
-      logWarn("opencode", "⚠️  Conflict markers still present", conflict.path);
     }
 
     return {
