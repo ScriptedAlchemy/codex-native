@@ -12,7 +12,7 @@ chrono = { workspace = true, features = ["serde"] }
 codex-core = { workspace = true }
 codex-app-server-protocol = { workspace = true }
 rand = { workspace = true }
-reqwest = { workspace = true, default-features = false, features = ["json", "blocking", "rustls-tls"] }
+reqwest = { workspace = true, features = ["json", "blocking"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

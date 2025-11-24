@@ -25,13 +25,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicI32;
-use std::sync::atomic::AtomicUsize;
 use std::time::Duration;
 
 use rand::Rng;
 use rand::rng;
 use tokio::sync::Mutex;
-use tokio::sync::Notify;
 
 use crate::codex::Session;
 use crate::codex::TurnContext;
@@ -47,6 +45,7 @@ pub(crate) const MIN_YIELD_TIME_MS: u64 = 250;
 pub(crate) const MAX_YIELD_TIME_MS: u64 = 30_000;
 pub(crate) const DEFAULT_MAX_OUTPUT_TOKENS: usize = 10_000;
 pub(crate) const UNIFIED_EXEC_OUTPUT_MAX_BYTES: usize = 1024 * 1024; // 1 MiB
+pub(crate) const UNIFIED_EXEC_OUTPUT_MAX_TOKENS: usize = UNIFIED_EXEC_OUTPUT_MAX_BYTES / 4;
 
 pub(crate) struct UnifiedExecContext {
     pub session: Arc<Session>,
@@ -95,18 +94,10 @@ pub(crate) struct UnifiedExecResponse {
     pub session_command: Option<Vec<String>>,
 }
 
+#[derive(Default)]
 pub(crate) struct UnifiedExecSessionManager {
     next_session_id: AtomicI32,
-    sessions: Arc<Mutex<HashMap<i32, SessionEntry>>>,
-}
-
-impl Default for UnifiedExecSessionManager {
-    fn default() -> Self {
-        Self {
-            next_session_id: AtomicI32::new(0),
-            sessions: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
+    sessions: Mutex<HashMap<i32, SessionEntry>>,
 }
 
 struct SessionEntry {
@@ -117,8 +108,6 @@ struct SessionEntry {
     command: Vec<String>,
     cwd: PathBuf,
     started_at: tokio::time::Instant,
-    pending_writes: Arc<AtomicUsize>,
-    write_notify: Arc<Notify>,
 }
 
 pub(crate) fn clamp_yield_time(yield_time_ms: u64) -> u64 {
@@ -134,37 +123,6 @@ pub(crate) fn generate_chunk_id() -> String {
     (0..6)
         .map(|_| format!("{:x}", rng.random_range(0..16)))
         .collect()
-}
-
-pub(crate) fn truncate_output_to_tokens(
-    output: &str,
-    max_tokens: usize,
-) -> (String, Option<usize>) {
-    if max_tokens == 0 {
-        let total_tokens = output.chars().count();
-        let message = format!("…{total_tokens} tokens truncated…");
-        return (message, Some(total_tokens));
-    }
-
-    let tokens: Vec<char> = output.chars().collect();
-    let total_tokens = tokens.len();
-    if total_tokens <= max_tokens {
-        return (output.to_string(), None);
-    }
-
-    let half = max_tokens / 2;
-    if half == 0 {
-        let truncated = total_tokens.saturating_sub(max_tokens);
-        let message = format!("…{truncated} tokens truncated…");
-        return (message, Some(total_tokens));
-    }
-
-    let truncated = total_tokens.saturating_sub(half * 2);
-    let mut truncated_output = String::new();
-    truncated_output.extend(&tokens[..half]);
-    truncated_output.push_str(&format!("…{truncated} tokens truncated…"));
-    truncated_output.extend(&tokens[total_tokens - half..]);
-    (truncated_output, Some(total_tokens))
 }
 
 #[cfg(test)]
@@ -418,6 +376,8 @@ mod tests {
         let session_id = open_shell.session_id.expect("expected session id");
 
         write_stdin(&session, session_id, "exit\n", 2_500).await?;
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let err = write_stdin(&session, session_id, "", 100)
             .await

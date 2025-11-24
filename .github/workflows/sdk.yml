@@ -218,17 +218,13 @@ jobs:
             cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
             cargo-target-${{ runner.os }}-
 
-      - name: build codex
-        run: cargo build --bin codex
-        working-directory: codex-rs
-
       - name: Install native SDK dependencies
         working-directory: sdk/native
         run: pnpm install --frozen-lockfile
 
       - name: Build native SDK
         working-directory: sdk/native
-        run: pnpm run build
+        run: pnpm run build:ci
 
       - name: Test native SDK
         working-directory: sdk/native

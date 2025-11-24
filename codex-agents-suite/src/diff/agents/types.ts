@@ -62,6 +62,7 @@ export interface ReviewerInput {
   diffStat: string;
   remaining: string[];
   validationMode?: boolean;
+  lspDiagnostics?: string | null;
 }
 
 export interface ReviewerOutput {

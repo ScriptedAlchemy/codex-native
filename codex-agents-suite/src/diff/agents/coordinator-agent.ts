@@ -15,7 +15,11 @@ import type { AgentConfig, AgentFactory, CoordinatorInput } from "./types.js";
  * Create a Coordinator Agent using the @openai/agents framework
  */
 export function createCoordinatorAgent(
-  config: AgentConfig & { model?: string; approvalSupervisor?: ApprovalSupervisor | null }
+  config: AgentConfig & {
+    model?: string;
+    approvalSupervisor?: ApprovalSupervisor | null;
+    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  }
 ): AgentFactory {
   const provider = new CodexProvider({
     defaultModel: config.model || DEFAULT_COORDINATOR_MODEL,
@@ -25,6 +29,8 @@ export function createCoordinatorAgent(
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     skipGitRepoCheck: config.skipGitRepoCheck ?? false,
+    reasoningEffort: config.reasoningEffort ?? "high",
+    enableLsp: false, // Disable LSP during initial conflict resolution
   });
 
   if (config.approvalSupervisor?.isAvailable?.()) {
@@ -44,6 +50,18 @@ Responsibilities:
 2. Create structured merge plan with sequencing and cross-file coupling analysis
 3. Identify which conflicts need high-reasoning models vs simple resolution
 4. Provide guidance to worker agents
+
+Important Principles:
+- PREFER UPSTREAM: Align with upstream main whenever possible - accept upstream changes by default
+- MAINTAIN FUNCTIONALITY: Ensure our custom functionality remains operable and supported
+- MINIMALLY INVASIVE: Make the smallest changes needed to preserve our features
+- Extension Strategy:
+  * Prefer implementing functionality in sdk/native/src/ (Rust/TypeScript)
+  * If codex-rs modifications are needed, add minimal hooks/extension points only
+  * Implement actual logic in sdk/native that leverages those hooks
+  * Keep codex-rs changes small and upstream-friendly (easy to port forward)
+- If upstream changed core code, prefer their version and adapt our hooks if needed
+- Avoid sprawling modifications to codex-rs internals
 
 Output a structured plan with:
 - Executive summary

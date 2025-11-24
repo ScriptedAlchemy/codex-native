@@ -1,9 +1,8 @@
 import { run } from "@openai/agents";
-import { Codex, type Thread } from "@codex-native/sdk";
+import { Codex, type Thread, LspManager, formatDiagnosticsWithSummary } from "@codex-native/sdk";
 import type { AgentWorkflowConfig, CoordinatorInput } from "./types.js";
 import type { WorkerOutcome, ConflictContext, RemoteComparison } from "../merge/types.js";
 import { createCoordinatorAgent } from "./coordinator-agent.js";
-import { createWorkerAgent, selectWorkerModel, formatWorkerInput } from "./worker-agent.js";
 import { createReviewerAgent, formatReviewerInput } from "./reviewer-agent.js";
 import { runOpenCodeResolution } from "./opencode-wrapper.js";
 import { ApprovalSupervisor } from "../merge/supervisor.js";
@@ -50,8 +49,20 @@ export class AgentWorkflowOrchestrator {
       input.remoteComparison ?? null,
     );
 
-    // Phase 3: Reviewer validates overall outcome
-    const reviewerSummary = await this.runReviewerPhase(workerOutcomes, input.remoteComparison);
+    // Phase 2.5: Post-resolution LSP validation (collect diagnostics after conflicts resolved)
+    let lspDiagnosticsSummary: string | null = null;
+    if (workerOutcomes.every((o) => o.success)) {
+      lspDiagnosticsSummary = await this.collectPostResolutionDiagnostics(
+        workerOutcomes.map((o) => o.path),
+      );
+    }
+
+    // Phase 3: Reviewer validates overall outcome (with LSP diagnostics if available)
+    const reviewerSummary = await this.runReviewerPhase(
+      workerOutcomes,
+      input.remoteComparison,
+      lspDiagnosticsSummary,
+    );
 
     const success = workerOutcomes.every((o) => o.success) && (await this.isAllResolved());
     if (success) {
@@ -99,9 +110,11 @@ export class AgentWorkflowOrchestrator {
       model: this.config.coordinatorModel,
       coordinatorInstructions: this.config.coordinatorInstructions,
       approvalSupervisor: this.approvalSupervisor,
+      reasoningEffort: this.config.reasoningEffort ?? "high",
     });
 
-    const result = await run(agent, JSON.stringify(input));
+    const slimInput = this.shrinkCoordinatorInput(input);
+    const result = await run(agent, JSON.stringify(slimInput));
     if (!result?.finalOutput || typeof result.finalOutput !== "string") {
       throw new Error("Coordinator produced invalid output");
     }
@@ -115,11 +128,19 @@ export class AgentWorkflowOrchestrator {
   ): Promise<WorkerOutcome[]> {
     logInfo("worker", `Processing ${conflicts.length} conflicts...`);
 
+    // Prioritize config files first (critical infrastructure)
+    const prioritizedConflicts = this.prioritizeConfigFiles(conflicts);
+
     const outcomes: WorkerOutcome[] = [];
-    const simpleConflicts = conflicts.filter((c) => !this.isComplex(c));
-    const complexConflicts = conflicts.filter((c) => this.isComplex(c));
+    const simpleConflicts = prioritizedConflicts.filter((c) => !this.isComplex(c));
+    const complexConflicts = prioritizedConflicts.filter((c) => this.isComplex(c));
     const maxConcurrent = Math.max(1, this.config.maxConcurrentSimpleWorkers ?? 1);
     const active = new Set<Promise<void>>();
+
+    logInfo(
+      "worker",
+      `Queue split: ${simpleConflicts.length} simple, ${complexConflicts.length} complex (max ${maxConcurrent} simple in parallel)`,
+    );
 
     const schedule = (conflict: ConflictContext): void => {
       const prior = this.pathLocks.get(conflict.path) ?? Promise.resolve();
@@ -169,7 +190,7 @@ export class AgentWorkflowOrchestrator {
         this.activeFiles.delete(conflict.path);
       }
       this.activeFiles.add(conflict.path);
-      const outcome = await this.handleConflict(conflict, coordinatorPlan, remoteComparison, true);
+      const outcome = await this.handleConflict(conflict, coordinatorPlan, remoteComparison);
       outcomes.push(outcome);
       this.activeFiles.delete(conflict.path);
     }
@@ -180,9 +201,10 @@ export class AgentWorkflowOrchestrator {
   private async runReviewerPhase(
     outcomes: WorkerOutcome[],
     remoteComparison: CoordinatorInput["remoteComparison"],
+    lspDiagnostics: string | null = null,
     validationMode = false,
   ): Promise<string | null> {
-    logInfo("reviewer", "Running reviewer agent...");
+    logInfo(validationMode ? "validation" : "reviewer", "Running reviewer agent...");
 
     const { agent } = createReviewerAgent({
       workingDirectory: this.config.workingDirectory,
@@ -193,6 +215,7 @@ export class AgentWorkflowOrchestrator {
       model: this.config.reviewerModel,
       reviewerInstructions: this.config.reviewerInstructions,
       approvalSupervisor: this.approvalSupervisor,
+      reasoningEffort: this.config.reasoningEffort ?? "high",
     });
 
     const status = await this.git.getStatusShort();
@@ -206,6 +229,7 @@ export class AgentWorkflowOrchestrator {
       diffStat,
       remaining,
       validationMode,
+      lspDiagnostics: typeof lspDiagnostics === "string" ? lspDiagnostics : null,
     });
     const result = await run(agent, reviewerPrompt);
 
@@ -223,79 +247,71 @@ export class AgentWorkflowOrchestrator {
     return this.computeSeverity(conflict) >= threshold;
   }
 
+  /**
+   * Prioritize config files (YAML, TOML, JSON, etc.) to be resolved first
+   * since they're critical infrastructure that other files may depend on
+   */
+  private prioritizeConfigFiles(conflicts: ConflictContext[]): ConflictContext[] {
+    const configExtensions = new Set([
+      '.yml',
+      '.yaml',
+      '.toml',
+      '.json',
+      '.lock', // package-lock.json, Cargo.lock, etc.
+      '.config.js',
+      '.config.ts',
+    ]);
+
+    const isConfigFile = (path: string): boolean => {
+      const lowerPath = path.toLowerCase();
+      // Check extensions
+      if (Array.from(configExtensions).some((ext) => lowerPath.endsWith(ext))) {
+        return true;
+      }
+      // Check specific config file names
+      if (
+        lowerPath.includes('package.json') ||
+        lowerPath.includes('tsconfig.json') ||
+        lowerPath.includes('cargo.toml') ||
+        lowerPath.includes('pyproject.toml')
+      ) {
+        return true;
+      }
+      return false;
+    };
+
+    // Separate config files from non-config files
+    const configFiles: ConflictContext[] = [];
+    const otherFiles: ConflictContext[] = [];
+
+    for (const conflict of conflicts) {
+      if (isConfigFile(conflict.path)) {
+        configFiles.push(conflict);
+      } else {
+        otherFiles.push(conflict);
+      }
+    }
+
+    // Log prioritization if config files found
+    if (configFiles.length > 0) {
+      logInfo(
+        "worker",
+        `Prioritizing ${configFiles.length} config file${configFiles.length !== 1 ? "s" : ""} to resolve first`,
+      );
+    }
+
+    // Return config files first, then other files
+    return [...configFiles, ...otherFiles];
+  }
+
   private async handleConflict(
     conflict: ConflictContext,
     coordinatorPlan: string | null,
     remoteComparison: RemoteComparison | null,
-    forceOpenCode = false,
   ): Promise<WorkerOutcome> {
-    const workerOutcome = forceOpenCode
-      ? null
-      : await this.runWorkerAgent(conflict, coordinatorPlan, remoteComparison);
-
-    if (workerOutcome?.success) {
-      return workerOutcome;
-    }
-
-    // Fallback to OpenCode for complex or unresolved conflicts
-    const openCodeOutcome = await this.runOpenCode(conflict, coordinatorPlan, remoteComparison);
-    if (openCodeOutcome.success) {
-      return openCodeOutcome;
-    }
-
-    return workerOutcome ?? openCodeOutcome;
-  }
-
-  private async runWorkerAgent(
-    conflict: ConflictContext,
-    coordinatorPlan: string | null,
-    remoteComparison: RemoteComparison | null,
-  ): Promise<WorkerOutcome> {
-    const model = selectWorkerModel(conflict, {
-      defaultModel: this.config.workerModel,
-      highReasoningModel: this.config.workerModelHigh,
-      lowReasoningModel: this.config.workerModelLow,
-      highReasoningMatchers: this.config.highReasoningMatchers,
-      lowReasoningMatchers: this.config.lowReasoningMatchers,
-    });
-
-    const { agent } = createWorkerAgent({
-      workingDirectory: this.config.workingDirectory,
-      baseUrl: this.config.baseUrl,
-      apiKey: this.config.apiKey,
-      sandboxMode: this.config.sandboxMode,
-      approvalMode: this.config.approvalMode,
-      skipGitRepoCheck: this.config.skipGitRepoCheck,
-      model,
-      conflictPath: conflict.path,
-      workerInstructions: this.config.workerInstructions,
-      approvalSupervisor: this.approvalSupervisor,
-    });
-
-    try {
-      const workerPrompt = formatWorkerInput({ conflict, coordinatorPlan, remoteInfo: remoteComparison });
-      const result = await run(agent, workerPrompt);
-      if (!result?.finalOutput || typeof result.finalOutput !== "string") {
-        throw new Error("Worker produced invalid output");
-      }
-
-      const summary = result.finalOutput;
-      const resolved = await this.isResolved(conflict.path);
-
-      return {
-        path: conflict.path,
-        success: resolved,
-        summary: summary ?? undefined,
-        error: resolved ? undefined : "Conflict still present after worker run",
-      };
-    } catch (error: any) {
-      logWarn("worker", `Worker failed: ${error}`, conflict.path);
-      return {
-        path: conflict.path,
-        success: false,
-        error: error?.message ?? "Unknown worker error",
-      };
-    }
+    // Default: Delegate all conflicts to OpenCode with supervisor oversight
+    // Supervisor provides multi-turn guidance and feedback
+    return await this.runOpenCode(conflict, coordinatorPlan, remoteComparison);
   }
 
   private async runOpenCode(
@@ -303,17 +319,33 @@ export class AgentWorkflowOrchestrator {
     coordinatorPlan: string | null,
     remoteComparison: RemoteComparison | null,
   ): Promise<WorkerOutcome> {
+    logInfo("worker", "Delegating to OpenCode with supervisor oversight", conflict.path);
+    // Supervisor uses the smart/expensive model (e.g., gpt-5.1-codex-max)
+    const supervisorModel = this.config.workerModelHigh ?? this.config.workerModel;
+    // OpenCode uses the cheap/fast model (e.g., claude-sonnet-4-5)
+    const openCodeModel = this.config.workerModelLow ?? "anthropic/claude-sonnet-4-5-20250929";
     const outcome = await runOpenCodeResolution(conflict, {
       workingDirectory: this.config.workingDirectory,
       sandboxMode: this.config.sandboxMode,
       approvalSupervisor: this.approvalSupervisor,
-      model: this.config.workerModelHigh ?? this.config.workerModel,
+      supervisorModel,
+      openCodeModel,
       baseUrl: this.config.baseUrl,
       apiKey: this.config.apiKey,
       coordinatorPlan,
       remoteInfo: remoteComparison,
       approvalMode: this.config.approvalMode,
     });
+
+    // Stage the file if conflict markers were successfully removed
+    if (outcome.success) {
+      try {
+        await this.git.stageFile(conflict.path);
+        logInfo("worker", `Staged resolved file: ${conflict.path}`, conflict.path);
+      } catch (error: any) {
+        logWarn("worker", `Failed to stage ${conflict.path}: ${error.message}`, conflict.path);
+      }
+    }
 
     const resolved = await this.isResolved(conflict.path);
     return {
@@ -331,6 +363,36 @@ export class AgentWorkflowOrchestrator {
   private async isAllResolved(): Promise<boolean> {
     const remaining = await this.git.listConflictPaths();
     return remaining.length === 0;
+  }
+
+  private async collectPostResolutionDiagnostics(resolvedFiles: string[]): Promise<string | null> {
+    try {
+      logInfo("lsp", `Collecting diagnostics for ${resolvedFiles.length} resolved files...`);
+
+      const lspManager = new LspManager({
+        workingDirectory: this.config.workingDirectory,
+        waitForDiagnostics: true,
+      });
+
+      const diagnostics = await lspManager.collectDiagnostics(resolvedFiles);
+      await lspManager.dispose();
+
+      if (diagnostics.length === 0) {
+        logInfo("lsp", "No LSP diagnostics found - all files passed validation!");
+        return null;
+      }
+
+      const summary = formatDiagnosticsWithSummary(diagnostics, this.config.workingDirectory, {
+        minSeverity: "warning", // Show warnings and errors, skip info/hints
+        maxPerFile: 10,
+      });
+
+      logInfo("lsp", `Found diagnostics in ${diagnostics.length} files`);
+      return summary;
+    } catch (error) {
+      logWarn("lsp", `Failed to collect LSP diagnostics: ${error}`);
+      return null;
+    }
   }
 
   private buildSupervisor(): { supervisor: ApprovalSupervisor | null; logThread: Thread | null } {
@@ -388,5 +450,49 @@ export class AgentWorkflowOrchestrator {
     parts.push(reviewerSummary ? reviewerSummary.slice(0, 500) : "<no summary>");
 
     return parts.join("");
+  }
+
+  private shrinkCoordinatorInput(input: CoordinatorInput): CoordinatorInput {
+    const truncate = (text: string | null | undefined, max = 2000): string | null => {
+      if (!text) return null;
+      return text.length > max ? `${text.slice(0, max)}\n\n…truncated` : text;
+    };
+
+    const slimConflicts = input.conflicts.map((c) => ({
+      path: c.path,
+      language: c.language,
+      lineCount: c.lineCount,
+      conflictMarkers: c.conflictMarkers,
+      diffExcerpt: truncate(c.diffExcerpt, 1800),
+      workingExcerpt: truncate(c.workingExcerpt, 1200),
+      baseExcerpt: null,
+      oursExcerpt: null,
+      theirsExcerpt: null,
+      originRefContent: null,
+      upstreamRefContent: null,
+      originVsUpstreamDiff: null,
+      baseVsOursDiff: null,
+      baseVsTheirsDiff: null,
+      oursVsTheirsDiff: null,
+      recentHistory: null,
+      localIntentLog: null,
+    }));
+
+    return {
+      ...input,
+      statusShort: truncate(input.statusShort, 1200) ?? "",
+      diffStat: truncate(input.diffStat, 2000) ?? "",
+      recentCommits: truncate(input.recentCommits, 1200) ?? "",
+      conflicts: slimConflicts,
+      remoteComparison: input.remoteComparison
+        ? {
+            ...input.remoteComparison,
+            commitsMissingFromOrigin: truncate(input.remoteComparison.commitsMissingFromOrigin, 800),
+            commitsMissingFromUpstream: truncate(input.remoteComparison.commitsMissingFromUpstream, 800),
+            diffstatOriginToUpstream: truncate(input.remoteComparison.diffstatOriginToUpstream, 800),
+            diffstatUpstreamToOrigin: truncate(input.remoteComparison.diffstatUpstreamToOrigin, 800),
+          }
+        : null,
+    };
   }
 }

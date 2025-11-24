@@ -40,6 +40,8 @@ export type ConversationListOptions = ThreadOptions & {
   modelProviders?: string[];
 };
 
+export type { ApprovalRequest } from "./nativeBinding";
+
 /**
  * Codex is the main class for interacting with the Codex agent.
  *

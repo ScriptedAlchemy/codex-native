@@ -35,6 +35,7 @@ use codex_app_server_protocol::NewConversationParams;
 use codex_app_server_protocol::RemoveConversationListenerParams;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ResumeConversationParams;
+use codex_app_server_protocol::ReviewStartParams;
 use codex_app_server_protocol::SendUserMessageParams;
 use codex_app_server_protocol::SendUserTurnParams;
 use codex_app_server_protocol::ServerRequest;
@@ -58,6 +59,7 @@ pub struct McpProcess {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     pending_user_messages: VecDeque<JSONRPCNotification>,
+    pending_responses: VecDeque<JSONRPCResponse>,
 }
 
 impl McpProcess {
@@ -129,6 +131,7 @@ impl McpProcess {
             stdin,
             stdout,
             pending_user_messages: VecDeque::new(),
+            pending_responses: VecDeque::new(),
         })
     }
 
@@ -377,6 +380,15 @@ impl McpProcess {
         self.send_request("turn/interrupt", params).await
     }
 
+    /// Send a `review/start` JSON-RPC request (v2).
+    pub async fn send_review_start_request(
+        &mut self,
+        params: ReviewStartParams,
+    ) -> anyhow::Result<i64> {
+        let params = Some(serde_json::to_value(params)?);
+        self.send_request("review/start", params).await
+    }
+
     /// Send a `cancelLoginChatGpt` JSON-RPC request.
     pub async fn send_cancel_login_chat_gpt_request(
         &mut self,
@@ -532,6 +544,10 @@ impl McpProcess {
     ) -> anyhow::Result<JSONRPCResponse> {
         eprintln!("in read_stream_until_response_message({request_id:?})");
 
+        if let Some(response) = self.take_pending_response_by_id(&request_id) {
+            return Ok(response);
+        }
+
         loop {
             let message = self.read_jsonrpc_message().await?;
             match message {
@@ -549,6 +565,7 @@ impl McpProcess {
                     if jsonrpc_response.id == request_id {
                         return Ok(jsonrpc_response);
                     }
+                    self.pending_responses.push_back(jsonrpc_response);
                 }
             }
         }
@@ -605,8 +622,8 @@ impl McpProcess {
                 JSONRPCMessage::Error(_) => {
                     anyhow::bail!("unexpected JSONRPCMessage::Error: {message:?}");
                 }
-                JSONRPCMessage::Response(_) => {
-                    anyhow::bail!("unexpected JSONRPCMessage::Response: {message:?}");
+                JSONRPCMessage::Response(resp) => {
+                    self.pending_responses.push_back(resp);
                 }
             }
         }
@@ -619,6 +636,17 @@ impl McpProcess {
             .position(|notification| notification.method == method)
         {
             return self.pending_user_messages.remove(pos);
+        }
+        None
+    }
+
+    fn take_pending_response_by_id(&mut self, request_id: &RequestId) -> Option<JSONRPCResponse> {
+        if let Some(pos) = self
+            .pending_responses
+            .iter()
+            .position(|response| response.id == *request_id)
+        {
+            return self.pending_responses.remove(pos);
         }
         None
     }

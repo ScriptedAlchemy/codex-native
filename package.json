@@ -38,6 +38,7 @@
   },
   "devDependencies": {
     "@codex-native/sdk": "workspace:*",
+    "@toon-format/toon": "^1.0.0",
     "@napi-rs/cli": "^2.18.4",
     "concurrently": "^9.2.1",
     "prettier": "^3.5.3"

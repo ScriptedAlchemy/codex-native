@@ -11,7 +11,6 @@
 // ============================================================================
 
 #![deny(clippy::all)]
-
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::Path;
@@ -41,7 +40,6 @@ use codex_common::ApprovalModeCliArg;
 use codex_common::CliConfigOverrides;
 use codex_common::SandboxModeCliArg;
 use codex_core::AuthManager;
-use codex_core::BUILT_IN_OSS_MODEL_PROVIDER_ID;
 use codex_core::ConversationItem;
 use codex_core::ConversationManager;
 use codex_core::ExternalInterceptorRegistration;
@@ -66,22 +64,15 @@ use codex_core::protocol::SessionSource;
 use codex_core::protocol::TokenUsage;
 use codex_core::set_pending_external_interceptors;
 use codex_core::set_pending_external_tools;
-use codex_exec::Cli;
-use codex_exec::Color;
-use codex_exec::Command;
-use codex_exec::ResumeArgs;
 use codex_exec::exec_events::BackgroundEventEvent;
 use codex_exec::exec_events::ThreadEvent as ExecThreadEvent;
-use codex_exec::run_with_thread_event_callback;
+use codex_exec::{Cli, Color, Command, ResumeArgs, run_with_thread_event_callback};
 use codex_protocol::config_types::ReasoningEffort;
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::config_types::SandboxMode;
 use codex_tui::AppExitInfo;
 use codex_tui::Cli as TuiCli;
 use codex_tui::update_action::UpdateAction;
-use codex_utils_tokenizer::EncodingKind;
-use codex_utils_tokenizer::Tokenizer;
-use codex_utils_tokenizer::TokenizerError;
 use napi::bindgen_prelude::Env;
 use napi::bindgen_prelude::Function;
 use napi::bindgen_prelude::Status;
@@ -168,6 +159,24 @@ const ORIGINATOR_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 const NATIVE_ORIGINATOR: &str = "codex_sdk_native";
 
 static APPLY_PATCH_TEMP_DIR: OnceLock<Mutex<TempDir>> = OnceLock::new();
+
+#[napi]
+pub fn ensure_tokio_runtime() {
+  // Re-create the shared Tokio runtime if it was previously shut down.
+  napi::bindgen_prelude::start_async_runtime();
+  if std::env::var("CODEX_NATIVE_DEBUG_RT").is_ok() {
+    let available = is_tokio_runtime_available();
+    eprintln!("ensure_tokio_runtime invoked; runtime_available={available}");
+  }
+}
+
+#[napi]
+pub fn is_tokio_runtime_available() -> bool {
+  std::panic::catch_unwind(|| {
+    napi::bindgen_prelude::within_runtime_if_available(|| ());
+  })
+  .is_ok()
+}
 
 fn ensure_apply_patch_aliases() -> napi::Result<()> {
   if APPLY_PATCH_TEMP_DIR.get().is_some() {

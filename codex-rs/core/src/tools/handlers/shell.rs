@@ -9,10 +9,11 @@ use crate::apply_patch::convert_apply_patch_to_protocol;
 use crate::codex::TurnContext;
 use crate::exec::ExecParams;
 use crate::exec_env::create_env;
+use crate::exec_policy::create_approval_requirement_for_command;
 use crate::function_tool::FunctionCallError;
 use crate::is_safe_command::is_known_safe_command;
 use crate::protocol::ExecCommandSource;
-use crate::protocol::SandboxPolicy;
+use crate::sandboxing::SandboxPermissions;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
@@ -36,7 +37,7 @@ impl ShellHandler {
         ExecParams {
             command: params.command,
             cwd: turn_context.resolve_path(params.workdir.clone()),
-            timeout_ms: params.timeout_ms,
+            expiration: params.timeout_ms.into(),
             env: create_env(&turn_context.shell_environment_policy),
             with_escalated_permissions: params.with_escalated_permissions,
             justification: params.justification,
@@ -58,7 +59,7 @@ impl ShellCommandHandler {
         ExecParams {
             command,
             cwd: turn_context.resolve_path(params.workdir.clone()),
-            timeout_ms: params.timeout_ms,
+            expiration: params.timeout_ms.into(),
             env: create_env(&turn_context.shell_environment_policy),
             with_escalated_permissions: params.with_escalated_permissions,
             justification: params.justification,
@@ -131,7 +132,7 @@ impl ToolHandler for ShellHandler {
                     turn,
                     tracker,
                     call_id,
-                    true,
+                    false,
                 )
                 .await
             }
@@ -179,7 +180,7 @@ impl ToolHandler for ShellCommandHandler {
             turn,
             tracker,
             call_id,
-            false,
+            true,
         )
         .await
     }
@@ -193,10 +194,8 @@ impl ShellHandler {
         turn: Arc<TurnContext>,
         tracker: crate::tools::context::SharedTurnDiffTracker,
         call_id: String,
-        is_user_shell_command: bool,
+        freeform: bool,
     ) -> Result<ToolOutput, FunctionCallError> {
-        let sandbox_allows_writes = sandbox_policy_allows_writes(&turn.sandbox_policy);
-
         // Approval policy guard for explicit escalation in non-OnRequest modes.
         if exec_params.with_escalated_permissions.unwrap_or(false)
             && !matches!(
@@ -211,7 +210,6 @@ impl ShellHandler {
         }
 
         // Intercept apply_patch if present.
-        let mut remind_apply_patch = false;
         match codex_apply_patch::maybe_parse_apply_patch_verified(
             &exec_params.command,
             &exec_params.cwd,
@@ -245,7 +243,7 @@ impl ShellHandler {
                         let req = ApplyPatchRequest {
                             patch: apply.action.patch.clone(),
                             cwd: apply.action.cwd.clone(),
-                            timeout_ms: exec_params.timeout_ms,
+                            timeout_ms: exec_params.expiration.timeout_ms(),
                             user_explicitly_approved: apply.user_explicitly_approved_this_action,
                             codex_exe: turn.codex_linux_sandbox_exe.clone(),
                         };
@@ -285,37 +283,34 @@ impl ShellHandler {
                 // Fall through to regular shell execution.
             }
             codex_apply_patch::MaybeApplyPatchVerified::NotApplyPatch => {
-                if sandbox_allows_writes && command_likely_edits_files(&exec_params.command) {
-                    remind_apply_patch = true;
-                }
                 // Fall through to regular shell execution.
             }
         }
 
-        if remind_apply_patch {
-            session
-                .notify_background_event(turn.as_ref(), APPLY_PATCH_REMINDER)
-                .await;
-        }
-
-        // Regular shell execution path.
-        let source = if is_user_shell_command {
-            ExecCommandSource::UserShell
-        } else {
-            ExecCommandSource::Agent
-        };
-        let emitter =
-            ToolEmitter::shell(exec_params.command.clone(), exec_params.cwd.clone(), source);
+        let source = ExecCommandSource::Agent;
+        let emitter = ToolEmitter::shell(
+            exec_params.command.clone(),
+            exec_params.cwd.clone(),
+            source,
+            freeform,
+        );
         let event_ctx = ToolEventCtx::new(session.as_ref(), turn.as_ref(), &call_id, None);
         emitter.begin(event_ctx).await;
 
         let req = ShellRequest {
             command: exec_params.command.clone(),
             cwd: exec_params.cwd.clone(),
-            timeout_ms: exec_params.timeout_ms,
+            timeout_ms: exec_params.expiration.timeout_ms(),
             env: exec_params.env.clone(),
             with_escalated_permissions: exec_params.with_escalated_permissions,
             justification: exec_params.justification.clone(),
+            approval_requirement: create_approval_requirement_for_command(
+                &turn.exec_policy,
+                &exec_params.command,
+                turn.approval_policy,
+                &turn.sandbox_policy,
+                SandboxPermissions::from(exec_params.with_escalated_permissions.unwrap_or(false)),
+            ),
         };
         let mut orchestrator = ToolOrchestrator::new();
         let mut runtime = ShellRuntime::new();
@@ -338,100 +333,35 @@ impl ShellHandler {
     }
 }
 
-const APPLY_PATCH_REMINDER: &str = "Heads up: this shell command looks like it edits files directly. Prefer using `apply_patch` for reproducible edits and better diagnostics.";
-
-fn sandbox_policy_allows_writes(policy: &SandboxPolicy) -> bool {
-    matches!(
-        policy,
-        SandboxPolicy::DangerFullAccess | SandboxPolicy::WorkspaceWrite { .. }
-    )
-}
-
-fn command_likely_edits_files(command: &[String]) -> bool {
-    if command.is_empty() {
-        return false;
-    }
-
-    let joined = command.join(" ").to_lowercase();
-    if joined.contains("apply_patch") {
-        return false;
-    }
-
-    if joined.contains("cat <<") && joined.contains('>') {
-        return true;
-    }
-
-    if joined.contains(" tee ") || joined.contains("| tee") {
-        return true;
-    }
-
-    if joined.contains("sed -i") {
-        return true;
-    }
-
-    if joined.contains("perl -pi") || joined.contains("perl -0pi") {
-        return true;
-    }
-
-    if joined.contains("python") && joined.contains("open(") && joined.contains("write") {
-        return true;
-    }
-
-    if joined.contains("ruby") && joined.contains("file.open") {
-        return true;
-    }
-
-    if joined.contains("node")
-        && (joined.contains("fs.writefile") || joined.contains("fs.createwritestream"))
-    {
-        return true;
-    }
-
-    if joined.contains(">>") {
-        return true;
-    }
-
-    let first = command
-        .first()
-        .map(|s| s.to_lowercase())
-        .unwrap_or_default();
-    if (first == "cat" || first == "tee" || first == "printf" || first == "echo")
-        && (joined.contains('>') || joined.contains(">>"))
-    {
-        return true;
-    }
-
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use crate::is_safe_command::is_known_safe_command;
-    use crate::shell::BashShell;
-    use crate::shell::PowerShellConfig;
     use crate::shell::Shell;
-    use crate::shell::ZshShell;
+    use crate::shell::ShellType;
 
     /// The logic for is_known_safe_command() has heuristics for known shells,
     /// so we must ensure the commands generated by [ShellCommandHandler] can be
     /// recognized as safe if the `command` is safe.
     #[test]
     fn commands_generated_by_shell_command_handler_can_be_matched_by_is_known_safe_command() {
-        let bash_shell = Shell::Bash(BashShell {
+        let bash_shell = Shell {
+            shell_type: ShellType::Bash,
             shell_path: PathBuf::from("/bin/bash"),
-        });
+        };
         assert_safe(&bash_shell, "ls -la");
 
-        let zsh_shell = Shell::Zsh(ZshShell {
+        let zsh_shell = Shell {
+            shell_type: ShellType::Zsh,
             shell_path: PathBuf::from("/bin/zsh"),
-        });
+        };
         assert_safe(&zsh_shell, "ls -la");
 
-        let powershell = Shell::PowerShell(PowerShellConfig {
+        let powershell = Shell {
+            shell_type: ShellType::PowerShell,
             shell_path: PathBuf::from("pwsh.exe"),
-        });
+        };
         assert_safe(&powershell, "ls -Name");
     }
 

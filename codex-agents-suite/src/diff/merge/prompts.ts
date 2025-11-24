@@ -74,38 +74,9 @@ export function buildWorkerPrompt(
   coordinatorPlan: string | null,
   remotes?: WorkerPromptRemotes,
 ): string {
-  const sections = [
-    conflict.diffExcerpt ? `## Diff excerpt\n${conflict.diffExcerpt}` : null,
-    conflict.workingExcerpt ? `## Working tree excerpt (with conflict markers)\n${conflict.workingExcerpt}` : null,
-    conflict.oursExcerpt ? `## Ours branch content snapshot\n${conflict.oursExcerpt}` : null,
-    conflict.theirsExcerpt ? `## Upstream content snapshot\n${conflict.theirsExcerpt}` : null,
-    conflict.baseExcerpt ? `## Merge base snapshot\n${conflict.baseExcerpt}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-  const analysisSections = [
-    conflict.baseVsOursDiff ? `### Base → Ours diff\n${conflict.baseVsOursDiff}` : null,
-    conflict.baseVsTheirsDiff ? `### Base → Theirs diff\n${conflict.baseVsTheirsDiff}` : null,
-    conflict.oursVsTheirsDiff ? `### Ours ↔ Theirs diff\n${conflict.oursVsTheirsDiff}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-  const remoteSections = [
-    conflict.originRefContent && remotes?.originRef
-      ? `## ${remotes.originRef} content preview\n${conflict.originRefContent}`
-      : null,
-    conflict.upstreamRefContent && remotes?.upstreamRef
-      ? `## ${remotes.upstreamRef} content preview\n${conflict.upstreamRefContent}`
-      : null,
-    conflict.originVsUpstreamDiff && remotes?.originRef && remotes?.upstreamRef
-      ? `## ${remotes.originRef} ↔ ${remotes.upstreamRef} diff for ${conflict.path}\n${conflict.originVsUpstreamDiff}`
-      : null,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-  const combinedContext = [sections, remoteSections].filter((chunk) => chunk && chunk.length).join("\n\n");
+  // Only include git history context - no diffs or content snapshots
+  // Agents can run git commands themselves to inspect the conflict
   const researchResources = [
-    analysisSections ? `## Three-way diff snapshots\n${analysisSections}` : null,
     conflict.localIntentLog
       ? `### Local intent commits (not in upstream)\n${conflict.localIntentLog}`
       : null,
@@ -114,37 +85,48 @@ export function buildWorkerPrompt(
     .filter((chunk) => chunk && chunk.length)
     .join("\n\n") || "(no supplemental analysis available)";
 
+  const fileInfo = `File: ${conflict.path}
+Language: ${conflict.language}
+Lines: ${conflict.lineCount ?? "unknown"}
+Conflict markers: ${conflict.conflictMarkers ?? "unknown"}`;
+
+  const refInfo = remotes?.originRef && remotes?.upstreamRef
+    ? `\nRefs: ${remotes.originRef} (origin) vs ${remotes.upstreamRef} (upstream)`
+    : "";
+
   return `# Merge Conflict Specialist – ${conflict.path}
 
 You are the dedicated agent responsible for resolving the merge conflict in ${conflict.path} (${conflict.language}).
+
+${fileInfo}${refInfo}
 
 ${HISTORICAL_PLAYBOOK}
 
 Coordinator guidance:
 ${coordinatorPlan ?? "(coordinator has not provided additional notes)"}
 
-Constraints:
+Research materials:
+${researchResources}
+
+Instructions:
 - Operate ONLY on ${conflict.path} unless you must touch closely linked files (explain if so).
-- Understand our branch vs upstream intent using git show :2:${conflict.path} / :3:${conflict.path} / :1:${conflict.path} before editing.
-- Use \`read_file_v2\` / \`read_file\` for large sections instead of manual sed dumps so you can quote precise hunks in your reasoning.
-- The \`read_file\` tool is available here—call it with absolute repo paths for any content reads and do not fall back to python/sed unless the tool call itself fails.
+- Use git commands to understand the conflict:
+  * \`git show :1:${conflict.path}\` — merge base
+  * \`git show :2:${conflict.path}\` — our version
+  * \`git show :3:${conflict.path}\` — their version
+  * \`git diff --color=never --unified=1 :1:${conflict.path} :2:${conflict.path}\` — base → ours
+  * \`git diff --color=never --unified=1 :1:${conflict.path} :3:${conflict.path}\` — base → theirs
+  * \`git diff --color=never --unified=1 :2:${conflict.path} :3:${conflict.path}\` — ours ↔ theirs
+- Use \`read_file\` to view the working tree file with conflict markers.
 - Start by writing a short \"Three-way summary\" that contrasts Base → Ours, Base → Theirs, and Ours ↔ Theirs; note what each side was trying to achieve and whether they can coexist.
 - Do NOT run \`git add\`, \`git merge\`, \`git checkout\`, or touch .git/lock files; the coordinator handles staging/cleanup. If you need staging, just say so in your summary.
 - When editing, prefer \`apply_patch\` or structured writes; avoid ad-hoc python/sed that rewrites entire files.
 - Preserve intentional local increases (buffer sizes, limits, config tweaks).
 - Mirror cross-surface implications (e.g., API definitions ↔ bindings or client ↔ server) if this file participates.
-- After resolving the conflict, run rg '<<<<<<<' ${conflict.path} to ensure markers are gone, then state it is ready for staging (do not run git add yourself).
+- After resolving the conflict, run \`rg '<<<<<<<' ${conflict.path}\` to ensure markers are gone, then state it is ready for staging (do not run git add yourself).
 - Summarize what you kept from each side plus any follow-up commands/tests to run.
 - Your shell/file-write accesses are gated by an autonomous supervisor; justify sensitive steps so approvals go through.
-- Begin with a short research note referencing the diffs/logs below before modifying any code.
 - Do not run tests/builds/formatters during this resolution phase; a dedicated validation turn will follow.
-- Use the "Local intent" commit snippets below to understand why our branch diverged before editing.
-
-Helpful context:
-${combinedContext || "(no file excerpts available)"}
-
-## Research materials
-${researchResources}
 
 Deliverables:
 1. **Three-way summary** – bullet the important hunks from Base→Ours, Base→Theirs, and Ours↔Theirs, and call out why each change mattered.
@@ -162,6 +144,7 @@ export function buildReviewerPrompt(input: {
   workerSummaries: WorkerOutcome[];
   remoteComparison: RemoteComparison | null;
   validationMode?: boolean;
+  lspDiagnostics?: string | null;
 }): string {
   const workerNotes =
     input.workerSummaries
@@ -183,6 +166,10 @@ export function buildReviewerPrompt(input: {
 
   const remainingBlock = input.remaining.length ? input.remaining.join("\n") : "<none>";
 
+  const lspSection = input.lspDiagnostics
+    ? `\n## LSP Diagnostics (Post-Resolution)\n\n${input.lspDiagnostics}\n`
+    : "";
+
   return `# Merge Conflict Reviewer
 
 Goal: confirm that all conflicts are resolved, run/plan validation commands, and highlight any follow-ups.
@@ -199,7 +186,7 @@ ${remainingBlock}
 Worker notes:
 ${workerNotes}
 
-${remoteSection}
+${remoteSection}${lspSection}
 
 Historical guardrails to honor:
 ${HISTORICAL_PLAYBOOK}

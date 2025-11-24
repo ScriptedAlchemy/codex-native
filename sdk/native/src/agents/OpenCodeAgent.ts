@@ -101,10 +101,22 @@ export class OpenCodeAgent {
   private readonly options: OpenCodeAgentOptions;
   private readonly approvalHandler?: (request: PermissionRequest) => PermissionDecision | Promise<PermissionDecision>;
   private clientPromise?: Promise<OpencodeClient>;
+  private closeCallback?: () => void;
 
   constructor(options: OpenCodeAgentOptions = {}) {
     this.options = options;
     this.approvalHandler = options.onApprovalRequest;
+  }
+
+  /**
+   * Cleanup method to shut down the OpenCode server if one was started.
+   * Should be called when done using the agent to prevent zombie processes.
+   */
+  async close(): Promise<void> {
+    if (this.closeCallback) {
+      this.closeCallback();
+      this.closeCallback = undefined;
+    }
   }
 
   async delegate(task: string): Promise<DelegationResult> {
@@ -214,7 +226,8 @@ export class OpenCodeAgent {
     this.clientPromise = loadOpencodeModule().then(async ({ createOpencode }) => {
       const hostname = this.options.hostname ?? DEFAULT_HOSTNAME;
       const port = await findAvailablePort(hostname, this.options.port ?? DEFAULT_PORT);
-      const { client } = await createOpencode({ hostname, port, config: this.options.config });
+      const { client, server } = await createOpencode({ hostname, port, config: this.options.config });
+      this.closeCallback = () => server.close();
       return client;
     });
 

@@ -20,6 +20,16 @@ const DEFAULT_HIGH_REASONING_MATCHERS = [
   "**/common/**",
   "**/*.rs",
   "**/src/core/**",
+  "**/.github/workflows/**",
+  // Config files are critical infrastructure - use high reasoning
+  "**/*.toml",
+  "**/Cargo.toml",
+  "**/Cargo.lock",
+  "**/*.yml",
+  "**/*.yaml",
+  "**/package.json",
+  "**/pnpm-lock.yaml",
+  "**/tsconfig.json",
 ];
 
 /**
@@ -28,7 +38,6 @@ const DEFAULT_HIGH_REASONING_MATCHERS = [
 const DEFAULT_LOW_REASONING_MATCHERS = [
   "**/*.md",
   "**/docs/**",
-  "**/.github/workflows/**",
   "**/README*",
 ];
 
@@ -36,7 +45,12 @@ const DEFAULT_LOW_REASONING_MATCHERS = [
  * Create worker agent
  */
 export function createWorkerAgent(
-  config: AgentConfig & { model?: string; conflictPath?: string; approvalSupervisor?: ApprovalSupervisor | null }
+  config: AgentConfig & {
+    model?: string;
+    conflictPath?: string;
+    approvalSupervisor?: ApprovalSupervisor | null;
+    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  }
 ): AgentFactory {
   const provider = new CodexProvider({
     defaultModel: config.model || DEFAULT_WORKER_MODEL,
@@ -46,6 +60,8 @@ export function createWorkerAgent(
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     skipGitRepoCheck: config.skipGitRepoCheck ?? false,
+    reasoningEffort: config.reasoningEffort ?? "high",
+    enableLsp: false, // Disable LSP during initial conflict resolution
   });
 
   if (config.approvalSupervisor?.isAvailable?.()) {
@@ -67,9 +83,21 @@ Responsibilities:
 2. Execute file edits and commands
 3. Provide structured outcomes
 
+Important Principles:
+- PREFER UPSTREAM: When in doubt, accept upstream main's changes - we want to stay aligned
+- MAINTAIN FUNCTIONALITY: Ensure our custom functionality remains operable and supported
+- MINIMALLY INVASIVE: Make the smallest changes necessary to preserve our features
+- Extension Strategy:
+  * Prefer implementing functionality in sdk/native/src/ (Rust/TypeScript)
+  * codex-rs CAN be modified, but only for minimal hooks/extension points
+  * Implement actual business logic in sdk/native that uses those hooks
+  * Keep codex-rs changes small, clean, and easy to maintain across upstream merges
+- If upstream modified core code we also changed, prefer their version and adapt our hooks
+- Preserve upstream's code structure, patterns, and formatting
+
 Output format:
 - THREEWAY_SUMMARY: Brief analysis of what each side changed
-- RESOLUTION_STRATEGY: Your approach
+- RESOLUTION_STRATEGY: Your approach (emphasize minimal invasiveness)
 - COMMANDS_EXECUTED: List of commands run
 - VALIDATION_PLAN: Tests/checks to run
 - STATUS: RESOLVED | NEEDS_OPENCODE | FAILED
@@ -91,6 +119,54 @@ export function formatWorkerInput(input: WorkerInput): string {
     originRef: input.remoteInfo?.originRef,
     upstreamRef: input.remoteInfo?.upstreamRef,
   });
+}
+
+/**
+ * Select reasoning effort based on file path and conflict severity
+ */
+export function selectReasoningEffort(
+  conflict: ConflictContext,
+  config: {
+    defaultReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+    highReasoningMatchers?: string[];
+    lowReasoningMatchers?: string[];
+  }
+): "minimal" | "low" | "medium" | "high" | "xhigh" {
+  const markerCount = conflict.conflictMarkers ?? 0;
+  const lineCount = conflict.lineCount ?? 0;
+  const severityScore = markerCount * 10 + lineCount;
+
+  // Very high severity → xhigh reasoning
+  if (severityScore > 1200) {
+    return "xhigh";
+  }
+
+  // High severity → high reasoning
+  if (severityScore > 800) {
+    return "high";
+  }
+
+  const highMatchers =
+    config.highReasoningMatchers && config.highReasoningMatchers.length > 0
+      ? config.highReasoningMatchers
+      : DEFAULT_HIGH_REASONING_MATCHERS;
+  const lowMatchers =
+    config.lowReasoningMatchers && config.lowReasoningMatchers.length > 0
+      ? config.lowReasoningMatchers
+      : DEFAULT_LOW_REASONING_MATCHERS;
+
+  // Check file patterns
+  const matchesHigh = highMatchers.some((pattern) => simpleGlobMatch(conflict.path, pattern));
+  if (matchesHigh) {
+    return "high";
+  }
+
+  const matchesLow = lowMatchers.some((pattern) => simpleGlobMatch(conflict.path, pattern));
+  if (matchesLow) {
+    return "low";
+  }
+
+  return config.defaultReasoningEffort ?? "medium";
 }
 
 /**

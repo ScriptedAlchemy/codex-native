@@ -80,6 +80,33 @@ async function main(): Promise<void> {
 
   try {
     const config = createDefaultSolverConfig(cwd);
+    // If no merge is in progress, try to start one so the solver can operate.
+    if (!(await git.isMergeInProgress()) && config.upstreamRef) {
+      console.log(
+        `[merge-solver-cli] No merge detected; merging ${config.upstreamRef} into current branch (--no-commit --no-ff)`,
+      );
+      try {
+        await git.runGit(["merge", "--no-commit", "--no-ff", config.upstreamRef]);
+      } catch (error: any) {
+        // Git merge exits with error code when there are conflicts - this is expected!
+        // Check if merge actually started (has conflicts) vs truly failed
+        if (await git.isMergeInProgress()) {
+          console.log("[merge-solver-cli] Merge started with conflicts (expected); proceeding to resolve...");
+        } else {
+          // Merge truly failed - not just conflicts
+          const stderr = typeof error?.stderr === "string" ? error.stderr : "";
+          const stdout = typeof error?.stdout === "string" ? error.stdout : "";
+          throw new Error(
+            `Failed to start merge with ${config.upstreamRef}: ${stderr || stdout || String(error)}`,
+          );
+        }
+      }
+      if (await git.isMergeInProgress()) {
+        console.log("[merge-solver-cli] Merge initiated; resolving conflicts...");
+      } else {
+        console.log("[merge-solver-cli] Merge applied cleanly; checking for residual conflicts...");
+      }
+    }
     console.log("[merge-solver-cli] Using agent-based workflow");
 
     // Collect conflicts and snapshot

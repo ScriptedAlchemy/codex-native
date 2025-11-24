@@ -26,6 +26,7 @@ pub enum ToolKind {
 }
 
 /// Registration describing an external tool handler supplied by native bindings.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct ExternalToolRegistration {
     pub spec: ToolSpec,
@@ -34,6 +35,7 @@ pub struct ExternalToolRegistration {
 }
 
 /// Registration describing an interceptor that can wrap a builtin/registered tool.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct ExternalInterceptorRegistration {
     pub name: String,
@@ -60,12 +62,14 @@ impl std::fmt::Debug for ExternalInterceptorRegistration {
     }
 }
 
+#[allow(dead_code)]
 fn pending_external_tools() -> &'static Mutex<Vec<ExternalToolRegistration>> {
     static PENDING: OnceLock<Mutex<Vec<ExternalToolRegistration>>> = OnceLock::new();
     PENDING.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 /// Set the list of external tools to be registered for the next session/router build.
+#[allow(dead_code)]
 pub fn set_pending_external_tools(tools: Vec<ExternalToolRegistration>) {
     match pending_external_tools().lock() {
         Ok(mut guard) => {
@@ -80,6 +84,7 @@ pub fn set_pending_external_tools(tools: Vec<ExternalToolRegistration>) {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn take_pending_external_tools() -> Vec<ExternalToolRegistration> {
     match pending_external_tools().lock() {
         Ok(mut guard) => {
@@ -97,12 +102,14 @@ pub(crate) fn take_pending_external_tools() -> Vec<ExternalToolRegistration> {
     }
 }
 
+#[allow(dead_code)]
 fn pending_external_interceptors() -> &'static Mutex<Vec<ExternalInterceptorRegistration>> {
     static PENDING: OnceLock<Mutex<Vec<ExternalInterceptorRegistration>>> = OnceLock::new();
     PENDING.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 /// Set the list of external interceptors to be registered for the next session/router build.
+#[allow(dead_code)]
 pub fn set_pending_external_interceptors(interceptors: Vec<ExternalInterceptorRegistration>) {
     match pending_external_interceptors().lock() {
         Ok(mut guard) => {
@@ -117,6 +124,7 @@ pub fn set_pending_external_interceptors(interceptors: Vec<ExternalInterceptorRe
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn take_pending_external_interceptors() -> Vec<ExternalInterceptorRegistration> {
     match pending_external_interceptors().lock() {
         Ok(mut guard) => {
@@ -383,6 +391,7 @@ impl ToolRegistryBuilder {
             .push(ConfiguredToolSpec::new(spec, supports_parallel_tool_calls));
     }
 
+    #[allow(dead_code)]
     pub fn upsert_spec_with_parallel_support(
         &mut self,
         spec: ToolSpec,
@@ -412,6 +421,7 @@ impl ToolRegistryBuilder {
         }
     }
 
+    #[allow(dead_code)]
     pub fn register_interceptor(
         &mut self,
         name: impl Into<String>,
@@ -440,8 +450,32 @@ impl ToolRegistryBuilder {
     // }
 
     pub fn build(self) -> (Vec<ConfiguredToolSpec>, ToolRegistry) {
-        let registry = ToolRegistry::new(self.handlers, self.interceptors);
-        (self.specs, registry)
+        let mut specs = self.specs;
+        let mut handlers = self.handlers;
+        let mut interceptors = self.interceptors;
+
+        // Attach any external tools registered by native bindings for this build.
+        for external in take_pending_external_tools() {
+            let name = external.spec.name().to_string();
+            specs.push(ConfiguredToolSpec::new(
+                external.spec,
+                external.supports_parallel_tool_calls,
+            ));
+            if handlers.insert(name.clone(), external.handler).is_some() {
+                warn!("overwriting handler for tool {name}");
+            }
+        }
+
+        // Attach any external interceptors that wrap builtin or external tools.
+        for external in take_pending_external_interceptors() {
+            interceptors
+                .entry(external.name.clone())
+                .or_default()
+                .push(external.handler);
+        }
+
+        let registry = ToolRegistry::new(handlers, interceptors);
+        (specs, registry)
     }
 }
 

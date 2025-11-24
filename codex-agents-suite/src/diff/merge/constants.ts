@@ -1,8 +1,8 @@
 import type { ApprovalMode, SandboxMode } from "@codex-native/sdk";
 
-export const DEFAULT_COORDINATOR_MODEL = "gpt-5.1-codex";
-export const DEFAULT_WORKER_MODEL = "gpt-5.1-codex-mini";
-export const DEFAULT_REVIEWER_MODEL = "gpt-5.1-codex";
+export const DEFAULT_COORDINATOR_MODEL = "gpt-5.1-codex-max";
+export const DEFAULT_WORKER_MODEL = "gpt-5.1-codex-max";
+export const DEFAULT_REVIEWER_MODEL = "gpt-5.1-codex-max";
 export const DEFAULT_SANDBOX_MODE: SandboxMode = "workspace-write";
 export const DEFAULT_APPROVAL_MODE: ApprovalMode = "on-request";
 export const MAX_CONTEXT_CHARS = 5000;

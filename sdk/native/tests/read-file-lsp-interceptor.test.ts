@@ -34,12 +34,32 @@ jest.unstable_mockModule("../src/lsp/manager", () => {
 
 jest.unstable_mockModule("../src/lsp/format", () => {
   return {
+    filterBySeverity: (diagnostics: FileDiagnostics[]) => diagnostics,
+    summarizeDiagnostics: (diagnostics: FileDiagnostics[]) => ({
+      fileCount: diagnostics.length,
+      errorCount: 0,
+      warningCount: diagnostics.reduce(
+        (sum, entry) => sum + entry.diagnostics.length,
+        0,
+      ),
+      infoCount: 0,
+      hintCount: 0,
+      totalCount: diagnostics.reduce(
+        (sum, entry) => sum + entry.diagnostics.length,
+        0,
+      ),
+    }),
     formatDiagnosticsForTool: (diagnostics: FileDiagnostics[]): string => {
       return diagnostics
         .map((entry) => `${entry.path}: ${entry.diagnostics.length} issues`)
         .join("\n");
     },
     formatDiagnosticsForBackgroundEvent: () => "",
+    formatDiagnosticsWithSummary: (diagnostics: FileDiagnostics[]): string => {
+      return diagnostics
+        .map((entry) => `${entry.path}: ${entry.diagnostics.length} issues`)
+        .join("\n");
+    },
   };
 });
 

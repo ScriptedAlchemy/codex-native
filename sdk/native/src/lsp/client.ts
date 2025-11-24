@@ -46,11 +46,9 @@ export class LspClient {
     }
 
     const child = this.process;
-    child.stderr.on("data", (chunk) => {
-      const text = chunk.toString();
-      if (text.trim().length > 0) {
-        console.debug(`[lsp:${this.config.id}] ${text.trim()}`);
-      }
+    // LSP stderr is suppressed from console - agents still get diagnostics via publishDiagnostics
+    child.stderr.on("data", (_chunk) => {
+      // Silently consume stderr to avoid console spam during merge resolution
     });
 
     const reader = new StreamMessageReader(child.stdout);

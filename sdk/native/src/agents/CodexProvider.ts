@@ -1,4 +1,4 @@
-import { Codex } from "../codex";
+import { Codex, type ApprovalRequest } from "../codex";
 import type { Thread } from "../thread";
 import type { ThreadEvent, Usage as CodexUsage } from "../events";
 import type { ThreadItem } from "../items";
@@ -59,6 +59,24 @@ export interface CodexProviderOptions extends CodexOptions {
    * @default "danger-full-access"
    */
   sandboxMode?: ThreadOptions["sandboxMode"];
+
+  /**
+   * Reasoning effort level for reasoning-capable models
+   * @default "medium"
+   */
+  reasoningEffort?: ThreadOptions["reasoningEffort"];
+
+  /**
+   * Reasoning summary preference for reasoning-capable models
+   * @default "auto"
+   */
+  reasoningSummary?: ThreadOptions["reasoningSummary"];
+
+  /**
+   * Enable LSP diagnostics for threads created by this provider
+   * @default true
+   */
+  enableLsp?: boolean;
 }
 
 /**
@@ -115,6 +133,13 @@ export class CodexProvider implements ModelProvider {
   getModel(modelName?: string): Model {
     const model = modelName || this.options.defaultModel;
     return new CodexModel(this.getCodex(), model, this.options);
+  }
+
+  /**
+   * Register a programmatic approval callback on the underlying Codex instance.
+   */
+  setApprovalCallback(callback: (request: ApprovalRequest) => boolean | Promise<boolean>): void {
+    this.getCodex().setApprovalCallback(callback);
   }
 }
 
@@ -181,6 +206,10 @@ class CodexModel implements Model {
   }
 
   private ensureDiagnosticsBridge(thread: Thread): void {
+    // Skip LSP attachment if explicitly disabled
+    if (this.options.enableLsp === false) {
+      return;
+    }
     if (this.diagnosticsThread === thread && this.detachDiagnostics) {
       return;
     }
@@ -202,6 +231,8 @@ class CodexModel implements Model {
       skipGitRepoCheck: this.options.skipGitRepoCheck,
       sandboxMode: this.options.sandboxMode ?? "danger-full-access",
       approvalMode: this.options.approvalMode,
+      reasoningEffort: this.options.reasoningEffort,
+      reasoningSummary: this.options.reasoningSummary,
     };
   }
 

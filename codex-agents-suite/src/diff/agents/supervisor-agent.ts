@@ -21,6 +21,7 @@ export function createSupervisorAgent(
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     skipGitRepoCheck: config.skipGitRepoCheck ?? false,
+    enableLsp: false, // Disable LSP during initial conflict resolution
   });
 
   const model = provider.getModel(config.model || DEFAULT_COORDINATOR_MODEL);

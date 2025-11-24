@@ -1,7 +1,5 @@
 #![expect(clippy::expect_used)]
 
-use portable_pty::PtySize;
-use portable_pty::native_pty_system;
 use tempfile::TempDir;
 
 use codex_core::CodexConversation;
@@ -144,18 +142,6 @@ where
     matcher(&ev).unwrap()
 }
 
-pub async fn wait_for_event_match_with_timeout<T, F>(
-    codex: &CodexConversation,
-    matcher: F,
-    timeout: tokio::time::Duration,
-) -> T
-where
-    F: Fn(&codex_core::protocol::EventMsg) -> Option<T>,
-{
-    let ev = wait_for_event_with_timeout(codex, |ev| matcher(ev).is_some(), timeout).await;
-    matcher(&ev).unwrap()
-}
-
 pub async fn wait_for_event_with_timeout<F>(
     codex: &CodexConversation,
     mut predicate: F,
@@ -168,7 +154,7 @@ where
     use tokio::time::timeout;
     loop {
         // Allow a bit more time to accommodate async startup work (e.g. config IO, tool discovery)
-        let ev = timeout(wait_time.max(Duration::from_secs(10)), codex.next_event())
+        let ev = timeout(wait_time.max(Duration::from_secs(5)), codex.next_event())
             .await
             .expect("timeout waiting for event")
             .expect("stream ended unexpectedly");
@@ -186,15 +172,13 @@ pub fn sandbox_network_env_var() -> &'static str {
     codex_core::spawn::CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR
 }
 
-pub fn can_open_pty() -> bool {
-    native_pty_system()
-        .openpty(PtySize {
-            rows: 24,
-            cols: 80,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .is_ok()
+pub fn format_with_current_shell(command: &str) -> Vec<String> {
+    codex_core::shell::default_user_shell().derive_exec_args(command, true)
+}
+
+pub fn format_with_current_shell_display(command: &str) -> String {
+    let args = format_with_current_shell(command);
+    shlex::try_join(args.iter().map(String::as_str)).expect("serialize current shell command")
 }
 
 pub mod fs_wait {
@@ -380,26 +364,6 @@ macro_rules! skip_if_no_network {
         if ::std::env::var($crate::sandbox_network_env_var()).is_ok() {
             println!(
                 "Skipping test because it cannot execute when network is disabled in a Codex sandbox."
-            );
-            return $return_value;
-        }
-    }};
-}
-
-#[macro_export]
-macro_rules! skip_if_no_pty {
-    () => {{
-        if !$crate::can_open_pty() {
-            eprintln!(
-                "Skipping test because it requires a PTY, but PTY creation is not permitted in this environment."
-            );
-            return;
-        }
-    }};
-    ($return_value:expr $(,)?) => {{
-        if !$crate::can_open_pty() {
-            eprintln!(
-                "Skipping test because it requires a PTY, but PTY creation is not permitted in this environment."
             );
             return $return_value;
         }

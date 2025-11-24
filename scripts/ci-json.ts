@@ -3,6 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { encode as toonEncode } from "@toon-format/toon";
 
 type CiJob = {
   name: string;
@@ -20,7 +21,7 @@ type ParsedFailure = {
 type CiJobResult = {
   name: string;
   command: string;
-  status: "passed" | "failed" | "error";
+  status: "passed" | "failed" | "error" | "warning";
   exitCode: number;
   durationMs: number;
   stdout: string;
@@ -30,6 +31,18 @@ type CiJobResult = {
 };
 
 const CI_JOBS: CiJob[] = [
+  { name: "ci:prebuild", command: "pnpm run ci:prebuild" },
+  { name: "ascii:root-readme", command: "python3 scripts/asciicheck.py README.md" },
+  { name: "toc:root-readme", command: "python3 scripts/readme_toc.py README.md" },
+  {
+    name: "ascii:cli-readme",
+    command: "python3 scripts/asciicheck.py codex-cli/README.md",
+  },
+  {
+    name: "toc:cli-readme",
+    command: "python3 scripts/readme_toc.py codex-cli/README.md",
+  },
+  { name: "format:prettier", command: "pnpm run format" },
   { name: "ci:format", command: "pnpm run ci:format" },
   { name: "ci:codespell", command: "pnpm run ci:codespell" },
   { name: "ci:mcp-types", command: "pnpm run ci:mcp-types" },
@@ -49,9 +62,13 @@ function runJob(job: CiJob): CiJobResult {
   });
   const durationMs = Date.now() - start;
   const exitCode = proc.status ?? 0;
-  const status: CiJobResult["status"] = exitCode === 0 ? "passed" : "failed";
+  let status: CiJobResult["status"] = exitCode === 0 ? "passed" : "failed";
+  if (status === "passed" && /\bwarning\b/i.test(proc.stderr ?? "")) {
+    status = "warning";
+  }
   const failureSummary = exitCode === 0 ? undefined : summarizeFailure(proc.stderr || proc.stdout || "");
-  const parsedFailures = exitCode === 0 ? [] : parseFailures(job.name, proc.stdout ?? "", proc.stderr ?? "");
+  const parsedFailures =
+    status === "passed" ? [] : parseFailures(job.name, proc.stdout ?? "", proc.stderr ?? "");
   return {
     name: job.name,
     command: job.command,
@@ -122,9 +139,13 @@ function writeReport(results: CiJobResult[]): void {
   const dir = path.join(process.cwd(), ".codex-ci");
   mkdirSync(dir, { recursive: true });
   const outputPath = path.join(dir, "ci-report.json");
-  const report = { generatedAt: new Date().toISOString(), results };
+  const filtered = results.filter((r) => r.status !== "passed");
+  const report = { generatedAt: new Date().toISOString(), results: filtered };
   writeFileSync(outputPath, JSON.stringify(report, null, 2));
+  const toonPath = path.join(dir, "ci-report.toon");
+  writeFileSync(toonPath, toonEncode(report));
   console.log(`📄 CI JSON report written to ${outputPath}`);
+  console.log(`📄 CI TOON report written to ${toonPath}`);
   console.log("CI_JSON_REPORT", JSON.stringify(report));
 }
 

@@ -1,7 +1,6 @@
 use anyhow::Context;
 use codex_core::ConversationManager;
 use codex_core::NewConversation;
-use codex_core::model_family::find_family_for_model;
 use codex_core::protocol::EventMsg;
 use codex_core::protocol::ExecCommandEndEvent;
 use codex_core::protocol::ExecCommandSource;
@@ -19,9 +18,7 @@ use core_test_support::responses::ev_response_created;
 use core_test_support::responses::mount_sse_once;
 use core_test_support::responses::sse;
 use core_test_support::responses::start_mock_server;
-use core_test_support::sandbox_env_var;
 use core_test_support::skip_if_no_network;
-use core_test_support::skip_if_sandbox;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use core_test_support::wait_for_event_match;
@@ -29,7 +26,6 @@ use regex_lite::escape;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
-#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test]
 async fn user_shell_cmd_ls_and_cat_in_temp_dir() {
     // Create a temporary working directory with a known file.
@@ -98,7 +94,6 @@ async fn user_shell_cmd_ls_and_cat_in_temp_dir() {
     assert_eq!(stdout, contents);
 }
 
-#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test]
 async fn user_shell_cmd_can_be_interrupted() {
     // Set up isolated config and conversation.
@@ -133,18 +128,11 @@ async fn user_shell_cmd_can_be_interrupted() {
     assert_eq!(ev.reason, TurnAbortReason::Interrupted);
 }
 
-#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyhow::Result<()> {
-    skip_if_sandbox!(Ok(()));
-    let server = start_mock_server().await;
+    let server = responses::start_mock_server().await;
     let mut builder = core_test_support::test_codex::test_codex();
     let test = builder.build(&server).await?;
-    let expected_sandbox_value = std::env::var(sandbox_env_var())
-        .ok()
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "not-set".to_string());
-    let expected_trim = expected_sandbox_value.as_str();
 
     #[cfg(windows)]
     let command = r#"$val = $env:CODEX_SANDBOX; if ([string]::IsNullOrEmpty($val)) { $val = 'not-set' } ; [System.Console]::Write($val)"#.to_string();
@@ -176,16 +164,10 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
         _ => None,
     })
     .await;
-    let expected_stream = if expected_trim == "not-set" {
-        ExecOutputStream::Stdout
-    } else {
-        // When running inside a seatbelt sandbox the shim reports stderr.
-        ExecOutputStream::Stderr
-    };
-    assert_eq!(delta_event.stream, expected_stream);
+    assert_eq!(delta_event.stream, ExecOutputStream::Stdout);
     let chunk_text =
         String::from_utf8(delta_event.chunk.clone()).expect("user command chunk is valid utf-8");
-    assert_eq!(chunk_text.trim(), expected_trim);
+    assert_eq!(chunk_text.trim(), "not-set");
 
     let end_event = wait_for_event_match(&test.codex, |ev| match ev {
         EventMsg::ExecCommandEnd(event) => Some(event.clone()),
@@ -193,11 +175,7 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
     })
     .await;
     assert_eq!(end_event.exit_code, 0);
-    if expected_stream == ExecOutputStream::Stdout {
-        assert_eq!(end_event.stdout.trim(), expected_trim);
-    } else {
-        assert_eq!(end_event.stderr.trim(), expected_trim);
-    }
+    assert_eq!(end_event.stdout.trim(), "not-set");
 
     let _ = wait_for_event(&test.codex, |ev| matches!(ev, EventMsg::TaskComplete(_))).await;
 
@@ -219,27 +197,30 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
         .expect("command message recorded in request");
     let command_message = command_message.replace("\r\n", "\n");
     let escaped_command = escape(&command);
-    let escaped_result = escape(expected_trim);
     let expected_pattern = format!(
-        r"(?m)\A<user_shell_command>\n<command>\n{escaped_command}\n</command>\n<result>\nExit code: 0\nDuration: [0-9]+(?:\.[0-9]+)? seconds\nOutput:\n{escaped_result}\n</result>\n</user_shell_command>\z"
+        r"(?m)\A<user_shell_command>\n<command>\n{escaped_command}\n</command>\n<result>\nExit code: 0\nDuration: [0-9]+(?:\.[0-9]+)? seconds\nOutput:\nnot-set\n</result>\n</user_shell_command>\z"
     );
     assert_regex_match(&expected_pattern, &command_message);
 
     Ok(())
 }
 
-#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg(not(target_os = "windows"))] // TODO: unignore on windows
 async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<()> {
-    skip_if_sandbox!(Ok(()));
-    let server = start_mock_server().await;
-    let mut builder = core_test_support::test_codex::test_codex();
-    let test = builder.build(&server).await?;
+    let server = responses::start_mock_server().await;
+    let builder = core_test_support::test_codex::test_codex();
+    let test = builder
+        .with_config(|config| {
+            config.tool_output_token_limit = Some(100);
+        })
+        .build(&server)
+        .await?;
 
     #[cfg(windows)]
-    let command = r#"for ($i=1; $i -le 700; $i++) { Write-Output $i }"#.to_string();
+    let command = r#"for ($i=1; $i -le 400; $i++) { Write-Output $i }"#.to_string();
     #[cfg(not(windows))]
-    let command = "seq 1 700".to_string();
+    let command = "seq 1 400".to_string();
 
     test.codex
         .submit(Op::RunUserShellCommand {
@@ -273,10 +254,10 @@ async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<(
         .expect("command message recorded in request");
     let command_message = command_message.replace("\r\n", "\n");
 
-    let head = (1..=128).map(|i| format!("{i}\n")).collect::<String>();
-    let tail = (201..=700).map(|i| format!("{i}\n")).collect::<String>();
+    let head = (1..=69).map(|i| format!("{i}\n")).collect::<String>();
+    let tail = (352..=400).map(|i| format!("{i}\n")).collect::<String>();
     let truncated_body =
-        format!("Total output lines: 700\n\n{head}\n[... omitted 72 of 700 lines ...]\n\n{tail}");
+        format!("Total output lines: 400\n\n{head}70…273 tokens truncated…351\n{tail}");
     let escaped_command = escape(&command);
     let escaped_truncated_body = escape(&truncated_body);
     let expected_pattern = format!(
@@ -287,33 +268,28 @@ async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<(
     Ok(())
 }
 
-#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_shell_command_is_truncated_only_once() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
 
-    let mut builder = test_codex().with_config(|config| {
-        config.model = "gpt-5-codex".to_string();
-        config.model_family =
-            find_family_for_model("gpt-5-codex").expect("gpt-5-codex is a model family");
-    });
+    let mut builder = test_codex()
+        .with_model("gpt-5.1-codex")
+        .with_config(|config| {
+            config.tool_output_token_limit = Some(100);
+        });
     let fixture = builder.build(&server).await?;
 
     let call_id = "user-shell-double-truncation";
     let args = if cfg!(windows) {
         serde_json::json!({
-            "command": [
-                "powershell",
-                "-Command",
-                "for ($i=1; $i -le 2000; $i++) { Write-Output $i }"
-            ],
+            "command": "for ($i=1; $i -le 2000; $i++) { Write-Output $i }",
             "timeout_ms": 5_000,
         })
     } else {
         serde_json::json!({
-            "command": ["/bin/sh", "-c", "seq 1 2000"],
+            "command": "seq 1 2000",
             "timeout_ms": 5_000,
         })
     };
@@ -322,7 +298,7 @@ async fn user_shell_command_is_truncated_only_once() -> anyhow::Result<()> {
         &server,
         sse(vec![
             ev_response_created("resp-1"),
-            ev_function_call(call_id, "shell", &serde_json::to_string(&args)?),
+            ev_function_call(call_id, "shell_command", &serde_json::to_string(&args)?),
             ev_completed("resp-1"),
         ]),
     )
@@ -337,19 +313,22 @@ async fn user_shell_command_is_truncated_only_once() -> anyhow::Result<()> {
     .await;
 
     fixture
-        .submit_turn_with_policy("trigger big shell output", SandboxPolicy::DangerFullAccess)
+        .submit_turn_with_policy(
+            "trigger big shell_command output",
+            SandboxPolicy::DangerFullAccess,
+        )
         .await?;
 
     let output = mock2
         .single_request()
         .function_call_output_text(call_id)
-        .context("function_call_output present for shell call")?;
+        .context("function_call_output present for shell_command call")?;
 
     let truncation_headers = output.matches("Total output lines:").count();
 
     assert_eq!(
         truncation_headers, 1,
-        "shell output should carry only one truncation header: {output}"
+        "shell_command output should carry only one truncation header: {output}"
     );
 
     Ok(())
