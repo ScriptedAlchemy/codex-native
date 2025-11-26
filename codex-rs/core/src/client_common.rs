@@ -1,16 +1,11 @@
 use crate::client_common::tools::ToolSpec;
 use crate::error::Result;
 use crate::model_family::ModelFamily;
-use crate::protocol::RateLimitSnapshot;
-use crate::protocol::TokenUsage;
+pub use codex_api::common::ResponseEvent;
 use codex_apply_patch::APPLY_PATCH_TOOL_INSTRUCTIONS;
-use codex_protocol::config_types::ReasoningEffort as ReasoningEffortConfig;
-use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
-use codex_protocol::config_types::Verbosity as VerbosityConfig;
 use codex_protocol::models::ResponseItem;
 use futures::Stream;
 use serde::Deserialize;
-use serde::Serialize;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -184,105 +179,7 @@ fn strip_total_output_header(output: &str) -> Option<(&str, u32)> {
     Some((remainder, total_lines))
 }
 
-#[derive(Debug)]
-pub enum ResponseEvent {
-    Created,
-    OutputItemDone(ResponseItem),
-    OutputItemAdded(ResponseItem),
-    Completed {
-        response_id: String,
-        token_usage: Option<TokenUsage>,
-    },
-    OutputTextDelta(String),
-    ReasoningSummaryDelta {
-        delta: String,
-        summary_index: i64,
-    },
-    ReasoningContentDelta {
-        delta: String,
-        content_index: i64,
-    },
-    ReasoningSummaryPartAdded {
-        summary_index: i64,
-    },
-    RateLimits(RateLimitSnapshot),
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct Reasoning {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) effort: Option<ReasoningEffortConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) summary: Option<ReasoningSummaryConfig>,
-}
-
-#[derive(Debug, Serialize, Default, Clone)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum TextFormatType {
-    #[default]
-    JsonSchema,
-}
-
-#[derive(Debug, Serialize, Default, Clone)]
-pub(crate) struct TextFormat {
-    pub(crate) r#type: TextFormatType,
-    pub(crate) strict: bool,
-    pub(crate) schema: Value,
-    pub(crate) name: String,
-}
-
-/// Controls under the `text` field in the Responses API for GPT-5.
-#[derive(Debug, Serialize, Default, Clone)]
-pub(crate) struct TextControls {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) verbosity: Option<OpenAiVerbosity>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) format: Option<TextFormat>,
-}
-
-#[derive(Debug, Serialize, Default, Clone)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum OpenAiVerbosity {
-    Low,
-    #[default]
-    Medium,
-    High,
-}
-
-impl From<VerbosityConfig> for OpenAiVerbosity {
-    fn from(v: VerbosityConfig) -> Self {
-        match v {
-            VerbosityConfig::Low => OpenAiVerbosity::Low,
-            VerbosityConfig::Medium => OpenAiVerbosity::Medium,
-            VerbosityConfig::High => OpenAiVerbosity::High,
-        }
-    }
-}
-
-/// Request object that is serialized as JSON and POST'ed when using the
-/// Responses API.
-#[derive(Debug, Serialize)]
-pub(crate) struct ResponsesApiRequest<'a> {
-    pub(crate) model: &'a str,
-    pub(crate) instructions: &'a str,
-    // TODO(mbolin): ResponseItem::Other should not be serialized. Currently,
-    // we code defensively to avoid this case, but perhaps we should use a
-    // separate enum for serialization.
-    pub(crate) input: &'a Vec<ResponseItem>,
-    pub(crate) tools: &'a [serde_json::Value],
-    pub(crate) tool_choice: &'static str,
-    pub(crate) parallel_tool_calls: bool,
-    pub(crate) reasoning: Option<Reasoning>,
-    pub(crate) store: bool,
-    pub(crate) stream: bool,
-    pub(crate) include: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) prompt_cache_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) text: Option<TextControls>,
-}
-
-pub mod tools {
+pub(crate) mod tools {
     use crate::tools::spec::JsonSchema;
     use serde::Deserialize;
     use serde::Serialize;
@@ -291,7 +188,7 @@ pub mod tools {
     /// Responses API.
     #[derive(Debug, Clone, Serialize, PartialEq)]
     #[serde(tag = "type")]
-    pub enum ToolSpec {
+    pub(crate) enum ToolSpec {
         #[serde(rename = "function")]
         Function(ResponsesApiTool),
         #[serde(rename = "local_shell")]
@@ -341,76 +238,6 @@ pub mod tools {
     }
 }
 
-pub(crate) fn create_text_param_for_request(
-    verbosity: Option<VerbosityConfig>,
-    output_schema: &Option<Value>,
-) -> Option<TextControls> {
-    if verbosity.is_none() && output_schema.is_none() {
-        return None;
-    }
-
-    // Determine strictness based on the top-level schema. If the schema explicitly allows
-    // additional properties (boolean true or a nested schema), relax strict mode so callers
-    // can opt into permissive outputs. Otherwise, default to strict mode for better guarantees.
-    let strict = output_schema
-        .as_ref()
-        .map(|schema| {
-            match schema {
-                Value::Object(map) => {
-                    // 1) If additionalProperties is permissive (true or a schema), relax strict.
-                    let ap_relaxes =
-                        matches!(map.get("additionalProperties"), Some(Value::Bool(true)))
-                            || map
-                                .get("additionalProperties")
-                                .map(|v| !v.is_boolean())
-                                .unwrap_or(false);
-
-                    if ap_relaxes {
-                        return false;
-                    }
-
-                    // 2) If 'required' is missing or does not include all defined properties,
-                    //    relax strict to allow optional fields without erroring.
-                    let props_keys: Option<std::collections::HashSet<&str>> = map
-                        .get("properties")
-                        .and_then(|v| v.as_object())
-                        .map(|props| props.keys().map(std::string::String::as_str).collect());
-                    let required_keys: Option<std::collections::HashSet<&str>> =
-                        map.get("required").and_then(|v| v.as_array()).map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str())
-                                .collect::<std::collections::HashSet<&str>>()
-                        });
-
-                    let required_relaxes = match (props_keys, required_keys) {
-                        // If there are properties but no required list, relax.
-                        (Some(_), None) => true,
-                        // If both exist and required != all properties, relax.
-                        (Some(props), Some(req)) => !props.is_subset(&req),
-                        // Otherwise keep strict (non-object schemas, or no properties).
-                        _ => false,
-                    };
-
-                    // If neither condition relaxes, keep strict.
-                    !required_relaxes
-                }
-                // Non-object roots (e.g., arrays, strings) default to strict
-                _ => true,
-            }
-        })
-        .unwrap_or(true);
-
-    Some(TextControls {
-        verbosity: verbosity.map(std::convert::Into::into),
-        format: output_schema.as_ref().map(|schema| TextFormat {
-            r#type: TextFormatType::JsonSchema,
-            strict,
-            schema: schema.clone(),
-            name: "codex_output_schema".to_string(),
-        }),
-    })
-}
-
 pub struct ResponseStream {
     pub(crate) rx_event: mpsc::Receiver<Result<ResponseEvent>>,
 }
@@ -426,6 +253,10 @@ impl Stream for ResponseStream {
 #[cfg(test)]
 mod tests {
     use crate::model_family::find_family_for_model;
+    use codex_api::ResponsesApiRequest;
+    use codex_api::common::OpenAiVerbosity;
+    use codex_api::common::TextControls;
+    use codex_api::create_text_param_for_request;
     use pretty_assertions::assert_eq;
 
     use super::*;
