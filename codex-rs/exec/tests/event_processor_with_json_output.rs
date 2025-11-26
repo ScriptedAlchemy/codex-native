@@ -658,6 +658,7 @@ fn exec_command_end_success_produces_completed_command_item() {
         "c1",
         EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
             call_id: "1".to_string(),
+            process_id: None,
             turn_id: "turn-1".to_string(),
             command: command.clone(),
             cwd: cwd.clone(),
@@ -687,6 +688,7 @@ fn exec_command_end_success_produces_completed_command_item() {
         "c2",
         EventMsg::ExecCommandEnd(ExecCommandEndEvent {
             call_id: "1".to_string(),
+            process_id: None,
             turn_id: "turn-1".to_string(),
             command,
             cwd,
@@ -730,6 +732,7 @@ fn exec_command_end_failure_produces_failed_command_item() {
         "c1",
         EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
             call_id: "2".to_string(),
+            process_id: None,
             turn_id: "turn-1".to_string(),
             command: command.clone(),
             cwd: cwd.clone(),
@@ -758,6 +761,7 @@ fn exec_command_end_failure_produces_failed_command_item() {
         "c2",
         EventMsg::ExecCommandEnd(ExecCommandEndEvent {
             call_id: "2".to_string(),
+            process_id: None,
             turn_id: "turn-1".to_string(),
             command,
             cwd,
@@ -798,6 +802,7 @@ fn exec_command_end_without_begin_is_ignored() {
         "c1",
         EventMsg::ExecCommandEnd(ExecCommandEndEvent {
             call_id: "no-begin".to_string(),
+            process_id: None,
             turn_id: "turn-1".to_string(),
             command: Vec::new(),
             cwd: PathBuf::from("."),
