@@ -298,7 +298,7 @@ jobs:
         run: pnpm --filter @openai/codex-shell-tool-mcp run build
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: artifacts
 
@@ -393,7 +393,7 @@ jobs:
         run: npm install -g npm@latest
 
       - name: Download npm tarball
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: codex-shell-tool-mcp-npm
           path: dist/npm
