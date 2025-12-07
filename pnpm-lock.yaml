@@ -66,6 +66,12 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.22.0
         version: 1.22.0
+      '@openai/agents':
+        specifier: ^0.3.3
+        version: 0.3.4(ws@8.18.3)(zod@3.25.76)
+      '@openai/agents-core':
+        specifier: ^0.3.3
+        version: 0.3.4(ws@8.18.3)(zod@3.25.76)
       '@opencode-ai/sdk':
         specifier: ^1.0.68
         version: 1.0.68
@@ -100,9 +106,6 @@ importers:
       '@napi-rs/cli':
         specifier: ^3.4.1
         version: 3.4.1(@emnapi/runtime@1.7.0)(@types/node@22.19.0)
-      '@openai/agents':
-        specifier: ^0.3.0
-        version: 0.3.0(ws@8.18.3)(zod@3.25.76)
       '@types/jest':
         specifier: 29.5.11
         version: 29.5.11
@@ -1772,8 +1775,21 @@ packages:
       zod:
         optional: true
 
+  '@openai/agents-core@0.3.4':
+    resolution: {integrity: sha512-PytKxI6JBkz+i2wgFwyT0C7jhMULwMamvRkXb+vdnpDxkf9hnFwkyeQB+u4FjdnOb1S+P2ohkXHcGZlVCQ11WA==}
+    peerDependencies:
+      zod: ^3.25.40 || ^4.0
+    peerDependenciesMeta:
+      zod:
+        optional: true
+
   '@openai/agents-openai@0.3.0':
     resolution: {integrity: sha512-y3v4m2dUf5jyZnpTnUrqN0Akleje/G78RII81rtdo0iaPhCqcVrH6f/j+nEYqsyhPA+jJCL1gyaasZZR1NTm8g==}
+    peerDependencies:
+      zod: ^3.25.40 || ^4.0
+
+  '@openai/agents-openai@0.3.4':
+    resolution: {integrity: sha512-Bl7IrJw9uhuFQ/YYWhRaM9wN/+RBQTMNuXr+WGfBqvkD2RxndM7dh5oH0oRN0VAN4qqn9OA351x65g9oHHfrIA==}
     peerDependencies:
       zod: ^3.25.40 || ^4.0
 
@@ -1782,8 +1798,18 @@ packages:
     peerDependencies:
       zod: ^3.25.40 || ^4.0
 
+  '@openai/agents-realtime@0.3.4':
+    resolution: {integrity: sha512-qGjctIE7B3S9zbehwvJPF3WhEnki7pcdPfELSoB2WrluJf7Er4KUjUnrmCDUiSM2702OnNLV/5JPo1UcTNO2dQ==}
+    peerDependencies:
+      zod: ^3.25.40 || ^4.0
+
   '@openai/agents@0.3.0':
     resolution: {integrity: sha512-afVZc4/ev/jpMDmMHH8DYV0m+b8mEhRuwC0qog14untuxPq6FJFOUG8J6UnKKDf4vXsnODyYbOoXT+qkXGJy/w==}
+    peerDependencies:
+      zod: ^3.25.40 || ^4.0
+
+  '@openai/agents@0.3.4':
+    resolution: {integrity: sha512-QnYrvBgppJ2djlr5ia+eUwfGeE0hvo70OONdOtPHmYNzqKCprRNdnEVb41X5232LPQOFbvwENmACEkrnWbCvdA==}
     peerDependencies:
       zod: ^3.25.40 || ^4.0
 
@@ -5651,6 +5677,18 @@ snapshots:
       - supports-color
       - ws
 
+  '@openai/agents-core@0.3.4(ws@8.18.3)(zod@3.25.76)':
+    dependencies:
+      debug: 4.4.3
+      openai: 6.8.1(ws@8.18.3)(zod@3.25.76)
+    optionalDependencies:
+      '@modelcontextprotocol/sdk': 1.22.0
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - supports-color
+      - ws
+
   '@openai/agents-openai@0.3.0(ws@8.18.3)(zod@3.25.76)':
     dependencies:
       '@openai/agents-core': 0.3.0(ws@8.18.3)(zod@3.25.76)
@@ -5658,6 +5696,17 @@ snapshots:
       openai: 6.8.1(ws@8.18.3)(zod@3.25.76)
       zod: 3.25.76
     transitivePeerDependencies:
+      - supports-color
+      - ws
+
+  '@openai/agents-openai@0.3.4(ws@8.18.3)(zod@3.25.76)':
+    dependencies:
+      '@openai/agents-core': 0.3.4(ws@8.18.3)(zod@3.25.76)
+      debug: 4.4.3
+      openai: 6.8.1(ws@8.18.3)(zod@3.25.76)
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
       - supports-color
       - ws
 
@@ -5673,6 +5722,19 @@ snapshots:
       - supports-color
       - utf-8-validate
 
+  '@openai/agents-realtime@0.3.4(zod@3.25.76)':
+    dependencies:
+      '@openai/agents-core': 0.3.4(ws@8.18.3)(zod@3.25.76)
+      '@types/ws': 8.18.1
+      debug: 4.4.3
+      ws: 8.18.3
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+
   '@openai/agents@0.3.0(ws@8.18.3)(zod@3.25.76)':
     dependencies:
       '@openai/agents-core': 0.3.0(ws@8.18.3)(zod@3.25.76)
@@ -5682,6 +5744,21 @@ snapshots:
       openai: 6.8.1(ws@8.18.3)(zod@3.25.76)
       zod: 3.25.76
     transitivePeerDependencies:
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+      - ws
+
+  '@openai/agents@0.3.4(ws@8.18.3)(zod@3.25.76)':
+    dependencies:
+      '@openai/agents-core': 0.3.4(ws@8.18.3)(zod@3.25.76)
+      '@openai/agents-openai': 0.3.4(ws@8.18.3)(zod@3.25.76)
+      '@openai/agents-realtime': 0.3.4(zod@3.25.76)
+      debug: 4.4.3
+      openai: 6.8.1(ws@8.18.3)(zod@3.25.76)
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
       - bufferutil
       - supports-color
       - utf-8-validate

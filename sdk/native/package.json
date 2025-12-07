@@ -1,6 +1,6 @@
 {
   "name": "@codex-native/sdk",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Native NAPI-based Codex SDK - complete standalone implementation.",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
@@ -23,6 +23,8 @@
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.22.0",
+    "@openai/agents": "^0.3.3",
+    "@openai/agents-core": "^0.3.3",
     "@opencode-ai/sdk": "^1.0.68",
     "@toon-format/toon": "^1.0.0",
     "pyright": "^1.1.386",
