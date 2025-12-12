@@ -74,7 +74,7 @@ importers:
         version: 0.3.4(ws@8.18.3)(zod@3.25.76)
       '@opencode-ai/sdk':
         specifier: ^1.0.134
-        version: 1.0.150
+        version: 1.0.151
       '@toon-format/toon':
         specifier: ^1.0.0
         version: 1.0.0
@@ -1773,14 +1773,6 @@ packages:
   '@octokit/types@16.0.0':
     resolution: {integrity: sha512-sKq+9r1Mm4efXW1FCk7hFSeJo4QKreL/tTbR0rz/qx/r1Oa2VV83LTA/H/MuCOX7uCIJmQVRKBcbmWoySjAnSg==}
 
-  '@openai/agents-core@0.3.0':
-    resolution: {integrity: sha512-2WNHfMzBCwkVfXD6B5bLy7y4SPJbmucvOnSPhqOS25gAEnf7FrVu94hACUP/Q2+qWbGpC6okPb1fwtCI7yZmhw==}
-    peerDependencies:
-      zod: ^3.25.40 || ^4.0
-    peerDependenciesMeta:
-      zod:
-        optional: true
-
   '@openai/agents-core@0.3.4':
     resolution: {integrity: sha512-PytKxI6JBkz+i2wgFwyT0C7jhMULwMamvRkXb+vdnpDxkf9hnFwkyeQB+u4FjdnOb1S+P2ohkXHcGZlVCQ11WA==}
     peerDependencies:
@@ -1804,8 +1796,8 @@ packages:
     peerDependencies:
       zod: ^3.25.40 || ^4.0
 
-  '@opencode-ai/sdk@1.0.150':
-    resolution: {integrity: sha512-Nz9Di8UD/GK01w3N+jpiGNB733pYkNY8RNLbuE/HUxEGSP5apbXBY0IdhbW7859sXZZK38kF1NqOx4UxwBf4Bw==}
+  '@opencode-ai/sdk@1.0.151':
+    resolution: {integrity: sha512-r1QZuGCXmO2lCUAoPZa0Tq/ZphML/eufDskg8HeL8+Lxu7YEYNSVP9GEIG1YtLS11s7P9N+QydtI3cXKKHU3cA==}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -3223,18 +3215,6 @@ packages:
 
   openai@6.10.0:
     resolution: {integrity: sha512-ITxOGo7rO3XRMiKA5l7tQ43iNNu+iXGFAcf2t+aWVzzqRaS0i7m1K2BhxNdaveB+5eENhO0VY1FkiZzhBk4v3A==}
-    hasBin: true
-    peerDependencies:
-      ws: ^8.18.0
-      zod: ^3.25 || ^4.0
-    peerDependenciesMeta:
-      ws:
-        optional: true
-      zod:
-        optional: true
-
-  openai@6.8.1:
-    resolution: {integrity: sha512-ACifslrVgf+maMz9vqwMP4+v9qvx5Yzssydizks8n+YUJ6YwUoxj51sKRQ8HYMfR6wgKLSIlaI108ZwCk+8yig==}
     hasBin: true
     peerDependencies:
       ws: ^8.18.0
@@ -5685,18 +5665,6 @@ snapshots:
     dependencies:
       '@octokit/openapi-types': 27.0.0
 
-  '@openai/agents-core@0.3.0(ws@8.18.3)(zod@3.25.76)':
-    dependencies:
-      debug: 4.4.3
-      openai: 6.8.1(ws@8.18.3)(zod@3.25.76)
-    optionalDependencies:
-      '@modelcontextprotocol/sdk': 1.24.3(zod@3.25.76)
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - supports-color
-      - ws
-
   '@openai/agents-core@0.3.4(ws@8.18.3)(zod@3.25.76)':
     dependencies:
       debug: 4.4.3
@@ -5748,7 +5716,7 @@ snapshots:
       - utf-8-validate
       - ws
 
-  '@opencode-ai/sdk@1.0.150': {}
+  '@opencode-ai/sdk@1.0.151': {}
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
@@ -7512,11 +7480,6 @@ snapshots:
       mimic-fn: 2.1.0
 
   openai@6.10.0(ws@8.18.3)(zod@3.25.76):
-    optionalDependencies:
-      ws: 8.18.3
-      zod: 3.25.76
-
-  openai@6.8.1(ws@8.18.3)(zod@3.25.76):
     optionalDependencies:
       ws: 8.18.3
       zod: 3.25.76
