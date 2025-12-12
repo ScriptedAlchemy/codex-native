@@ -36,7 +36,7 @@ importers:
         version: link:../sdk/native
       '@openai/agents':
         specifier: ^0.3.0
-        version: 0.3.0(ws@8.18.3)(zod@3.25.76)
+        version: 0.3.4(ws@8.18.3)(zod@3.25.76)
       '@openai/agents-core':
         specifier: ^0.3.0
         version: 0.3.0(ws@8.18.3)(zod@3.25.76)
@@ -1789,28 +1789,13 @@ packages:
       zod:
         optional: true
 
-  '@openai/agents-openai@0.3.0':
-    resolution: {integrity: sha512-y3v4m2dUf5jyZnpTnUrqN0Akleje/G78RII81rtdo0iaPhCqcVrH6f/j+nEYqsyhPA+jJCL1gyaasZZR1NTm8g==}
-    peerDependencies:
-      zod: ^3.25.40 || ^4.0
-
   '@openai/agents-openai@0.3.4':
     resolution: {integrity: sha512-Bl7IrJw9uhuFQ/YYWhRaM9wN/+RBQTMNuXr+WGfBqvkD2RxndM7dh5oH0oRN0VAN4qqn9OA351x65g9oHHfrIA==}
     peerDependencies:
       zod: ^3.25.40 || ^4.0
 
-  '@openai/agents-realtime@0.3.0':
-    resolution: {integrity: sha512-sa9MuUjWe9bhog3R1JbNQ9u/bIzMy+oiMziWScDerSouVSpauPxA8CcNT9MfBb3yDjDRYLlvuy9DUj2IX958oQ==}
-    peerDependencies:
-      zod: ^3.25.40 || ^4.0
-
   '@openai/agents-realtime@0.3.4':
     resolution: {integrity: sha512-qGjctIE7B3S9zbehwvJPF3WhEnki7pcdPfELSoB2WrluJf7Er4KUjUnrmCDUiSM2702OnNLV/5JPo1UcTNO2dQ==}
-    peerDependencies:
-      zod: ^3.25.40 || ^4.0
-
-  '@openai/agents@0.3.0':
-    resolution: {integrity: sha512-afVZc4/ev/jpMDmMHH8DYV0m+b8mEhRuwC0qog14untuxPq6FJFOUG8J6UnKKDf4vXsnODyYbOoXT+qkXGJy/w==}
     peerDependencies:
       zod: ^3.25.40 || ^4.0
 
@@ -2004,6 +1989,9 @@ packages:
 
   '@types/node@22.19.0':
     resolution: {integrity: sha512-xpr/lmLPQEj+TUnHmR+Ab91/glhJvsqcjB+yY0Ix9GO70H6Lb4FHH5GeqdOE5btAx7eIMwuHkp4H2MSkLcqWbA==}
+
+  '@types/node@25.0.1':
+    resolution: {integrity: sha512-czWPzKIAXucn9PtsttxmumiQ9N0ok9FrBwgRWrwmVLlp86BrMExzvXRLFYRJ+Ex3g6yqj+KuaxfX1JTgV2lpfg==}
 
   '@types/stack-utils@2.0.3':
     resolution: {integrity: sha512-9aEbYZ3TbYMznPdcdr3SmIrLXwC/AKZXQeCf9Pgao5CKb8CyHuEX5jzWPTkvregvhRJHcpRO6BFoGW9ycaOkYw==}
@@ -3233,6 +3221,18 @@ packages:
     resolution: {integrity: sha512-kbpaSSGJTWdAY5KPVeMOKXSrPtr8C8C7wodJbcsd51jRnmD+GZu8Y0VoU6Dm5Z4vWr0Ig/1NKuWRKf7j5aaYSg==}
     engines: {node: '>=6'}
 
+  openai@6.10.0:
+    resolution: {integrity: sha512-ITxOGo7rO3XRMiKA5l7tQ43iNNu+iXGFAcf2t+aWVzzqRaS0i7m1K2BhxNdaveB+5eENhO0VY1FkiZzhBk4v3A==}
+    hasBin: true
+    peerDependencies:
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
+
   openai@6.8.1:
     resolution: {integrity: sha512-ACifslrVgf+maMz9vqwMP4+v9qvx5Yzssydizks8n+YUJ6YwUoxj51sKRQ8HYMfR6wgKLSIlaI108ZwCk+8yig==}
     hasBin: true
@@ -3819,6 +3819,9 @@ packages:
 
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
+  undici-types@7.16.0:
+    resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
 
   unicode-canonical-property-names-ecmascript@2.0.1:
     resolution: {integrity: sha512-dA8WbNeb2a6oQzAQ55YlT5vQAWGV9WXOsi3SskE3bcCdM0P4SDd+24zS/OCacdRq5BkdsRj9q3Pg6YyQoxIGqg==}
@@ -5706,40 +5709,16 @@ snapshots:
       - supports-color
       - ws
 
-  '@openai/agents-openai@0.3.0(ws@8.18.3)(zod@3.25.76)':
-    dependencies:
-      '@openai/agents-core': 0.3.0(ws@8.18.3)(zod@3.25.76)
-      debug: 4.4.3
-      openai: 6.8.1(ws@8.18.3)(zod@3.25.76)
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - supports-color
-      - ws
-
   '@openai/agents-openai@0.3.4(ws@8.18.3)(zod@3.25.76)':
     dependencies:
       '@openai/agents-core': 0.3.4(ws@8.18.3)(zod@3.25.76)
       debug: 4.4.3
-      openai: 6.8.1(ws@8.18.3)(zod@3.25.76)
+      openai: 6.10.0(ws@8.18.3)(zod@3.25.76)
       zod: 3.25.76
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - supports-color
       - ws
-
-  '@openai/agents-realtime@0.3.0(zod@3.25.76)':
-    dependencies:
-      '@openai/agents-core': 0.3.0(ws@8.18.3)(zod@3.25.76)
-      '@types/ws': 8.18.1
-      debug: 4.4.3
-      ws: 8.18.3
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - bufferutil
-      - supports-color
-      - utf-8-validate
 
   '@openai/agents-realtime@0.3.4(zod@3.25.76)':
     dependencies:
@@ -5754,28 +5733,13 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@openai/agents@0.3.0(ws@8.18.3)(zod@3.25.76)':
-    dependencies:
-      '@openai/agents-core': 0.3.0(ws@8.18.3)(zod@3.25.76)
-      '@openai/agents-openai': 0.3.0(ws@8.18.3)(zod@3.25.76)
-      '@openai/agents-realtime': 0.3.0(zod@3.25.76)
-      debug: 4.4.3
-      openai: 6.8.1(ws@8.18.3)(zod@3.25.76)
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - bufferutil
-      - supports-color
-      - utf-8-validate
-      - ws
-
   '@openai/agents@0.3.4(ws@8.18.3)(zod@3.25.76)':
     dependencies:
       '@openai/agents-core': 0.3.4(ws@8.18.3)(zod@3.25.76)
       '@openai/agents-openai': 0.3.4(ws@8.18.3)(zod@3.25.76)
       '@openai/agents-realtime': 0.3.4(zod@3.25.76)
       debug: 4.4.3
-      openai: 6.8.1(ws@8.18.3)(zod@3.25.76)
+      openai: 6.10.0(ws@8.18.3)(zod@3.25.76)
       zod: 3.25.76
     transitivePeerDependencies:
       - '@cfworker/json-schema'
@@ -5905,7 +5869,7 @@ snapshots:
 
   '@types/graceful-fs@4.1.9':
     dependencies:
-      '@types/node': 22.19.0
+      '@types/node': 20.19.18
 
   '@types/istanbul-lib-coverage@2.0.6': {}
 
@@ -5937,11 +5901,15 @@ snapshots:
     dependencies:
       undici-types: 6.21.0
 
+  '@types/node@25.0.1':
+    dependencies:
+      undici-types: 7.16.0
+
   '@types/stack-utils@2.0.3': {}
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 22.19.0
+      '@types/node': 25.0.1
 
   '@types/yargs-parser@21.0.3': {}
 
@@ -6951,7 +6919,7 @@ snapshots:
       '@jest/expect': 29.7.0
       '@jest/test-result': 29.7.0
       '@jest/types': 29.6.3
-      '@types/node': 22.19.0
+      '@types/node': 20.19.18
       chalk: 4.1.2
       co: 4.6.0
       dedent: 1.7.0
@@ -7143,7 +7111,7 @@ snapshots:
       '@jest/environment': 29.7.0
       '@jest/fake-timers': 29.7.0
       '@jest/types': 29.6.3
-      '@types/node': 22.19.0
+      '@types/node': 20.19.18
       jest-mock: 29.7.0
       jest-util: 29.7.0
 
@@ -7329,7 +7297,7 @@ snapshots:
 
   jest-worker@29.7.0:
     dependencies:
-      '@types/node': 22.19.0
+      '@types/node': 20.19.18
       jest-util: 29.7.0
       merge-stream: 2.0.0
       supports-color: 8.1.1
@@ -7542,6 +7510,11 @@ snapshots:
   onetime@5.1.2:
     dependencies:
       mimic-fn: 2.1.0
+
+  openai@6.10.0(ws@8.18.3)(zod@3.25.76):
+    optionalDependencies:
+      ws: 8.18.3
+      zod: 3.25.76
 
   openai@6.8.1(ws@8.18.3)(zod@3.25.76):
     optionalDependencies:
@@ -8134,6 +8107,8 @@ snapshots:
     optional: true
 
   undici-types@6.21.0: {}
+
+  undici-types@7.16.0: {}
 
   unicode-canonical-property-names-ecmascript@2.0.1: {}
 
