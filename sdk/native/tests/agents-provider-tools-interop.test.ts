@@ -5,49 +5,71 @@
 
 import { describe, it, expect, beforeAll, jest } from "@jest/globals";
 import { setupNativeBinding } from "./testHelpers";
-import { startResponsesTestProxy, sse, responseStarted, assistantMessage, responseCompleted } from "./responsesProxy";
 
 // Setup native binding for tests
 setupNativeBinding();
 
-
+// Allow extra time for async operations
+jest.setTimeout(20000);
 
 let CodexProvider: any;
 beforeAll(async () => {
   ({ CodexProvider } = await import("../src/index"));
 });
 
-describe("Agents tools interop", () => {
-  // Skip in CI - this test requires backend authentication
-  const testFn = process.env.CI ? it.skip : it;
+// Helper to create mock Codex for provider tests
+function createMockCodex(responseText: string = "tool registration ok") {
+  const mockThread = {
+    id: "mock-thread-id",
+    run: jest.fn(async () => ({
+      items: [{ type: "agent_message", text: responseText }],
+      finalResponse: responseText,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    })),
+    runStreamed: jest.fn(async () => ({
+      events: (async function* () {
+        yield { type: "thread.started", thread_id: "mock-thread-id" };
+        yield { type: "turn.started" };
+        yield { type: "item.completed", item: { type: "agent_message", text: responseText } };
+        yield { type: "turn.completed", usage: { input_tokens: 10, output_tokens: 5 } };
+      })(),
+    })),
+    onEvent: jest.fn(() => () => {}),
+    sendBackgroundEvent: jest.fn(async () => {}),
+  };
 
-  testFn("registers function tools with Codex when provided in ModelRequest", async () => {
-    const { url, close } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(
-          responseStarted("response_1"),
-          assistantMessage("tool registration ok", "item_1"),
-          responseCompleted("response_1"),
-        ),
-      ],
-    });
+  return {
+    startThread: jest.fn(() => mockThread),
+    resumeThread: jest.fn(() => mockThread),
+    registerTool: jest.fn(),
+    _mockThread: mockThread,
+  };
+}
+
+describe("Agents tools interop", () => {
+  it("registers function tools with Codex when provided in ModelRequest", async () => {
+    // Create mock Codex backend
+    const mockCodex = createMockCodex("tool registration ok");
+
+    const provider = new CodexProvider({ skipGitRepoCheck: true });
+
+    // Inject mock Codex to avoid real network calls
+    (provider as any).codex = mockCodex;
+
+    const model = provider.getModel("gpt-5-codex");
+
+    // Spy on registration logging to confirm registration path is executed.
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+
+    const tool = {
+      type: "function",
+      name: "say_hello",
+      description: "Says hello",
+      parameters: { type: "object", properties: { name: { type: "string" } } },
+      execute: async ({ name }: { name: any }) => `Hello, ${name}!`,
+    };
 
     try {
-      const provider = new CodexProvider({ skipGitRepoCheck: true, baseUrl: url });
-      const model = provider.getModel("gpt-5-codex");
-
-      // Spy on registration logging to confirm registration path is executed.
-      const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
-
-      const tool = {
-        type: "function",
-        name: "say_hello",
-        description: "Says hello",
-        parameters: { type: "object", properties: { name: { type: "string" } } },
-        execute: async ({ name }: { name: any }) => `Hello, ${name}!`,
-      };
-
       await model.getResponse({
         systemInstructions: "You are a tool testing agent",
         input: "test",
@@ -63,11 +85,8 @@ describe("Agents tools interop", () => {
       expect(logSpy).toHaveBeenCalled();
       const logged = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
       expect(logged).toContain("Registered tool with Codex: say_hello");
-      logSpy.mockRestore();
     } finally {
-      await close();
+      logSpy.mockRestore();
     }
-  }, 30000); // Increased timeout for CI environments
+  });
 });
-
-

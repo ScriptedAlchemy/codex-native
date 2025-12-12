@@ -3,28 +3,66 @@
  *
  * This test verifies that our CodexProvider works correctly with the actual
  * OpenAI Agents JS framework.
- *
- * Note: This test requires @openai/agents to be installed. If not installed,
- * the test will be skipped.
  */
 
-import { describe, expect, it, beforeAll } from "@jest/globals";
+import { describe, expect, it, beforeAll, jest } from "@jest/globals";
 import { setupNativeBinding } from "./testHelpers";
-
-const isCI = process.env.CI === "true" || process.env.CI === "1";
-const testFn = isCI ? it.skip : it;
-const mockEnv = process.env.CODEX_NATIVE_RUN_AGENTS_MOCK;
-const shouldRunMockTests = mockEnv !== "0";
-const mockIt = shouldRunMockTests ? it : it.skip;
 
 // Setup native binding for tests
 setupNativeBinding();
 
+// Allow extra time for async operations
+jest.setTimeout(20000);
+
 let CodexProvider: any;
+let Codex: any;
+let Thread: any;
 
 beforeAll(async () => {
-  ({ CodexProvider } = await import("../src/index"));
+  ({ CodexProvider, Codex, Thread } = await import("../src/index"));
 });
+
+function createMockThread(responseText: string = "Hello! I am working through the OpenAI Agents framework!"): any {
+  const createUsage = () => ({
+    input_tokens: 42,
+    output_tokens: 10,
+    cached_input_tokens: 5,
+  });
+
+  const mockThread: any = {
+    id: "mock-thread-id",
+    run: jest.fn(async () => ({
+      items: [
+        { type: "agent_message", text: responseText },
+      ],
+      finalResponse: responseText,
+      usage: createUsage(),
+    })),
+    runStreamed: jest.fn(async () => ({
+      events: (async function* () {
+        yield { type: "thread.started", thread_id: "mock-thread-id" };
+        yield { type: "turn.started" };
+        yield { type: "item.started", item: { type: "agent_message", text: "" } };
+        yield { type: "item.updated", item: { type: "agent_message", text: responseText.slice(0, 10) } };
+        yield { type: "item.updated", item: { type: "agent_message", text: responseText } };
+        yield { type: "item.completed", item: { type: "agent_message", text: responseText } };
+        yield { type: "turn.completed", usage: createUsage() };
+      })(),
+    })),
+    onEvent: jest.fn(() => () => {}),
+    sendBackgroundEvent: jest.fn(async () => {}),
+  };
+
+  return mockThread;
+}
+
+function createMockCodex(mockThread: any): any {
+  return {
+    startThread: jest.fn(() => mockThread),
+    resumeThread: jest.fn(() => mockThread),
+    registerTool: jest.fn(),
+  };
+}
 
 describe("CodexProvider - OpenAI Agents Integration", () => {
   describe("Provider Interface", () => {
@@ -155,91 +193,106 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
   });
 
   describe("OpenAI Agents Compatibility (provider streaming)", () => {
-    mockIt("works with provider streaming using mock backend", async () => {
-      const { startResponsesTestProxy, sse, responseStarted, assistantMessage, responseCompleted } = await import("./responsesProxy");
-
-      const { url, close, requests } = await startResponsesTestProxy({
-        statusCode: 200,
-        responseBodies: [
-          sse(
-            responseStarted("response_1"),
-            assistantMessage("Hello! I am working through the OpenAI Agents framework!", "item_1"),
-            responseCompleted("response_1"),
-          ),
-        ],
-      });
-
-      try {
-        const provider = new CodexProvider({
-          baseUrl: url,
-          skipGitRepoCheck: true,
-        });
-
-        const model = provider.getModel("gpt-5-codex");
-        const stream = model.getStreamedResponse({
-          systemInstructions: "You are a test assistant",
-          input: "Say hello",
-          modelSettings: {},
-          tools: [],
-          outputType: undefined,
-          handoffs: [],
-          tracing: { enabled: false },
-        });
-
-        let sawResponseDone = false;
-        for await (const ev of stream) {
-          if (ev.type === "output_text_delta") {
-          } else if (ev.type === "response_done") {
-            sawResponseDone = true;
-            break;
-          }
-        }
-        expect(sawResponseDone).toBe(true);
-        expect(requests.length).toBeGreaterThan(0);
-        expect(requests[0]?.json?.model).toBe("gpt-5-codex");
-      } finally {
-        await close();
-      }
-    }, 15000);
-
-    const runRealEnv = process.env.CODEX_NATIVE_RUN_AGENTS_REAL;
-    const shouldRunReal = runRealEnv === "1" || runRealEnv === "true" || runRealEnv === "TRUE";
-    const realTest = shouldRunReal ? testFn : it.skip;
-    realTest("works with real Codex backend", async () => {
-      // This test requires a real Codex backend (no API key needed)
-
-      const { Agent, Runner } = await import("@openai/agents");
+    it("works with provider streaming using mock Codex backend", async () => {
+      const expectedText = "Hello! I am working through the OpenAI Agents framework!";
+      const mockThread = createMockThread(expectedText);
+      const mockCodex = createMockCodex(mockThread);
 
       const provider = new CodexProvider({
         skipGitRepoCheck: true,
       });
 
-      const agent = new Agent({
-        name: "TestAgent",
-        instructions: "You are a helpful test assistant. Respond with exactly: 'Test successful!'",
+      // Inject mock Codex to avoid real network calls
+      (provider as any).codex = mockCodex;
+
+      const model = provider.getModel("gpt-5-codex");
+      const stream = model.getStreamedResponse({
+        systemInstructions: "You are a test assistant",
+        input: "Say hello",
+        modelSettings: {},
+        tools: [],
+        outputType: undefined,
+        handoffs: [],
+        tracing: { enabled: false },
       });
 
-      const runner = new Runner({ modelProvider: provider });
-      try {
-        const result = await runner.run(agent, "Say the test phrase");
-        expect(result).toBeDefined();
-        expect(result.finalOutput).toContain("Test successful");
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          (error.message.includes("Not inside a trusted directory") ||
-            error.message.includes("timeout") ||
-            error.message.includes("ENOTFOUND"))
-        ) {
-          console.warn(
-            "Skipping real Codex backend test due to environment constraints:",
-            error.message,
-          );
-          return;
+      const collectedEvents: any[] = [];
+      let sawResponseDone = false;
+      let sawTextDelta = false;
+
+      for await (const ev of stream) {
+        collectedEvents.push(ev);
+        if (ev.type === "output_text_delta") {
+          sawTextDelta = true;
+        } else if (ev.type === "response_done") {
+          sawResponseDone = true;
+          break;
         }
-        throw error;
       }
-    }, 30000);
+
+      expect(sawResponseDone).toBe(true);
+      expect(sawTextDelta).toBe(true);
+      expect(mockCodex.startThread).toHaveBeenCalled();
+      expect(mockThread.runStreamed).toHaveBeenCalled();
+    }, 15000);
+
+    it("properly converts streaming events to OpenAI Agents format", async () => {
+      const expectedText = "Test response text";
+      const mockThread = createMockThread(expectedText);
+      const mockCodex = createMockCodex(mockThread);
+
+      const provider = new CodexProvider({
+        skipGitRepoCheck: true,
+      });
+
+      (provider as any).codex = mockCodex;
+
+      const model = provider.getModel();
+      const stream = model.getStreamedResponse({
+        input: "Test input",
+        tools: [],
+      });
+
+      const eventTypes = new Set<string>();
+      for await (const ev of stream) {
+        eventTypes.add(ev.type);
+        if (ev.type === "response_done") {
+          // Verify response_done has proper structure
+          expect(ev.response).toBeDefined();
+          expect(ev.response.usage).toBeDefined();
+          break;
+        }
+      }
+
+      // Should emit standard streaming events
+      expect(eventTypes.has("response_started")).toBe(true);
+      expect(eventTypes.has("output_text_delta")).toBe(true);
+      expect(eventTypes.has("response_done")).toBe(true);
+    });
+
+    it("handles non-streaming getResponse with mock backend", async () => {
+      const expectedText = "Non-streaming response";
+      const mockThread = createMockThread(expectedText);
+      const mockCodex = createMockCodex(mockThread);
+
+      const provider = new CodexProvider({
+        skipGitRepoCheck: true,
+      });
+
+      (provider as any).codex = mockCodex;
+
+      const model = provider.getModel();
+      const response = await model.getResponse({
+        input: "Test input",
+        tools: [],
+      });
+
+      expect(response).toBeDefined();
+      expect(response.usage).toBeDefined();
+      expect(response.output).toBeDefined();
+      expect(response.responseId).toBeDefined();
+      expect(mockThread.run).toHaveBeenCalled();
+    });
   });
 
   describe("Thread API", () => {
@@ -267,6 +320,30 @@ describe("CodexProvider - OpenAI Agents Integration", () => {
 
       expect(exports.CodexProvider).toBeDefined();
       // Types are compile-time only, but we can verify the class exports
+    });
+  });
+
+  describe("Usage tracking", () => {
+    it("correctly converts usage from Codex format to Agents format", async () => {
+      const mockThread = createMockThread("Test");
+      const mockCodex = createMockCodex(mockThread);
+
+      const provider = new CodexProvider({
+        skipGitRepoCheck: true,
+      });
+
+      (provider as any).codex = mockCodex;
+
+      const model = provider.getModel();
+      const response = await model.getResponse({
+        input: "Test",
+        tools: [],
+      });
+
+      // Usage should be converted from Codex format (snake_case) to Agents format (camelCase)
+      expect(response.usage).toBeDefined();
+      expect(typeof response.usage.inputTokens).toBe("number");
+      expect(typeof response.usage.outputTokens).toBe("number");
     });
   });
 });

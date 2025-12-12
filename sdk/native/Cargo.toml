@@ -104,5 +104,3 @@ strip = "symbols"
 [patch.crates-io]
 ratatui = { git = "https://github.com/nornagon/ratatui", branch = "nornagon-v0.29.0-patch" }
 crossterm = { git = "https://github.com/nornagon/crossterm", branch = "nornagon/color-query" }
-rmcp = { git = "https://github.com/bolinfest/rust-sdk", branch = "pr556" }
-rmcp-macros = { git = "https://github.com/bolinfest/rust-sdk", branch = "pr556" }

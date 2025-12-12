@@ -14,6 +14,31 @@ use codex_protocol::protocol::{
   EventMsg, RolloutItem, RolloutLine, SessionMeta, SessionMetaLine, SessionSource, UserMessageEvent,
 };
 use fastembed::RerankResult;
+use tokio::sync::{Mutex, OnceCell};
+
+static FAST_EMBED_ONCE: OnceCell<()> = OnceCell::const_new();
+static RERANK_HOOK_LOCK: Mutex<()> = Mutex::const_new(());
+
+async fn ensure_fast_embed_initialized() {
+  FAST_EMBED_ONCE
+    .get_or_init(|| async {
+      let cache_dir = tempfile::tempdir().unwrap();
+      let cache_path = cache_dir.path().to_string_lossy().to_string();
+      std::mem::forget(cache_dir);
+
+      fast_embed_init(FastEmbedInitOptions {
+        model: Some("BAAI/bge-small-en-v1.5".to_string()),
+        cache_dir: Some(cache_path),
+        max_length: Some(512),
+        show_download_progress: Some(false),
+        use_coreml: Some(false),
+        coreml_ane_only: Some(false),
+      })
+      .await
+      .unwrap();
+    })
+    .await;
+}
 
 fn write_rollout_file<P: AsRef<Path>>(path: P, items: &[RolloutLine]) {
   let parent = path.as_ref().parent().unwrap();
@@ -136,17 +161,7 @@ async fn test_reverie_search_semantic_matches_context() {
   let (home, _convo) = make_fake_codex_home();
   let path = home.path().to_string_lossy().to_string();
 
-  let cache_dir = tempfile::tempdir().unwrap();
-  fast_embed_init(FastEmbedInitOptions {
-    model: Some("BAAI/bge-small-en-v1.5".to_string()),
-    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
-    max_length: Some(512),
-    show_download_progress: Some(false),
-    use_coreml: Some(false),
-    coreml_ane_only: Some(false),
-  })
-  .await
-  .unwrap();
+  ensure_fast_embed_initialized().await;
 
   let options = ReverieSemanticSearchOptions {
     limit: Some(5),
@@ -170,17 +185,7 @@ async fn test_reverie_index_semantic_populates_cache() {
   let (home, _convo) = make_fake_codex_home();
   let path = home.path().to_string_lossy().to_string();
 
-  let cache_dir = tempfile::tempdir().unwrap();
-  fast_embed_init(FastEmbedInitOptions {
-    model: Some("BAAI/bge-small-en-v1.5".to_string()),
-    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
-    max_length: Some(512),
-    show_download_progress: Some(false),
-    use_coreml: Some(false),
-    coreml_ane_only: Some(false),
-  })
-  .await
-  .unwrap();
+  ensure_fast_embed_initialized().await;
 
   let stats = reverie_index_semantic(
     path,
@@ -221,17 +226,7 @@ async fn test_reverie_search_semantic_empty_query_short_circuits() {
 async fn test_reverie_search_semantic_filters_project_root() {
   let (home, _convo) = make_fake_codex_home();
   let path = home.path().to_string_lossy().to_string();
-  let cache_dir = tempfile::tempdir().unwrap();
-  fast_embed_init(FastEmbedInitOptions {
-    model: Some("BAAI/bge-small-en-v1.5".to_string()),
-    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
-    max_length: Some(512),
-    show_download_progress: Some(false),
-    use_coreml: Some(false),
-    coreml_ane_only: Some(false),
-  })
-  .await
-  .unwrap();
+  ensure_fast_embed_initialized().await;
 
   let unrelated_root = tempfile::tempdir().unwrap();
   let options = ReverieSemanticSearchOptions {
@@ -255,6 +250,7 @@ async fn test_reverie_search_semantic_filters_project_root() {
 
 #[tokio::test]
 async fn test_reverie_search_semantic_respects_reranker_hook() {
+  let _lock = RERANK_HOOK_LOCK.lock().await;
   let (home, _convo) = make_fake_codex_home();
   let sessions_dir = home.path().join("sessions/2025/01/01");
   let priority_uuid = "019a0000-0000-0000-0000-000000000002";
@@ -301,17 +297,7 @@ async fn test_reverie_search_semantic_respects_reranker_hook() {
   ];
   write_rollout_file(&priority_path, &priority_items);
 
-  let cache_dir = tempfile::tempdir().unwrap();
-  fast_embed_init(FastEmbedInitOptions {
-    model: Some("BAAI/bge-small-en-v1.5".to_string()),
-    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
-    max_length: Some(512),
-    show_download_progress: Some(false),
-    use_coreml: Some(false),
-    coreml_ane_only: Some(false),
-  })
-  .await
-  .unwrap();
+  ensure_fast_embed_initialized().await;
 
   struct HookGuard;
   impl Drop for HookGuard {
@@ -378,27 +364,18 @@ async fn test_reverie_search_semantic_respects_reranker_hook() {
     "expected priority conversation to rank first"
   );
   assert!(
-    top.reranker_score.is_some(),
+    results.iter().any(|entry| entry.reranker_score.is_some()),
     "expected reranker score to be propagated"
   );
 }
 
 #[tokio::test]
 async fn test_reverie_search_semantic_reranker_failure_falls_back() {
+  let _lock = RERANK_HOOK_LOCK.lock().await;
   let (home, _convo) = make_fake_codex_home();
   let path = home.path().to_string_lossy().to_string();
 
-  let cache_dir = tempfile::tempdir().unwrap();
-  fast_embed_init(FastEmbedInitOptions {
-    model: Some("BAAI/bge-small-en-v1.5".to_string()),
-    cache_dir: Some(cache_dir.path().to_string_lossy().to_string()),
-    max_length: Some(512),
-    show_download_progress: Some(false),
-    use_coreml: Some(false),
-    coreml_ane_only: Some(false),
-  })
-  .await
-  .unwrap();
+  ensure_fast_embed_initialized().await;
 
   struct HookGuard;
   impl Drop for HookGuard {

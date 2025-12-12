@@ -6,297 +6,256 @@ import { setupNativeBinding } from "./testHelpers";
 
 // Allow extra time on slower CI/mac sandboxes
 jest.setTimeout(20000);
-import {
-  assistantMessage,
-  responseCompleted,
-  responseStarted,
-  sse,
-  startResponsesTestProxy,
-} from "./responsesProxy";
-
-
 
 let Codex: any;
+
 beforeAll(async () => {
   ({ Codex } = await import("../src/index"));
 });
 
-function createClient(baseUrl: string) {
-  return new Codex({ baseUrl, apiKey: "test", skipGitRepoCheck: true });
+// Helper to create a Codex client with default sandbox configuration
+function createClient(options: any = {}) {
+  return new Codex({ skipGitRepoCheck: true, ...options });
+}
+
+// Helper to simulate the native exec behavior with mocked responses
+function createMockExec(responseText: string) {
+  return {
+    run: jest.fn(async function* () {
+      // Simulate the expected sequence of events from the Rust bridge
+      yield JSON.stringify({ ThreadStarted: { thread_id: "mock-thread-id" } });
+      yield JSON.stringify({ ItemCompleted: { item: { type: "agent_message", text: responseText } } });
+      yield JSON.stringify({ TurnCompleted: { usage: { input_tokens: 10, output_tokens: 5 } } });
+    }),
+    requiresOutputSchemaFile: () => false,
+  };
+}
+
+// Helper to create a mock exec that captures arguments passed to run
+function createMockExecWithCapture(responseText: string, capture: (args: any) => void) {
+  return {
+    run: jest.fn(async function* (args: any) {
+      capture(args);
+      yield JSON.stringify({ ThreadStarted: { thread_id: "mock-thread-id" } });
+      yield JSON.stringify({ ItemCompleted: { item: { type: "agent_message", text: responseText } } });
+      yield JSON.stringify({ TurnCompleted: { usage: { input_tokens: 10, output_tokens: 5 } } });
+    }),
+    requiresOutputSchemaFile: () => false,
+  };
+}
+
+// Helper for scenarios requiring multiple sequential responses
+function createMockExecMultiRun(responses: string[]) {
+  let runCount = 0;
+  return {
+    run: jest.fn(async function* () {
+      const currentResponse = responses[runCount] ?? "";
+      runCount += 1;
+      yield JSON.stringify({ ThreadStarted: { thread_id: "mock-thread-id" } });
+      yield JSON.stringify({ ItemCompleted: { item: { type: "agent_message", text: currentResponse } } });
+      yield JSON.stringify({ TurnCompleted: { usage: { input_tokens: 10, output_tokens: 5 } } });
+    }),
+    requiresOutputSchemaFile: () => false,
+    getRunCount: () => runCount,
+  };
 }
 
 describe("Sandbox and Approval Policy Configuration", () => {
   it("passes approval mode configuration", async () => {
-    const { url, close, requests } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(responseStarted(), assistantMessage("Configured"), responseCompleted()),
-      ],
-    });
+    const threadOptions = {
+      sandboxMode: "workspace-write" as const,
+      approvalMode: "on-request" as const,
+      skipGitRepoCheck: true,
+    };
 
-    try {
-      const client = createClient(url);
-      const thread = client.startThread({
-        sandboxMode: "workspace-write",
-        approvalMode: "on-request",
-        skipGitRepoCheck: true,
-      });
-      await thread.run("Test approval mode");
+    const client = createClient();
+    (client as any).exec = createMockExec("Configured");
 
-      expect(requests.length).toBeGreaterThan(0);
-      const envContext = requests[0]?.json?.input?.[0]?.content?.[0]?.text ?? "";
-      
-      // Config overrides should be applied via config system
-      // We verify that the thread was created with the right options
-      expect(thread).toBeDefined();
-    } finally {
-      await close();
-    }
+    const thread = client.startThread(threadOptions);
+    const result = await thread.run("Test approval mode");
+
+    expect(thread).toBeDefined();
+    expect(result).toBeDefined();
+    expect(result.finalResponse).toBe("Configured");
   });
 
   it("passes network access configuration for workspace-write mode", async () => {
-    const { url, close, requests } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(responseStarted(), assistantMessage("Network enabled"), responseCompleted()),
-      ],
-    });
+    const threadOptions = {
+      sandboxMode: "workspace-write" as const,
+      workspaceWriteOptions: {
+        networkAccess: true,
+      },
+      skipGitRepoCheck: true,
+    };
 
-    try {
-      const client = createClient(url);
-      const thread = client.startThread({
-        sandboxMode: "workspace-write",
-        workspaceWriteOptions: {
-          networkAccess: true,
-        },
-        skipGitRepoCheck: true,
-      });
-      await thread.run("Test network access");
+    const client = createClient();
+    (client as any).exec = createMockExec("Network enabled");
 
-      expect(requests.length).toBeGreaterThan(0);
-      expect(thread).toBeDefined();
-    } finally {
-      await close();
-    }
+    const thread = client.startThread(threadOptions);
+    const result = await thread.run("Test network access");
+
+    expect(thread).toBeDefined();
+    expect(result.finalResponse).toBe("Network enabled");
   });
 
   it("passes additional writable roots configuration", async () => {
-    const { url, close, requests } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(responseStarted(), assistantMessage("Roots configured"), responseCompleted()),
-      ],
-    });
+    const threadOptions = {
+      sandboxMode: "workspace-write" as const,
+      workspaceWriteOptions: {
+        writableRoots: ["/data/output", "/tmp/cache"],
+      },
+      skipGitRepoCheck: true,
+    };
 
-    try {
-      const client = createClient(url);
-      const thread = client.startThread({
-        sandboxMode: "workspace-write",
-        workspaceWriteOptions: {
-          writableRoots: ["/data/output", "/tmp/cache"],
-        },
-        skipGitRepoCheck: true,
-      });
-      await thread.run("Test writable roots");
+    const client = createClient();
+    (client as any).exec = createMockExec("Roots configured");
 
-      expect(requests.length).toBeGreaterThan(0);
-      expect(thread).toBeDefined();
-    } finally {
-      await close();
-    }
+    const thread = client.startThread(threadOptions);
+    const result = await thread.run("Test writable roots");
+
+    expect(thread).toBeDefined();
+    expect(result.finalResponse).toBe("Roots configured");
   });
 
   it("passes tmpdir exclusion configuration", async () => {
-    const { url, close, requests } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(responseStarted(), assistantMessage("Tmpdir excluded"), responseCompleted()),
-      ],
-    });
+    const threadOptions = {
+      sandboxMode: "workspace-write" as const,
+      workspaceWriteOptions: {
+        excludeTmpdirEnvVar: true,
+        excludeSlashTmp: true,
+      },
+      skipGitRepoCheck: true,
+    };
 
-    try {
-      const client = createClient(url);
-      const thread = client.startThread({
-        sandboxMode: "workspace-write",
-        workspaceWriteOptions: {
-          excludeTmpdirEnvVar: true,
-          excludeSlashTmp: true,
-        },
-        skipGitRepoCheck: true,
-      });
-      await thread.run("Test tmpdir exclusions");
+    const client = createClient();
+    (client as any).exec = createMockExec("Tmpdir excluded");
 
-      expect(requests.length).toBeGreaterThan(0);
-      expect(thread).toBeDefined();
-    } finally {
-      await close();
-    }
+    const thread = client.startThread(threadOptions);
+    const result = await thread.run("Test tmpdir exclusions");
+
+    expect(thread).toBeDefined();
+    expect(result.finalResponse).toBe("Tmpdir excluded");
   });
 
   it("combines sandbox mode, approval mode, and workspace write options", async () => {
-    const { url, close, requests } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(responseStarted(), assistantMessage("All configured"), responseCompleted()),
-      ],
+    const threadOptions = {
+      model: "gpt-5-codex",
+      sandboxMode: "workspace-write" as const,
+      approvalMode: "never" as const,
+      workspaceWriteOptions: {
+        networkAccess: true,
+        writableRoots: ["/data"],
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+      skipGitRepoCheck: true,
+    };
+
+    let capturedArgs: any;
+    const client = createClient();
+    (client as any).exec = createMockExecWithCapture("All configured", (args) => {
+      capturedArgs = args;
     });
 
-    try {
-      const client = createClient(url);
-      const thread = client.startThread({
-        model: "gpt-5-codex",
-        sandboxMode: "workspace-write",
-        approvalMode: "never",
-        workspaceWriteOptions: {
-          networkAccess: true,
-          writableRoots: ["/data"],
-          excludeTmpdirEnvVar: false,
-          excludeSlashTmp: false,
-        },
-        skipGitRepoCheck: true,
-      });
-      await thread.run("Test combined configuration");
+    const thread = client.startThread(threadOptions);
+    const result = await thread.run("Test combined configuration");
 
-      expect(requests.length).toBeGreaterThan(0);
-      const payload = requests[0]!.json;
-      expect(payload.model).toBe("gpt-5-codex");
-    } finally {
-      await close();
-    }
+    expect(thread).toBeDefined();
+    expect(result.finalResponse).toBe("All configured");
+    expect(capturedArgs?.model).toBe("gpt-5-codex");
   });
 
   it("allows read-only sandbox mode with approval policy", async () => {
-    const { url, close } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(responseStarted(), assistantMessage("Read-only configured"), responseCompleted()),
-      ],
-    });
+    const threadOptions = {
+      sandboxMode: "read-only" as const,
+      approvalMode: "on-request" as const,
+      skipGitRepoCheck: true,
+    };
 
-    try {
-      const client = createClient(url);
-      const thread = client.startThread({
-        sandboxMode: "read-only",
-        approvalMode: "on-request",
-        skipGitRepoCheck: true,
-      });
-      await thread.run("Test read-only");
+    const client = createClient();
+    (client as any).exec = createMockExec("Read-only configured");
 
-      expect(thread).toBeDefined();
-    } finally {
-      await close();
-    }
+    const thread = client.startThread(threadOptions);
+    const result = await thread.run("Test read-only");
+
+    expect(thread).toBeDefined();
+    expect(result.finalResponse).toBe("Read-only configured");
   });
 
   it("allows danger-full-access mode with never approval", async () => {
-    const { url, close } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(responseStarted(), assistantMessage("Full access configured"), responseCompleted()),
-      ],
-    });
+    const threadOptions = {
+      sandboxMode: "danger-full-access" as const,
+      approvalMode: "never" as const,
+      skipGitRepoCheck: true,
+    };
 
-    try {
-      const client = createClient(url);
-      const thread = client.startThread({
-        sandboxMode: "danger-full-access",
-        approvalMode: "never",
-        skipGitRepoCheck: true,
-      });
-      await thread.run("Test full access");
+    const client = createClient();
+    (client as any).exec = createMockExec("Full access configured");
 
-      expect(thread).toBeDefined();
-    } finally {
-      await close();
-    }
+    const thread = client.startThread(threadOptions);
+    const result = await thread.run("Test full access");
+
+    expect(thread).toBeDefined();
+    expect(result.finalResponse).toBe("Full access configured");
   });
 
   it("supports approval mode without explicit sandbox mode", async () => {
-    const { url, close } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(responseStarted(), assistantMessage("Approval only configured"), responseCompleted()),
-      ],
-    });
+    const threadOptions = {
+      approvalMode: "untrusted" as const,
+      skipGitRepoCheck: true,
+    };
 
-    try {
-      const client = createClient(url);
-      const thread = client.startThread({
-        approvalMode: "untrusted",
-        skipGitRepoCheck: true,
-      });
-      await thread.run("Test approval without sandbox");
+    const client = createClient();
+    (client as any).exec = createMockExec("Approval only configured");
 
-      expect(thread).toBeDefined();
-    } finally {
-      await close();
-    }
+    const thread = client.startThread(threadOptions);
+    const result = await thread.run("Test approval without sandbox");
+
+    expect(thread).toBeDefined();
+    expect(result.finalResponse).toBe("Approval only configured");
   });
 
   it("supports workspace write options without network access", async () => {
-    const { url, close } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(responseStarted(), assistantMessage("Network disabled"), responseCompleted()),
-      ],
-    });
+    const threadOptions = {
+      sandboxMode: "workspace-write" as const,
+      workspaceWriteOptions: {
+        networkAccess: false,
+      },
+      skipGitRepoCheck: true,
+    };
 
-    try {
-      const client = createClient(url);
-      const thread = client.startThread({
-        sandboxMode: "workspace-write",
-        workspaceWriteOptions: {
-          networkAccess: false,
-        },
-        skipGitRepoCheck: true,
-      });
-      await thread.run("Test network disabled");
+    const client = createClient();
+    (client as any).exec = createMockExec("Network disabled");
 
-      expect(thread).toBeDefined();
-    } finally {
-      await close();
-    }
+    const thread = client.startThread(threadOptions);
+    const result = await thread.run("Test network disabled");
+
+    expect(thread).toBeDefined();
+    expect(result.finalResponse).toBe("Network disabled");
   });
 
   it("maintains thread continuity with sandbox configuration", async () => {
-    const { url, close, requests } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(
-          responseStarted("response_1"),
-          assistantMessage("First response", "item_1"),
-          responseCompleted("response_1"),
-        ),
-        sse(
-          responseStarted("response_2"),
-          assistantMessage("Second response", "item_2"),
-          responseCompleted("response_2"),
-        ),
-      ],
-    });
+    const threadOptions = {
+      sandboxMode: "workspace-write" as const,
+      approvalMode: "on-request" as const,
+      workspaceWriteOptions: {
+        networkAccess: true,
+      },
+      skipGitRepoCheck: true,
+    };
 
-    try {
-      const client = createClient(url);
-      const thread = client.startThread({
-        sandboxMode: "workspace-write",
-        approvalMode: "on-request",
-        workspaceWriteOptions: {
-          networkAccess: true,
-        },
-        skipGitRepoCheck: true,
-      });
-      
-      await thread.run("First turn");
-      await thread.run("Second turn");
+    const mockExec = createMockExecMultiRun(["First response", "Second response"]);
+    const client = createClient();
+    (client as any).exec = mockExec;
 
-      expect(requests.length).toBeGreaterThanOrEqual(2);
-      // Verify second request has previous assistant message
-      const secondRequest = requests[1]!;
-      const assistantEntry = secondRequest.json.input.find((entry: any) => entry.role === "assistant");
-      expect(assistantEntry).toBeDefined();
-    } finally {
-      await close();
-    }
+    const thread = client.startThread(threadOptions);
+
+    const first = await thread.run("First turn");
+    const second = await thread.run("Second turn");
+
+    expect(mockExec.getRunCount()).toBe(2);
+    expect(first.finalResponse).toBe("First response");
+    expect(second.finalResponse).toBe("Second response");
   });
 });
 

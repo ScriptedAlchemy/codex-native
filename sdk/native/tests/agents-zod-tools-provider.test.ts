@@ -9,37 +9,51 @@ import { setupNativeBinding } from "./testHelpers";
 
 // Setup native binding for tests
 setupNativeBinding();
-import {
-  startResponsesTestProxy,
-  sse,
-  responseStarted,
-  assistantMessage,
-  responseCompleted,
-} from "./responsesProxy";
 
-
+// Allow extra time for async operations
+jest.setTimeout(20000);
 
 let CodexProvider: any;
 beforeAll(async () => {
   ({ CodexProvider } = await import("../src/index"));
 });
 
+// Helper to create mock Codex thread for provider tests
+function createMockCodex(responseText: string = "Tool registered and run completed") {
+  const mockThread = {
+    id: "mock-thread-id",
+    run: jest.fn(async () => ({
+      items: [{ type: "agent_message", text: responseText }],
+      finalResponse: responseText,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    })),
+    runStreamed: jest.fn(async () => ({
+      events: (async function* () {
+        yield { type: "thread.started", thread_id: "mock-thread-id" };
+        yield { type: "turn.started" };
+        yield { type: "item.completed", item: { type: "agent_message", text: responseText } };
+        yield { type: "turn.completed", usage: { input_tokens: 10, output_tokens: 5 } };
+      })(),
+    })),
+    onEvent: jest.fn(() => () => {}),
+    sendBackgroundEvent: jest.fn(async () => {}),
+  };
+
+  return {
+    startThread: jest.fn(() => mockThread),
+    resumeThread: jest.fn(() => mockThread),
+    registerTool: jest.fn(),
+    _mockThread: mockThread,
+  };
+}
+
 describe("Agents zod tools with CodexProvider", () => {
   it("registers zod-based tools and runs Agent", async () => {
     const { Agent, Runner, tool } = await import("@openai/agents");
     const { z } = await import("zod");
 
-    // Mock backend
-    const { url, close } = await startResponsesTestProxy({
-      statusCode: 200,
-      responseBodies: [
-        sse(
-          responseStarted("response_1"),
-          assistantMessage("Tool registered and run completed", "item_1"),
-          responseCompleted("response_1"),
-        ),
-      ],
-    });
+    // Create mock Codex backend
+    const mockCodex = createMockCodex("Tool registered and run completed");
 
     // Intercept registration log to assert tool registration
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
@@ -55,9 +69,11 @@ describe("Agents zod tools with CodexProvider", () => {
       });
 
       const provider = new CodexProvider({
-        baseUrl: url,
         skipGitRepoCheck: true,
       });
+
+      // Inject mock Codex to avoid real network calls
+      (provider as any).codex = mockCodex;
 
       const agent = new Agent({
         name: "ToolAgent",
@@ -74,9 +90,6 @@ describe("Agents zod tools with CodexProvider", () => {
       expect(logs).toContain("Registered tool with Codex: say_hello");
     } finally {
       logSpy.mockRestore();
-      await close();
     }
-  }, 15000);
+  });
 });
-
-

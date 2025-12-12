@@ -226,8 +226,10 @@ export class OpenCodeAgent {
     this.clientPromise = loadOpencodeModule().then(async ({ createOpencode }) => {
       const hostname = this.options.hostname ?? DEFAULT_HOSTNAME;
       const port = await findAvailablePort(hostname, this.options.port ?? DEFAULT_PORT);
-      const { client, server } = await createOpencode({ hostname, port, config: this.options.config });
-      this.closeCallback = () => server.close();
+      const { client, close } = await createOpencode({ hostname, port, config: this.options.config });
+      if (close) {
+        this.closeCallback = close;
+      }
       return client;
     });
 
