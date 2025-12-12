@@ -1,7 +1,11 @@
-use assert_cmd::prelude::*;
 use std::fs;
-use std::process::Command;
 use tempfile::tempdir;
+
+fn apply_patch_cmd() -> assert_cmd::Command {
+    #[allow(deprecated)]
+    let exe = assert_cmd::cargo::cargo_bin("apply_patch");
+    assert_cmd::Command::new(exe)
+}
 
 #[test]
 fn test_apply_patch_cli_add_and_update() -> anyhow::Result<()> {
@@ -16,8 +20,7 @@ fn test_apply_patch_cli_add_and_update() -> anyhow::Result<()> {
 +hello
 *** End Patch"#
     );
-    Command::cargo_bin("apply_patch")
-        .expect("should find apply_patch binary")
+    apply_patch_cmd()
         .arg(add_patch)
         .current_dir(tmp.path())
         .assert()
@@ -34,8 +37,7 @@ fn test_apply_patch_cli_add_and_update() -> anyhow::Result<()> {
 +world
 *** End Patch"#
     );
-    Command::cargo_bin("apply_patch")
-        .expect("should find apply_patch binary")
+    apply_patch_cmd()
         .arg(update_patch)
         .current_dir(tmp.path())
         .assert()
@@ -59,10 +61,9 @@ fn test_apply_patch_cli_stdin_add_and_update() -> anyhow::Result<()> {
 +hello
 *** End Patch"#
     );
-    let mut cmd =
-        assert_cmd::Command::cargo_bin("apply_patch").expect("should find apply_patch binary");
-    cmd.current_dir(tmp.path());
-    cmd.write_stdin(add_patch)
+    let mut cmd = apply_patch_cmd();
+    cmd.current_dir(tmp.path())
+        .write_stdin(add_patch)
         .assert()
         .success()
         .stdout(format!("Success. Updated the following files:\nA {file}\n"));
@@ -77,10 +78,9 @@ fn test_apply_patch_cli_stdin_add_and_update() -> anyhow::Result<()> {
 +world
 *** End Patch"#
     );
-    let mut cmd =
-        assert_cmd::Command::cargo_bin("apply_patch").expect("should find apply_patch binary");
-    cmd.current_dir(tmp.path());
-    cmd.write_stdin(update_patch)
+    let mut cmd = apply_patch_cmd();
+    cmd.current_dir(tmp.path())
+        .write_stdin(update_patch)
         .assert()
         .success()
         .stdout(format!("Success. Updated the following files:\nM {file}\n"));

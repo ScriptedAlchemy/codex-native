@@ -5,13 +5,17 @@ use std::path::Path;
 use tempfile::tempdir;
 
 fn run_apply_patch_in_dir(dir: &Path, patch: &str) -> anyhow::Result<assert_cmd::assert::Assert> {
-    let mut cmd = Command::cargo_bin("apply_patch")?;
+    #[allow(deprecated)]
+    let exe = assert_cmd::cargo::cargo_bin("apply_patch");
+    let mut cmd = Command::new(exe);
     cmd.current_dir(dir);
     Ok(cmd.arg(patch).assert())
 }
 
 fn apply_patch_command(dir: &Path) -> anyhow::Result<Command> {
-    let mut cmd = Command::cargo_bin("apply_patch")?;
+    #[allow(deprecated)]
+    let exe = assert_cmd::cargo::cargo_bin("apply_patch");
+    let mut cmd = Command::new(exe);
     cmd.current_dir(dir);
     Ok(cmd)
 }

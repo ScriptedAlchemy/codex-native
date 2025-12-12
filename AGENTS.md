@@ -94,6 +94,7 @@ The `sdk/native` package provides Node.js bindings to the Rust engine via N‑AP
 ### Test assertions
 
 - Tests should use pretty_assertions::assert_eq for clearer diffs. Import this at the top of the test module if it isn't already.
+- Prefer deep equals comparisons whenever possible. Perform `assert_eq!()` on entire objects, rather than individual fields.
 
 ### Integration tests (core)
 

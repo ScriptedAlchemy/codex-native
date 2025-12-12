@@ -1,5 +1,4 @@
 use assert_cmd::Command as AssertCommand;
-use assert_cmd::cargo::cargo_bin;
 use codex_core::RolloutRecorder;
 use codex_core::protocol::GitInfo;
 use core_test_support::fs_wait;
@@ -15,14 +14,13 @@ use wiremock::matchers::method;
 use wiremock::matchers::path;
 
 fn codex_bin_or_skip(test_name: &str) -> Option<PathBuf> {
-    match std::env::var("CARGO_BIN_EXE_codex") {
-        Ok(path) => Some(PathBuf::from(path)),
-        Err(_) => {
-            eprintln!(
-                "Skipping {test_name}: CARGO_BIN_EXE_codex not set (build codex binary first)."
-            );
-            None
-        }
+    #[allow(deprecated)]
+    let bin = assert_cmd::cargo::cargo_bin("codex");
+    if bin.is_file() {
+        Some(bin)
+    } else {
+        eprintln!("Skipping {test_name}: codex binary not available.");
+        None
     }
 }
 
@@ -243,7 +241,9 @@ async fn integration_creates_and_checks_session_file() -> anyhow::Result<()> {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cli_responses_fixture.sse");
 
     // 4. Run the codex CLI and invoke `exec`, which is what records a session.
-    let bin = cargo_bin("codex");
+    let Some(bin) = codex_bin_or_skip("integration_creates_and_checks_session_file") else {
+        return Ok(());
+    };
     let mut cmd = AssertCommand::new(bin);
     cmd.arg("exec")
         .arg("--skip-git-repo-check")
@@ -364,7 +364,9 @@ async fn integration_creates_and_checks_session_file() -> anyhow::Result<()> {
     // Second run: resume should update the existing file.
     let marker2 = format!("integration-resume-{}", Uuid::new_v4());
     let prompt2 = format!("echo {marker2}");
-    let bin2 = cargo_bin("codex");
+    let Some(bin2) = codex_bin_or_skip("integration_creates_and_checks_session_file") else {
+        return Ok(());
+    };
     let mut cmd2 = AssertCommand::new(bin2);
     cmd2.arg("exec")
         .arg("--skip-git-repo-check")

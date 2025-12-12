@@ -384,7 +384,7 @@ fn run_tui_sync(
   let runtime = tokio::runtime::Runtime::new()
     .map_err(|e| napi::Error::from_reason(format!("Failed to create runtime: {e}")))?;
   let result = runtime.block_on(async move {
-    codex_tui::run_main(cli, linux_sandbox_path.clone(), shutdown_token)
+    codex_tui::run_main_with_shutdown_token(cli, linux_sandbox_path.clone(), shutdown_token)
       .await
       .map_err(|err| napi::Error::from_reason(err.to_string()))
   });

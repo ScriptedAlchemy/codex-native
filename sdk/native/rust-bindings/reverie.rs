@@ -2,6 +2,7 @@
 // ============================================================================
 //
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use chrono::{DateTime, Utc};
@@ -600,8 +601,10 @@ fn conversation_item_to_reverie(item: ConversationItem) -> ReverieConversation {
     .unwrap_or("unknown")
     .to_string();
 
+  const TAIL_RECORD_LIMIT: usize = 10;
   let (head_records, head_records_toon) = serialize_records(&item.head);
-  let (tail_records, tail_records_toon) = serialize_records(&item.tail);
+  let tail_values = read_tail_records(&item.path, TAIL_RECORD_LIMIT);
+  let (tail_records, tail_records_toon) = serialize_records(&tail_values);
 
   ReverieConversation {
     id,
@@ -613,6 +616,35 @@ fn conversation_item_to_reverie(item: ConversationItem) -> ReverieConversation {
     head_records_toon,
     tail_records_toon,
   }
+}
+
+fn read_tail_records(path: &Path, limit: usize) -> Vec<serde_json::Value> {
+  let file = match File::open(path) {
+    Ok(file) => file,
+    Err(_) => return Vec::new(),
+  };
+
+  let reader = BufReader::new(file);
+  let mut deque: VecDeque<serde_json::Value> = VecDeque::with_capacity(limit);
+
+  for line in reader.lines().map_while(Result::ok) {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+      continue;
+    }
+
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+      continue;
+    };
+
+    let record_val = val.get("item").cloned().unwrap_or(val);
+    deque.push_back(record_val);
+    if deque.len() > limit {
+      deque.pop_front();
+    }
+  }
+
+  deque.into_iter().collect()
 }
 
 fn serialize_records(values: &[serde_json::Value]) -> (Vec<String>, Vec<String>) {

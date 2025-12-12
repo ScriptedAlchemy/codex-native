@@ -12,7 +12,9 @@ use serde_json::json;
 use tempfile::TempDir;
 
 fn codex_command(codex_home: &Path) -> Result<assert_cmd::Command> {
-    let mut cmd = assert_cmd::Command::cargo_bin("codex")?;
+    #[allow(deprecated)]
+    let exe = assert_cmd::cargo::cargo_bin("codex");
+    let mut cmd = assert_cmd::Command::new(exe);
     cmd.env("CODEX_HOME", codex_home);
     Ok(cmd)
 }

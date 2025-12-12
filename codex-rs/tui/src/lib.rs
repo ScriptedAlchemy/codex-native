@@ -61,6 +61,7 @@ mod markdown;
 mod markdown_render;
 mod markdown_stream;
 mod model_migration;
+mod notifications;
 pub mod onboarding;
 mod oss_selection;
 mod pager_overlay;
@@ -70,6 +71,7 @@ mod resume_picker;
 mod selection_list;
 mod session_log;
 mod shimmer;
+mod skill_error_prompt;
 mod slash_command;
 mod status;
 mod status_indicator_widget;
@@ -77,6 +79,7 @@ mod streaming;
 mod style;
 mod terminal_palette;
 mod text_formatting;
+mod tooltips;
 mod tui;
 mod ui_consts;
 pub mod update_action;
@@ -102,6 +105,13 @@ use std::io::Write as _;
 // (tests access modules directly within the crate)
 
 pub async fn run_main(
+    cli: Cli,
+    codex_linux_sandbox_exe: Option<PathBuf>,
+) -> std::io::Result<AppExitInfo> {
+    run_main_with_shutdown_token(cli, codex_linux_sandbox_exe, None).await
+}
+
+pub async fn run_main_with_shutdown_token(
     mut cli: Cli,
     codex_linux_sandbox_exe: Option<PathBuf>,
     shutdown_token: Option<CancellationToken>,
@@ -220,7 +230,6 @@ pub async fn run_main(
         include_apply_patch_tool: None,
         show_raw_agent_reasoning: cli.oss.then_some(true),
         tools_web_search_request: None,
-        experimental_sandbox_command_assessment: None,
         additional_writable_roots: additional_dirs,
     };
 
@@ -272,6 +281,7 @@ pub async fn run_main(
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(non_blocking)
         .with_target(false)
+        .with_ansi(false)
         .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
         .with_filter(env_filter());
 
@@ -347,7 +357,7 @@ async fn run_ratatui_app(
     cli_kv_overrides: Vec<(String, toml::Value)>,
     active_profile: Option<String>,
     feedback: codex_feedback::CodexFeedback,
-    shutdown_token: Option<CancellationToken>,
+    _shutdown_token: Option<CancellationToken>,
 ) -> color_eyre::Result<AppExitInfo> {
     install_color_eyre_once()?;
 
@@ -510,7 +520,7 @@ async fn run_ratatui_app(
         images,
         resume_selection,
         feedback,
-        shutdown_token,
+        should_show_trust_screen, // Proxy to: is it a first run in this directory?
     )
     .await;
 

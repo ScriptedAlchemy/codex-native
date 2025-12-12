@@ -9,8 +9,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
-use std::time::Instant;
 
 use crossterm::Command;
 use crossterm::SynchronizedUpdate;
@@ -32,17 +30,24 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::disable_raw_mode;
 use ratatui::crossterm::terminal::enable_raw_mode;
 use ratatui::layout::Offset;
+use ratatui::layout::Rect;
 use ratatui::text::Line;
 use tokio::select;
+use tokio::sync::broadcast;
 use tokio_stream::Stream;
 
+pub use self::frame_requester::FrameRequester;
 use crate::custom_terminal;
 use crate::custom_terminal::Terminal as CustomTerminal;
+use crate::notifications::DesktopNotificationBackend;
+use crate::notifications::NotificationBackendKind;
+use crate::notifications::detect_backend;
 #[cfg(unix)]
 use crate::tui::job_control::SUSPEND_KEY;
 #[cfg(unix)]
 use crate::tui::job_control::SuspendContext;
 
+mod frame_requester;
 #[cfg(unix)]
 mod job_control;
 
@@ -159,8 +164,8 @@ pub enum TuiEvent {
 }
 
 pub struct Tui {
-    frame_schedule_tx: tokio::sync::mpsc::UnboundedSender<Instant>,
-    draw_tx: tokio::sync::broadcast::Sender<()>,
+    frame_requester: FrameRequester,
+    draw_tx: broadcast::Sender<()>,
     pub(crate) terminal: Terminal,
     pending_history_lines: Vec<Line<'static>>,
     alt_saved_viewport: Option<ratatui::layout::Rect>,
@@ -171,38 +176,13 @@ pub struct Tui {
     // True when terminal/tab is focused; updated internally from crossterm events
     terminal_focused: Arc<AtomicBool>,
     enhanced_keys_supported: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct FrameRequester {
-    frame_schedule_tx: tokio::sync::mpsc::UnboundedSender<Instant>,
-}
-impl FrameRequester {
-    pub fn schedule_frame(&self) {
-        let _ = self.frame_schedule_tx.send(Instant::now());
-    }
-    pub fn schedule_frame_in(&self, dur: Duration) {
-        let _ = self.frame_schedule_tx.send(Instant::now() + dur);
-    }
-}
-
-#[cfg(test)]
-impl FrameRequester {
-    /// Create a no-op frame requester for tests.
-    pub(crate) fn test_dummy() -> Self {
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        FrameRequester {
-            frame_schedule_tx: tx,
-        }
-    }
+    notification_backend: Option<DesktopNotificationBackend>,
 }
 
 impl Tui {
     pub fn new(terminal: Terminal) -> Self {
-        let (frame_schedule_tx, frame_schedule_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (draw_tx, _) = tokio::sync::broadcast::channel(1);
-
-        spawn_frame_scheduler(frame_schedule_rx, draw_tx.clone());
+        let (draw_tx, _) = broadcast::channel(1);
+        let frame_requester = FrameRequester::new(draw_tx.clone());
 
         // Detect keyboard enhancement support before any EventStream is created so the
         // crossterm poller can acquire its lock without contention.
@@ -212,7 +192,7 @@ impl Tui {
         let _ = crate::terminal_palette::default_colors();
 
         Self {
-            frame_schedule_tx,
+            frame_requester,
             draw_tx,
             terminal,
             pending_history_lines: vec![],
@@ -222,13 +202,12 @@ impl Tui {
             alt_screen_active: Arc::new(AtomicBool::new(false)),
             terminal_focused: Arc::new(AtomicBool::new(true)),
             enhanced_keys_supported,
+            notification_backend: Some(detect_backend()),
         }
     }
 
     pub fn frame_requester(&self) -> FrameRequester {
-        FrameRequester {
-            frame_schedule_tx: self.frame_schedule_tx.clone(),
-        }
+        self.frame_requester.clone()
     }
 
     pub fn enhanced_keys_supported(&self) -> bool {
@@ -238,11 +217,47 @@ impl Tui {
     /// Emit a desktop notification now if the terminal is unfocused.
     /// Returns true if a notification was posted.
     pub fn notify(&mut self, message: impl AsRef<str>) -> bool {
-        if !self.terminal_focused.load(Ordering::Relaxed) {
-            let _ = execute!(stdout(), PostNotification(message.as_ref().to_string()));
-            true
-        } else {
-            false
+        if self.terminal_focused.load(Ordering::Relaxed) {
+            return false;
+        }
+
+        let Some(backend) = self.notification_backend.as_mut() else {
+            return false;
+        };
+
+        let message = message.as_ref().to_string();
+        match backend.notify(&message) {
+            Ok(()) => true,
+            Err(err) => match backend.kind() {
+                NotificationBackendKind::WindowsToast => {
+                    tracing::error!(
+                        error = %err,
+                        "Failed to send Windows toast notification; falling back to OSC 9"
+                    );
+                    self.notification_backend = Some(DesktopNotificationBackend::osc9());
+                    if let Some(backend) = self.notification_backend.as_mut() {
+                        if let Err(osc_err) = backend.notify(&message) {
+                            tracing::warn!(
+                                error = %osc_err,
+                                "Failed to emit OSC 9 notification after toast fallback; \
+                                 disabling future notifications"
+                            );
+                            self.notification_backend = None;
+                            return false;
+                        }
+                        return true;
+                    }
+                    false
+                }
+                NotificationBackendKind::Osc9 => {
+                    tracing::warn!(
+                        error = %err,
+                        "Failed to emit OSC 9 notification; disabling future notifications"
+                    );
+                    self.notification_backend = None;
+                    false
+                }
+            },
         }
     }
 
@@ -362,34 +377,14 @@ impl Tui {
 
         // Precompute any viewport updates that need a cursor-position query before entering
         // the synchronized update, to avoid racing with the event reader.
-        let mut pending_viewport_area: Option<ratatui::layout::Rect> = None;
-        {
-            let terminal = &mut self.terminal;
-            let screen_size = terminal.size()?;
-            let last_known_screen_size = terminal.last_known_screen_size;
-            if screen_size != last_known_screen_size
-                && let Ok(cursor_pos) = terminal.get_cursor_position()
-            {
-                let last_known_cursor_pos = terminal.last_known_cursor_pos;
-                // If we resized AND the cursor moved, we adjust the viewport area to keep the
-                // cursor in the same position. This is a heuristic that seems to work well
-                // at least in iTerm2.
-                if cursor_pos.y != last_known_cursor_pos.y {
-                    let cursor_delta = cursor_pos.y as i32 - last_known_cursor_pos.y as i32;
-                    let new_viewport_area = terminal.viewport_area.offset(Offset {
-                        x: 0,
-                        y: cursor_delta,
-                    });
-                    pending_viewport_area = Some(new_viewport_area);
-                }
-            }
-        }
+        let mut pending_viewport_area = self.pending_viewport_area()?;
 
         stdout().sync_update(|_| {
             #[cfg(unix)]
             if let Some(prepared) = prepared_resume.take() {
                 prepared.apply(&mut self.terminal)?;
             }
+
             let terminal = &mut self.terminal;
             if let Some(new_area) = pending_viewport_area.take() {
                 terminal.set_viewport_area(new_area);
@@ -440,71 +435,26 @@ impl Tui {
             })
         })?
     }
-}
 
-/// Spawn background scheduler to coalesce frame requests and emit draws at deadlines.
-fn spawn_frame_scheduler(
-    frame_schedule_rx: tokio::sync::mpsc::UnboundedReceiver<Instant>,
-    draw_tx: tokio::sync::broadcast::Sender<()>,
-) {
-    tokio::spawn(async move {
-        use tokio::select;
-        use tokio::time::Instant as TokioInstant;
-        use tokio::time::sleep_until;
-
-        let mut rx = frame_schedule_rx;
-        let mut next_deadline: Option<Instant> = None;
-
-        loop {
-            let target = next_deadline
-                .unwrap_or_else(|| Instant::now() + Duration::from_secs(60 * 60 * 24 * 365));
-            let sleep_fut = sleep_until(TokioInstant::from_std(target));
-            tokio::pin!(sleep_fut);
-
-            select! {
-                recv = rx.recv() => {
-                    match recv {
-                        Some(at) => {
-                            if next_deadline.is_none_or(|cur| at < cur) {
-                                next_deadline = Some(at);
-                            }
-                            // Do not send a draw immediately here. By continuing the loop,
-                            // we recompute the sleep target so the draw fires once via the
-                            // sleep branch, coalescing multiple requests into a single draw.
-                            continue;
-                        }
-                        None => break,
-                    }
-                }
-                _ = &mut sleep_fut => {
-                    if next_deadline.is_some() {
-                        next_deadline = None;
-                        let _ = draw_tx.send(());
-                    }
-                }
+    fn pending_viewport_area(&mut self) -> Result<Option<Rect>> {
+        let terminal = &mut self.terminal;
+        let screen_size = terminal.size()?;
+        let last_known_screen_size = terminal.last_known_screen_size;
+        if screen_size != last_known_screen_size
+            && let Ok(cursor_pos) = terminal.get_cursor_position()
+        {
+            let last_known_cursor_pos = terminal.last_known_cursor_pos;
+            // If we resized AND the cursor moved, we adjust the viewport area to keep the
+            // cursor in the same position. This is a heuristic that seems to work well
+            // at least in iTerm2.
+            if cursor_pos.y != last_known_cursor_pos.y {
+                let offset = Offset {
+                    x: 0,
+                    y: cursor_pos.y as i32 - last_known_cursor_pos.y as i32,
+                };
+                return Ok(Some(terminal.viewport_area.offset(offset)));
             }
         }
-    });
-}
-
-/// Command that emits an OSC 9 desktop notification with a message.
-#[derive(Debug, Clone)]
-pub struct PostNotification(pub String);
-
-impl Command for PostNotification {
-    fn write_ansi(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        write!(f, "\x1b]9;{}\x07", self.0)
-    }
-
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> Result<()> {
-        Err(std::io::Error::other(
-            "tried to execute PostNotification using WinAPI; use ANSI instead",
-        ))
-    }
-
-    #[cfg(windows)]
-    fn is_ansi_code_supported(&self) -> bool {
-        true
+        Ok(None)
     }
 }

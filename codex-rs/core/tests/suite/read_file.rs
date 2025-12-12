@@ -11,7 +11,7 @@ use serde_json::json;
 async fn run_read_file(model: String) -> anyhow::Result<()> {
     let server = start_mock_server().await;
     let mut builder = test_codex().with_config(|config| {
-        config.model = model;
+        config.model = Some(model);
     });
     let test = builder.build(&server).await?;
 

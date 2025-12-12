@@ -34,6 +34,8 @@ members = [
     "stdio-to-uds",
     "otel",
     "tui",
+    "tui2",
+    "utils/absolute-path",
     "utils/git",
     "utils/cache",
     "utils/image",
@@ -59,15 +61,15 @@ license = "Apache-2.0"
 # Internal
 app_test_support = { path = "app-server/tests/common" }
 codex-ansi-escape = { path = "ansi-escape" }
+codex-api = { path = "codex-api" }
 codex-app-server = { path = "app-server" }
 codex-app-server-protocol = { path = "app-server-protocol" }
 codex-apply-patch = { path = "apply-patch" }
 codex-arg0 = { path = "arg0" }
 codex-async-utils = { path = "async-utils" }
 codex-backend-client = { path = "backend-client" }
-codex-api = { path = "codex-api" }
-codex-client = { path = "codex-client" }
 codex-chatgpt = { path = "chatgpt" }
+codex-client = { path = "codex-client" }
 codex-common = { path = "common" }
 codex-core = { path = "core" }
 codex-exec = { path = "exec" }
@@ -88,6 +90,8 @@ codex-responses-api-proxy = { path = "responses-api-proxy" }
 codex-rmcp-client = { path = "rmcp-client" }
 codex-stdio-to-uds = { path = "stdio-to-uds" }
 codex-tui = { path = "tui" }
+codex-tui2 = { path = "tui2" }
+codex-utils-absolute-path = { path = "utils/absolute-path" }
 codex-utils-cache = { path = "utils/cache" }
 codex-utils-image = { path = "utils/image" }
 codex-utils-json-to-toml = { path = "utils/json-to-toml" }
@@ -96,6 +100,7 @@ codex-utils-readiness = { path = "utils/readiness" }
 codex-utils-string = { path = "utils/string" }
 codex-windows-sandbox = { path = "windows-sandbox-rs" }
 core_test_support = { path = "core/tests/common" }
+exec_server_test_support = { path = "exec-server/tests/common" }
 mcp-types = { path = "mcp-types" }
 mcp_test_support = { path = "mcp-server/tests/common" }
 
@@ -104,7 +109,6 @@ allocative = "0.3.3"
 ansi-to-tui = "7.0.0"
 anyhow = "1"
 arboard = { version = "3", features = ["wayland-data-control"] }
-askama = "0.14"
 assert_cmd = "2"
 assert_matches = "1.5.0"
 async-channel = "2.3.1"
@@ -136,9 +140,9 @@ icu_decimal = "2.1"
 icu_locale_core = "2.1"
 icu_provider = { version = "2.1", features = ["sync"] }
 ignore = "0.4.23"
-image = { version = "^0.25.8", default-features = false }
+image = { version = "^0.25.9", default-features = false }
 indexmap = "2.12.0"
-insta = "1.43.2"
+insta = "1.44.3"
 itertools = "0.14.0"
 keyring = { version = "3.6", default-features = false }
 landlock = "0.4.1"
@@ -169,8 +173,8 @@ pulldown-cmark = "0.10"
 rand = "0.9"
 ratatui = "0.29.0"
 ratatui-macros = "0.6.0"
-regex-lite = "0.1.7"
 regex = "1.12.2"
+regex-lite = "0.1.7"
 reqwest = "0.12"
 rmcp = { version = "0.10.0", default-features = false }
 schemars = "0.8.22"
@@ -178,7 +182,8 @@ seccompiler = "0.5.0"
 sentry = "0.34.0"
 serde = "1"
 serde_json = "1"
-serde_with = "3.14"
+serde_with = "3.16"
+serde_yaml = "0.9"
 serial_test = "3.2.0"
 sha1 = "0.10.6"
 sha2 = "0.10"
@@ -203,7 +208,7 @@ tokio-util = "0.7.16"
 toml = "0.9.5"
 toml_edit = "0.23.5"
 tonic = "0.13.1"
-tracing = "0.1.41"
+tracing = "0.1.43"
 tracing-appender = "0.2.3"
 tracing-subscriber = "0.3.20"
 tracing-test = "0.2.5"
@@ -221,7 +226,7 @@ vt100 = "0.16.2"
 walkdir = "2.5.0"
 webbrowser = "1.0"
 which = "6"
-wildmatch = "2.5.0"
+wildmatch = "2.6.1"
 
 wiremock = "0.6"
 zeroize = "1.8.2"

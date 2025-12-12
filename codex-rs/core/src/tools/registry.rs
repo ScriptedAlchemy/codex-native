@@ -154,7 +154,7 @@ pub trait ToolHandler: Send + Sync {
         )
     }
 
-    fn is_mutating(&self, _invocation: &ToolInvocation) -> bool {
+    async fn is_mutating(&self, _invocation: &ToolInvocation) -> bool {
         false
     }
 
@@ -480,7 +480,7 @@ impl ToolRegistryBuilder {
 }
 
 async fn wait_for_tool_gate_if_needed(handler: &Arc<dyn ToolHandler>, invocation: &ToolInvocation) {
-    if handler.is_mutating(invocation) {
+    if handler.is_mutating(invocation).await {
         trace!("waiting for tool gate");
         invocation.turn.tool_call_gate.wait_ready().await;
         trace!("tool gate released");
