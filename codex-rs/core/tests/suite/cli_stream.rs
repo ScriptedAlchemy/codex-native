@@ -14,14 +14,13 @@ use wiremock::matchers::method;
 use wiremock::matchers::path;
 
 fn codex_bin_or_skip(test_name: &str) -> Option<PathBuf> {
-    match std::env::var("CARGO_BIN_EXE_codex") {
-        Ok(path) => Some(PathBuf::from(path)),
-        Err(_) => {
-            eprintln!(
-                "Skipping {test_name}: CARGO_BIN_EXE_codex not set (build codex binary first)."
-            );
-            None
-        }
+    #[allow(deprecated)]
+    let bin = assert_cmd::cargo::cargo_bin("codex");
+    if bin.is_file() {
+        Some(bin)
+    } else {
+        eprintln!("Skipping {test_name}: codex binary not available.");
+        None
     }
 }
 

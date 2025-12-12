@@ -150,8 +150,10 @@ impl TestCodexBuilder {
         for hook in self.pre_build_hooks.drain(..) {
             hook(home.path());
         }
-        if let Some(path) = std::env::var_os("CARGO_BIN_EXE_codex") {
-            config.codex_linux_sandbox_exe = Some(PathBuf::from(path));
+        #[allow(deprecated)]
+        let bin = assert_cmd::cargo::cargo_bin("codex");
+        if bin.is_file() {
+            config.codex_linux_sandbox_exe = Some(bin);
         }
 
         let mut mutators = vec![];

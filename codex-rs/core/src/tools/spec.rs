@@ -1320,6 +1320,7 @@ mod tests {
                 "read_mcp_resource",
                 "update_plan",
                 "apply_patch",
+                "read_file",
                 "view_image",
             ],
         );
@@ -1337,6 +1338,7 @@ mod tests {
                 "read_mcp_resource",
                 "update_plan",
                 "apply_patch",
+                "read_file",
                 "view_image",
             ],
         );
@@ -1358,6 +1360,7 @@ mod tests {
                 "update_plan",
                 "apply_patch",
                 "web_search",
+                "read_file",
                 "view_image",
             ],
         );
@@ -1379,6 +1382,7 @@ mod tests {
                 "update_plan",
                 "apply_patch",
                 "web_search",
+                "read_file",
                 "view_image",
             ],
         );

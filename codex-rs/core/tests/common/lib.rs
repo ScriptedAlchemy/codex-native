@@ -36,8 +36,8 @@ pub fn load_default_config_for_test(codex_home: &TempDir) -> Config {
 
 #[cfg(target_os = "linux")]
 fn default_test_overrides() -> ConfigOverrides {
-    let codex_linux_sandbox_exe =
-        std::env::var_os("CARGO_BIN_EXE_codex-linux-sandbox").map(std::path::PathBuf::from);
+    #[allow(deprecated)]
+    let codex_linux_sandbox_exe = Some(assert_cmd::cargo::cargo_bin("codex-linux-sandbox"));
     ConfigOverrides {
         codex_linux_sandbox_exe,
         ..ConfigOverrides::default()
