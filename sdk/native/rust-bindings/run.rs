@@ -864,7 +864,6 @@ fn build_config_inputs(
     include_apply_patch_tool: None,
     show_raw_agent_reasoning: options.oss.then_some(true),
     tools_web_search_request: None,
-    experimental_sandbox_command_assessment: None,
     additional_writable_roots: Vec::new(),
   };
 
@@ -1535,6 +1534,7 @@ fn build_cloud_client(
 mod tests_run {
   use super::*;
   use codex_protocol::config_types::{ReasoningEffort, ReasoningSummary};
+  use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
   use tempfile::TempDir;
 
   fn base_internal_request() -> InternalRunRequest {
@@ -1573,7 +1573,7 @@ mod tests_run {
       .await
       .expect("config should load");
 
-    assert_eq!(config.model_reasoning_effort, Some(ReasoningEffort::High));
+    assert_eq!(config.model_reasoning_effort, Some(ReasoningEffortConfig::High));
     assert_eq!(config.model_reasoning_summary, ReasoningSummary::Detailed);
   }
 

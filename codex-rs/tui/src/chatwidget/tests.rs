@@ -195,7 +195,7 @@ fn entered_review_mode_defaults_to_current_changes_banner() {
 
 #[test]
 fn background_events_render_in_history() {
-    let (mut chat, mut rx, _ops) = make_chatwidget_manual();
+    let (mut chat, mut rx, _ops) = make_chatwidget_manual(None);
 
     chat.handle_codex_event(Event {
         id: "bg-event".into(),
@@ -211,7 +211,7 @@ fn background_events_render_in_history() {
 
 #[test]
 fn lsp_background_events_emit_notifications() {
-    let (mut chat, mut rx, _ops) = make_chatwidget_manual();
+    let (mut chat, mut rx, _ops) = make_chatwidget_manual(None);
     chat.config.tui_notifications = Notifications::Enabled(true);
 
     chat.handle_codex_event(Event {
