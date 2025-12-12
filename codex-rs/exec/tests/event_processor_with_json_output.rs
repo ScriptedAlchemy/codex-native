@@ -772,7 +772,17 @@ fn command_execution_output_delta_updates_item_progress() {
         }),
     );
     let out_delta = ep.collect_thread_events(&delta);
-    assert_eq!(out_delta, Vec::<ThreadEvent>::new());
+    assert_eq!(
+        out_delta,
+        vec![ThreadEvent::Raw(RawEvent {
+            raw: json!({
+                "type": "exec_command_output_delta",
+                "call_id": "delta-1",
+                "stream": "stdout",
+                "chunk": "cGFydGlhbCBvdXRwdXQK",
+            }),
+        })]
+    );
 
     let end = event(
         "d3",
