@@ -41,6 +41,7 @@ async fn spawn_command_under_sandbox(
     env: HashMap<String, String>,
 ) -> std::io::Result<Child> {
     use codex_core::landlock::spawn_command_under_linux_sandbox;
+    #[allow(deprecated)]
     let codex_linux_sandbox_exe = assert_cmd::cargo::cargo_bin("codex-exec");
     spawn_command_under_linux_sandbox(
         codex_linux_sandbox_exe,
