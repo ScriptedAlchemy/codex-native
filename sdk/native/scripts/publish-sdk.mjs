@@ -11,6 +11,7 @@ console.log('\n[publish-sdk] Publishing @codex-native/sdk...');
 
 const scriptDir = fileURLToPath(new URL('.', import.meta.url));
 const packageDir = resolve(scriptDir, '..');
+const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
 try {
   const publishedVersion = execSync(
@@ -50,9 +51,10 @@ function runPublish(otp) {
   if (otp) {
     args.push(`--otp=${otp}`);
   }
+  const stdio = isInteractive ? 'inherit' : ['inherit', 'pipe', 'pipe'];
   return spawnSync('npm', args, {
     cwd: packageDir,
-    stdio: ['inherit', 'pipe', 'pipe'],
+    stdio,
     env: {
       ...process.env,
       npm_config_yes: 'true',
@@ -71,6 +73,28 @@ writePublishOutput(result);
 
 if (result.status === 0) {
   process.exit(0);
+}
+
+if (isInteractive) {
+  try {
+    const publishedVersion = execSync(
+      `npm view ${pkg.name}@${pkg.version} version --registry https://registry.npmjs.org/`,
+      {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          npm_config_yes: 'true',
+        },
+        encoding: 'utf8',
+      },
+    ).trim();
+    if (publishedVersion === pkg.version) {
+      console.log(`[publish-sdk] ${pkg.name}@${pkg.version} already published. Skipping.`);
+      process.exit(0);
+    }
+  } catch {
+    // Ignore and continue error handling below.
+  }
 }
 
 let output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
