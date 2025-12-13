@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = fileURLToPath(new URL('.', import.meta.url));
 const packagesDir = resolve(scriptDir, '../npm');
+const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
 const entries = readdirSync(packagesDir, { withFileTypes: true })
   .filter(entry => entry.isDirectory())
@@ -80,7 +81,7 @@ for (const name of entries) {
   console.log(`\n[publish-platform-packages] Publishing ${name}...`);
   const result = spawnSync('npm', ['publish', '--access', 'public'], {
     cwd: pkgDir,
-    stdio: ['inherit', 'pipe', 'pipe'],
+    stdio: isInteractive ? 'inherit' : ['inherit', 'pipe', 'pipe'],
     env: {
       ...process.env,
       npm_config_yes: 'true',
@@ -88,10 +89,17 @@ for (const name of entries) {
     encoding: 'utf8',
   });
 
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
+  if (!isInteractive) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+  }
 
   if (result.status === 0) {
+    continue;
+  }
+
+  if (isAlreadyPublished(pkgJson.name, pkgJson.version)) {
+    console.log(`[publish-platform-packages] ${name} is already published. Skipping.`);
     continue;
   }
 
