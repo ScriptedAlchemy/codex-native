@@ -135,8 +135,8 @@ importers:
         version: 3.25.76
     optionalDependencies:
       '@codex-native/sdk-darwin-arm64':
-        specifier: 0.0.5
-        version: 0.0.5
+        specifier: 0.0.6
+        version: 0.0.6
       '@codex-native/sdk-darwin-x64':
         specifier: 0.0.5
         version: 0.0.5
@@ -853,8 +853,8 @@ packages:
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
 
-  '@codex-native/sdk-darwin-arm64@0.0.5':
-    resolution: {integrity: sha512-gO9RtyyjKXN1YEvCpIT9/4KDFePMngeaGYVQV447590FPwnUrj8dW6HiovKHLaAd8GubA1L9L+fW2cy+iirGiQ==}
+  '@codex-native/sdk-darwin-arm64@0.0.6':
+    resolution: {integrity: sha512-2sr/+U/MlptVUVzScD/+fSb/SI8efV0MJRXi7nY/YVDec67iYmViesU+m3GZNkg7qJEHgJjUGCO1zg74wgCB2g==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [darwin]
@@ -4767,7 +4767,7 @@ snapshots:
 
   '@bcoe/v8-coverage@0.2.3': {}
 
-  '@codex-native/sdk-darwin-arm64@0.0.5':
+  '@codex-native/sdk-darwin-arm64@0.0.6':
     optional: true
 
   '@codex-native/sdk-darwin-x64@0.0.5':
