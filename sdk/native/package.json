@@ -44,7 +44,7 @@
     "verify:build": "node -e \"const fs=require('fs');const hasNode=fs.readdirSync('.').some(f=>f.endsWith('.node'));const hasDist=fs.existsSync('dist/index.mjs')&&fs.existsSync('dist/index.d.ts');if(!hasNode||!hasDist){console.error('Build incomplete: missing .node or dist files');process.exit(1)}console.log('✓ Build verification passed')\"",
     "create-npm-dirs": "napi create-npm-dirs",
     "artifacts": "napi artifacts",
-    "prepublishOnly": "napi prepublish -t npm --skip-optional-publish",
+    "prepublishOnly": "napi prepublish -t npm --skip-optional-publish && node scripts/ensure-trailing-newline.mjs package.json",
     "pretest": "node -e \"const fs=require('fs');const hasNode=fs.readdirSync('.').some(f=>f.endsWith('.node'));if(!hasNode){process.exitCode=1;console.error('missing .node binary; run npm run build:ci');} else {console.log('✓ native binary present; skipping rebuild');}\"",
     "test": "node ./scripts/run-jest.mjs --runInBand",
     "test:watch": "node ./scripts/run-jest.mjs --watch",
