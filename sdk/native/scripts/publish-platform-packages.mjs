@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = fileURLToPath(new URL('.', import.meta.url));
@@ -30,6 +30,31 @@ function requiredBinaryFiles(pkgDir, pkgJson) {
   return [...requiredFiles].filter(file => !existsSync(join(pkgDir, file)));
 }
 
+function isAlreadyPublished(name, version) {
+  try {
+    const out = execSync(`npm view ${name}@${version} version --registry https://registry.npmjs.org/`, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        npm_config_yes: 'true',
+      },
+      encoding: 'utf8',
+    }).trim();
+    return out === version;
+  } catch {
+    return false;
+  }
+}
+
+function isAlreadyPublishedError(output) {
+  return (
+    output.includes('previously published version') ||
+    output.includes('previously published versions') ||
+    output.includes('You cannot publish over the previously published version') ||
+    output.includes('You cannot publish over the previously published versions')
+  );
+}
+
 for (const name of entries) {
   const pkgDir = join(packagesDir, name);
   const pkgJsonPath = join(pkgDir, 'package.json');
@@ -47,29 +72,35 @@ for (const name of entries) {
     continue;
   }
 
-  console.log(`\n[publish-platform-packages] Publishing ${name}...`);
-  try {
-    execSync('npm publish --access public', {
-      cwd: pkgDir,
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        npm_config_yes: 'true',
-      },
-    });
-  } catch (error) {
-    const output = String(error?.stderr ?? error?.stdout ?? error?.message ?? '');
-    if (
-      output.includes('previously published version') ||
-      output.includes('previously published versions') ||
-      output.includes('You cannot publish over the previously published version') ||
-      output.includes('You cannot publish over the previously published versions')
-    ) {
-      console.log(`[publish-platform-packages] ${name} is already published. Skipping.`);
-      continue;
-    }
-    throw error;
+  if (isAlreadyPublished(pkgJson.name, pkgJson.version)) {
+    console.log(`[publish-platform-packages] ${pkgJson.name}@${pkgJson.version} already published. Skipping.`);
+    continue;
   }
+
+  console.log(`\n[publish-platform-packages] Publishing ${name}...`);
+  const result = spawnSync('npm', ['publish', '--access', 'public'], {
+    cwd: pkgDir,
+    stdio: ['inherit', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      npm_config_yes: 'true',
+    },
+    encoding: 'utf8',
+  });
+
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+
+  if (result.status === 0) {
+    continue;
+  }
+
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  if (isAlreadyPublishedError(output)) {
+    console.log(`[publish-platform-packages] ${name} is already published. Skipping.`);
+    continue;
+  }
+  throw new Error(`npm publish failed for ${name} (exit ${result.status ?? 'unknown'})`);
 }
 
 console.log('\n[publish-platform-packages] Completed publishing platform packages.');
