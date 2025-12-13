@@ -79,9 +79,6 @@ path = "../../codex-rs/apply-patch"
 [dependencies.tiktoken-rs]
 version = "0.9"
 
-[dependencies.git2]
-version = "0.20"
-
 [build-dependencies]
 napi-build = "2"
 
