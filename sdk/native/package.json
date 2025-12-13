@@ -1,6 +1,6 @@
 {
   "name": "@codex-native/sdk",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Native NAPI-based Codex SDK - complete standalone implementation.",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
@@ -51,7 +51,7 @@
     "coverage": "node ./scripts/run-jest.mjs --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "cargo fmt --check && cargo clippy --release --features napi-bindings -- -D warnings && npm run typecheck",
-    "version": "napi version",
+    "version": "napi version && node scripts/sync-optional-deps.mjs",
     "release:patch": "npm version patch && npm run release",
     "release:minor": "npm version minor && npm run release",
     "release:major": "npm version major && npm run release",
@@ -73,14 +73,14 @@
     ]
   },
   "optionalDependencies": {
-    "@codex-native/sdk-darwin-arm64": "0.0.5",
-    "@codex-native/sdk-darwin-x64": "0.0.5",
-    "@codex-native/sdk-linux-arm64-gnu": "0.0.5",
-    "@codex-native/sdk-linux-x64-gnu": "0.0.5",
-    "@codex-native/sdk-linux-arm64-musl": "0.0.5",
-    "@codex-native/sdk-linux-x64-musl": "0.0.5",
-    "@codex-native/sdk-win32-arm64-msvc": "0.0.5",
-    "@codex-native/sdk-win32-x64-msvc": "0.0.5"
+    "@codex-native/sdk-darwin-arm64": "0.0.6",
+    "@codex-native/sdk-darwin-x64": "0.0.6",
+    "@codex-native/sdk-linux-arm64-gnu": "0.0.6",
+    "@codex-native/sdk-linux-x64-gnu": "0.0.6",
+    "@codex-native/sdk-linux-arm64-musl": "0.0.6",
+    "@codex-native/sdk-linux-x64-musl": "0.0.6",
+    "@codex-native/sdk-win32-arm64-msvc": "0.0.6",
+    "@codex-native/sdk-win32-x64-msvc": "0.0.6"
   },
   "engines": {
     "node": ">=18"
