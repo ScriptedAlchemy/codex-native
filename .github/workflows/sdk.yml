@@ -35,7 +35,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.91.1
 
       - name: Install sccache
-        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e # v2
+        uses: taiki-e/install-action@d850aa816998e5cf15f67a78c7b933f2a5033f8a # v2
         with:
           tool: sccache@0.7.5
 
@@ -166,7 +166,7 @@ jobs:
 
       # Install and configure sccache (align with rust-ci)
       - name: Install sccache
-        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e # v2
+        uses: taiki-e/install-action@d850aa816998e5cf15f67a78c7b933f2a5033f8a # v2
         with:
           tool: sccache@0.7.5
 
