@@ -74,7 +74,7 @@ importers:
         version: 0.3.4(ws@8.18.3)(zod@3.25.76)
       '@opencode-ai/sdk':
         specifier: ^1.0.134
-        version: 1.0.151
+        version: 1.0.164
       '@toon-format/toon':
         specifier: ^1.0.0
         version: 1.0.0
@@ -135,11 +135,11 @@ importers:
         version: 3.25.76
     optionalDependencies:
       '@codex-native/sdk-darwin-arm64':
-        specifier: 0.0.5
-        version: 0.0.5
+        specifier: 0.0.6
+        version: 0.0.6
       '@codex-native/sdk-darwin-x64':
-        specifier: 0.0.5
-        version: 0.0.5
+        specifier: 0.0.6
+        version: 0.0.6
       '@codex-native/sdk-linux-arm64-gnu':
         specifier: 0.0.5
         version: 0.0.5
@@ -853,14 +853,14 @@ packages:
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
 
-  '@codex-native/sdk-darwin-arm64@0.0.5':
-    resolution: {integrity: sha512-gO9RtyyjKXN1YEvCpIT9/4KDFePMngeaGYVQV447590FPwnUrj8dW6HiovKHLaAd8GubA1L9L+fW2cy+iirGiQ==}
+  '@codex-native/sdk-darwin-arm64@0.0.6':
+    resolution: {integrity: sha512-2sr/+U/MlptVUVzScD/+fSb/SI8efV0MJRXi7nY/YVDec67iYmViesU+m3GZNkg7qJEHgJjUGCO1zg74wgCB2g==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [darwin]
 
-  '@codex-native/sdk-darwin-x64@0.0.5':
-    resolution: {integrity: sha512-dvtlSAOz8UDcOocI/0bufOzJLy8erViWX/j8PTOklZZicFSQ42ddoZs4ub+RQ8FvYg0I8I/LirW6zgfAmn/utw==}
+  '@codex-native/sdk-darwin-x64@0.0.6':
+    resolution: {integrity: sha512-Y0U6q72YXNoeTIRDyaGy8nIwcl8fiWVCKO8Ow7Oi2hOvVR5sScYNgfoJm/vKxzbnPkAI82bnC07ilBWSw8V5vQ==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [darwin]
@@ -1796,8 +1796,8 @@ packages:
     peerDependencies:
       zod: ^3.25.40 || ^4.0
 
-  '@opencode-ai/sdk@1.0.151':
-    resolution: {integrity: sha512-r1QZuGCXmO2lCUAoPZa0Tq/ZphML/eufDskg8HeL8+Lxu7YEYNSVP9GEIG1YtLS11s7P9N+QydtI3cXKKHU3cA==}
+  '@opencode-ai/sdk@1.0.164':
+    resolution: {integrity: sha512-TG+bpgL3O4tU/vCOT0THaSL5wJoXc15ErS79NLrEzFj1Igq1a9Mhef3oYZae0zZOI/ZTl/VNswguUeqkBm41pg==}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -4767,10 +4767,10 @@ snapshots:
 
   '@bcoe/v8-coverage@0.2.3': {}
 
-  '@codex-native/sdk-darwin-arm64@0.0.5':
+  '@codex-native/sdk-darwin-arm64@0.0.6':
     optional: true
 
-  '@codex-native/sdk-darwin-x64@0.0.5':
+  '@codex-native/sdk-darwin-x64@0.0.6':
     optional: true
 
   '@codex-native/sdk-linux-arm64-gnu@0.0.5':
@@ -5713,7 +5713,7 @@ snapshots:
       - utf-8-validate
       - ws
 
-  '@opencode-ai/sdk@1.0.151': {}
+  '@opencode-ai/sdk@1.0.164': {}
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
