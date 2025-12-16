@@ -73,8 +73,8 @@ importers:
         specifier: ^0.3.3
         version: 0.3.4(ws@8.18.3)(zod@3.25.76)
       '@opencode-ai/sdk':
-        specifier: ^1.0.134
-        version: 1.0.151
+        specifier: ^1.0.164
+        version: 1.0.164
       '@toon-format/toon':
         specifier: ^1.0.0
         version: 1.0.0
@@ -1764,8 +1764,8 @@ packages:
     peerDependencies:
       zod: ^3.25.40 || ^4.0
 
-  '@opencode-ai/sdk@1.0.151':
-    resolution: {integrity: sha512-r1QZuGCXmO2lCUAoPZa0Tq/ZphML/eufDskg8HeL8+Lxu7YEYNSVP9GEIG1YtLS11s7P9N+QydtI3cXKKHU3cA==}
+  '@opencode-ai/sdk@1.0.164':
+    resolution: {integrity: sha512-TG+bpgL3O4tU/vCOT0THaSL5wJoXc15ErS79NLrEzFj1Igq1a9Mhef3oYZae0zZOI/ZTl/VNswguUeqkBm41pg==}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -5657,7 +5657,7 @@ snapshots:
       - utf-8-validate
       - ws
 
-  '@opencode-ai/sdk@1.0.151': {}
+  '@opencode-ai/sdk@1.0.164': {}
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
