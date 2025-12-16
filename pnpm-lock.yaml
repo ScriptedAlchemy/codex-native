@@ -135,11 +135,45 @@ importers:
         version: 3.25.76
     optionalDependencies:
       '@codex-native/sdk-darwin-arm64':
-        specifier: 0.0.6
-        version: 0.0.6
+        specifier: workspace:*
+        version: link:npm/darwin-arm64
       '@codex-native/sdk-darwin-x64':
-        specifier: 0.0.6
-        version: 0.0.6
+        specifier: workspace:*
+        version: link:npm/darwin-x64
+      '@codex-native/sdk-linux-arm64-gnu':
+        specifier: workspace:*
+        version: link:npm/linux-arm64-gnu
+      '@codex-native/sdk-linux-arm64-musl':
+        specifier: workspace:*
+        version: link:npm/linux-arm64-musl
+      '@codex-native/sdk-linux-x64-gnu':
+        specifier: workspace:*
+        version: link:npm/linux-x64-gnu
+      '@codex-native/sdk-linux-x64-musl':
+        specifier: workspace:*
+        version: link:npm/linux-x64-musl
+      '@codex-native/sdk-win32-arm64-msvc':
+        specifier: workspace:*
+        version: link:npm/win32-arm64-msvc
+      '@codex-native/sdk-win32-x64-msvc':
+        specifier: workspace:*
+        version: link:npm/win32-x64-msvc
+
+  sdk/native/npm/darwin-arm64: {}
+
+  sdk/native/npm/darwin-x64: {}
+
+  sdk/native/npm/linux-arm64-gnu: {}
+
+  sdk/native/npm/linux-arm64-musl: {}
+
+  sdk/native/npm/linux-x64-gnu: {}
+
+  sdk/native/npm/linux-x64-musl: {}
+
+  sdk/native/npm/win32-arm64-msvc: {}
+
+  sdk/native/npm/win32-x64-msvc: {}
 
   sdk/typescript:
     devDependencies:
@@ -834,18 +868,6 @@ packages:
 
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
-
-  '@codex-native/sdk-darwin-arm64@0.0.6':
-    resolution: {integrity: sha512-2sr/+U/MlptVUVzScD/+fSb/SI8efV0MJRXi7nY/YVDec67iYmViesU+m3GZNkg7qJEHgJjUGCO1zg74wgCB2g==}
-    engines: {node: '>=18'}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@codex-native/sdk-darwin-x64@0.0.6':
-    resolution: {integrity: sha512-Y0U6q72YXNoeTIRDyaGy8nIwcl8fiWVCKO8Ow7Oi2hOvVR5sScYNgfoJm/vKxzbnPkAI82bnC07ilBWSw8V5vQ==}
-    engines: {node: '>=18'}
-    cpu: [x64]
-    os: [darwin]
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -4712,12 +4734,6 @@ snapshots:
       '@babel/helper-validator-identifier': 7.28.5
 
   '@bcoe/v8-coverage@0.2.3': {}
-
-  '@codex-native/sdk-darwin-arm64@0.0.6':
-    optional: true
-
-  '@codex-native/sdk-darwin-x64@0.0.6':
-    optional: true
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
