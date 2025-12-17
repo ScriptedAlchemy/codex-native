@@ -12,6 +12,7 @@ import {
   sse,
   startResponsesTestProxy,
 } from "./responsesProxy";
+import { createCodexTestEnv } from "./testEnv";
 
 const codexExecPath = path.join(process.cwd(), "..", "..", "codex-rs", "target", "debug", "codex");
 
@@ -21,9 +22,15 @@ describe("Codex", () => {
       statusCode: 200,
       responseBodies: [sse(responseStarted(), assistantMessage("Hi!"), responseCompleted())],
     });
+    const { env, cleanup } = createCodexTestEnv();
 
     try {
-      const client = new Codex({ codexPathOverride: codexExecPath, baseUrl: url, apiKey: "test" });
+      const client = new Codex({
+        codexPathOverride: codexExecPath,
+        baseUrl: `${url}/v1`,
+        apiKey: "test",
+        env,
+      });
 
       const thread = client.startThread();
       const result = await thread.runStreamed("Hello, world!");
@@ -60,6 +67,7 @@ describe("Codex", () => {
       ]);
       expect(thread.id).toEqual(expect.any(String));
     } finally {
+      cleanup();
       await close();
     }
   });
@@ -80,9 +88,15 @@ describe("Codex", () => {
         ),
       ],
     });
+    const { env, cleanup } = createCodexTestEnv();
 
     try {
-      const client = new Codex({ codexPathOverride: codexExecPath, baseUrl: url, apiKey: "test" });
+      const client = new Codex({
+        codexPathOverride: codexExecPath,
+        baseUrl: `${url}/v1`,
+        apiKey: "test",
+        env,
+      });
 
       const thread = client.startThread();
       const first = await thread.runStreamed("first input");
@@ -106,6 +120,7 @@ describe("Codex", () => {
       )?.text;
       expect(assistantText).toBe("First response");
     } finally {
+      cleanup();
       await close();
     }
   });
@@ -126,9 +141,15 @@ describe("Codex", () => {
         ),
       ],
     });
+    const { env, cleanup } = createCodexTestEnv();
 
     try {
-      const client = new Codex({ codexPathOverride: codexExecPath, baseUrl: url, apiKey: "test" });
+      const client = new Codex({
+        codexPathOverride: codexExecPath,
+        baseUrl: `${url}/v1`,
+        apiKey: "test",
+        env,
+      });
 
       const originalThread = client.startThread();
       const first = await originalThread.runStreamed("first input");
@@ -154,6 +175,7 @@ describe("Codex", () => {
       )?.text;
       expect(assistantText).toBe("First response");
     } finally {
+      cleanup();
       await close();
     }
   });
@@ -169,6 +191,7 @@ describe("Codex", () => {
         ),
       ],
     });
+    const { env, cleanup } = createCodexTestEnv();
 
     const schema = {
       type: "object",
@@ -180,7 +203,12 @@ describe("Codex", () => {
     } as const;
 
     try {
-      const client = new Codex({ codexPathOverride: codexExecPath, baseUrl: url, apiKey: "test" });
+      const client = new Codex({
+        codexPathOverride: codexExecPath,
+        baseUrl: `${url}/v1`,
+        apiKey: "test",
+        env,
+      });
 
       const thread = client.startThread();
       const streamed = await thread.runStreamed("structured", { outputSchema: schema });
@@ -198,6 +226,7 @@ describe("Codex", () => {
         schema,
       });
     } finally {
+      cleanup();
       await close();
     }
   });
