@@ -13,6 +13,7 @@ import {
   SseResponseBody,
   startResponsesTestProxy,
 } from "./responsesProxy";
+import { createCodexTestEnv } from "./testEnv";
 
 const codexExecPath = path.join(process.cwd(), "..", "..", "codex-rs", "target", "debug", "codex");
 
@@ -28,9 +29,15 @@ describe("AbortSignal support", () => {
       statusCode: 200,
       responseBodies: infiniteShellCall(),
     });
+    const { env, cleanup } = createCodexTestEnv();
 
     try {
-      const client = new Codex({ codexPathOverride: codexExecPath, baseUrl: url, apiKey: "test" });
+      const client = new Codex({
+        codexPathOverride: codexExecPath,
+        baseUrl: `${url}/v1`,
+        apiKey: "test",
+        env,
+      });
       const thread = client.startThread();
 
       // Create an abort controller and abort it immediately
@@ -40,6 +47,7 @@ describe("AbortSignal support", () => {
       // The operation should fail because the signal is already aborted
       await expect(thread.run("Hello, world!", { signal: controller.signal })).rejects.toThrow();
     } finally {
+      cleanup();
       await close();
     }
   });
@@ -49,9 +57,15 @@ describe("AbortSignal support", () => {
       statusCode: 200,
       responseBodies: infiniteShellCall(),
     });
+    const { env, cleanup } = createCodexTestEnv();
 
     try {
-      const client = new Codex({ codexPathOverride: codexExecPath, baseUrl: url, apiKey: "test" });
+      const client = new Codex({
+        codexPathOverride: codexExecPath,
+        baseUrl: `${url}/v1`,
+        apiKey: "test",
+        env,
+      });
       const thread = client.startThread();
 
       // Create an abort controller and abort it immediately
@@ -78,6 +92,7 @@ describe("AbortSignal support", () => {
         expect(error).toBeDefined();
       }
     } finally {
+      cleanup();
       await close();
     }
   });
@@ -87,9 +102,15 @@ describe("AbortSignal support", () => {
       statusCode: 200,
       responseBodies: infiniteShellCall(),
     });
+    const { env, cleanup } = createCodexTestEnv();
 
     try {
-      const client = new Codex({ codexPathOverride: codexExecPath, baseUrl: url, apiKey: "test" });
+      const client = new Codex({
+        codexPathOverride: codexExecPath,
+        baseUrl: `${url}/v1`,
+        apiKey: "test",
+        env,
+      });
       const thread = client.startThread();
 
       const controller = new AbortController();
@@ -103,6 +124,7 @@ describe("AbortSignal support", () => {
       // The operation should fail
       await expect(runPromise).rejects.toThrow();
     } finally {
+      cleanup();
       await close();
     }
   });
@@ -112,9 +134,15 @@ describe("AbortSignal support", () => {
       statusCode: 200,
       responseBodies: infiniteShellCall(),
     });
+    const { env, cleanup } = createCodexTestEnv();
 
     try {
-      const client = new Codex({ codexPathOverride: codexExecPath, baseUrl: url, apiKey: "test" });
+      const client = new Codex({
+        codexPathOverride: codexExecPath,
+        baseUrl: `${url}/v1`,
+        apiKey: "test",
+        env,
+      });
       const thread = client.startThread();
 
       const controller = new AbortController();
@@ -137,6 +165,7 @@ describe("AbortSignal support", () => {
         })(),
       ).rejects.toThrow();
     } finally {
+      cleanup();
       await close();
     }
   });
@@ -146,9 +175,15 @@ describe("AbortSignal support", () => {
       statusCode: 200,
       responseBodies: [sse(responseStarted(), assistantMessage("Hi!"), responseCompleted())],
     });
+    const { env, cleanup } = createCodexTestEnv();
 
     try {
-      const client = new Codex({ codexPathOverride: codexExecPath, baseUrl: url, apiKey: "test" });
+      const client = new Codex({
+        codexPathOverride: codexExecPath,
+        baseUrl: `${url}/v1`,
+        apiKey: "test",
+        env,
+      });
       const thread = client.startThread();
 
       const controller = new AbortController();
@@ -159,6 +194,7 @@ describe("AbortSignal support", () => {
       expect(result.finalResponse).toBe("Hi!");
       expect(result.items).toHaveLength(1);
     } finally {
+      cleanup();
       await close();
     }
   });

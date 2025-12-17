@@ -88,6 +88,11 @@
   (global-name "com.apple.system.opendirectoryd.libinfo")
 )
 
+; Used by confstr(_CS_DARWIN_USER_{CACHE,TEMP}_DIR).
+(allow mach-lookup
+  (global-name "com.apple.bsd.dirhelper")
+)
+
 ; Needed for python multiprocessing on MacOS for the SemLock
 (allow ipc-posix-sem)
 

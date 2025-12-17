@@ -25,7 +25,7 @@
     "@modelcontextprotocol/sdk": "^1.22.0",
     "@openai/agents": "^0.3.3",
     "@openai/agents-core": "^0.3.3",
-    "@opencode-ai/sdk": "^1.0.134",
+    "@opencode-ai/sdk": "^1.0.164",
     "@toon-format/toon": "^1.0.0",
     "pyright": "^1.1.386",
     "typescript-language-server": "^4.3.3",
@@ -39,6 +39,7 @@
     "build:ci": "npm run build:napi && npm run build:ts && npm run verify:build",
     "build:rust": "cargo fmt && cargo clippy --release --features napi-bindings -- -D warnings",
     "build:napi": "napi build --platform --release --features napi-bindings",
+    "build:napi:darwin": "napi build --platform --release --features napi-bindings --target aarch64-apple-darwin && napi build --platform --release --features napi-bindings --target x86_64-apple-darwin",
     "build:napi:debug": "napi build --platform --features napi-bindings",
     "build:ts": "tsup",
     "verify:build": "node -e \"const fs=require('fs');const hasNode=fs.readdirSync('.').some(f=>f.endsWith('.node'));const hasDist=fs.existsSync('dist/index.mjs')&&fs.existsSync('dist/index.d.ts');if(!hasNode||!hasDist){console.error('Build incomplete: missing .node or dist files');process.exit(1)}console.log('✓ Build verification passed')\"",
@@ -73,14 +74,14 @@
     ]
   },
   "optionalDependencies": {
-    "@codex-native/sdk-darwin-arm64": "0.0.6",
-    "@codex-native/sdk-darwin-x64": "0.0.6",
-    "@codex-native/sdk-linux-arm64-gnu": "0.0.6",
-    "@codex-native/sdk-linux-x64-gnu": "0.0.6",
-    "@codex-native/sdk-linux-arm64-musl": "0.0.6",
-    "@codex-native/sdk-linux-x64-musl": "0.0.6",
-    "@codex-native/sdk-win32-arm64-msvc": "0.0.6",
-    "@codex-native/sdk-win32-x64-msvc": "0.0.6"
+    "@codex-native/sdk-darwin-arm64": "workspace:*",
+    "@codex-native/sdk-darwin-x64": "workspace:*",
+    "@codex-native/sdk-linux-arm64-gnu": "workspace:*",
+    "@codex-native/sdk-linux-x64-gnu": "workspace:*",
+    "@codex-native/sdk-linux-arm64-musl": "workspace:*",
+    "@codex-native/sdk-linux-x64-musl": "workspace:*",
+    "@codex-native/sdk-win32-arm64-msvc": "workspace:*",
+    "@codex-native/sdk-win32-x64-msvc": "workspace:*"
   },
   "engines": {
     "node": ">=18"

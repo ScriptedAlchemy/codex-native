@@ -140,8 +140,14 @@ impl UnifiedExecSessionManager {
             }
         };
 
+        // Do not stream ExecCommandOutputDelta events during the initial poll.
+        //
+        // The initial exec_command call has a `yield_time_ms` poll window. If
+        // the command exits within that window (early-exit), we should emit
+        // only ExecCommandBegin/ExecCommandEnd, not output deltas. This keeps
+        // event semantics deterministic: we only start streaming deltas once we
+        // know the session will outlive the initial poll.
         let transcript = Arc::new(tokio::sync::Mutex::new(CommandTranscript::default()));
-        start_streaming_output(&session, context, Arc::clone(&transcript));
 
         let max_tokens = resolve_max_tokens(request.max_output_tokens);
         let yield_time_ms = clamp_yield_time(request.yield_time_ms);
@@ -164,6 +170,11 @@ impl UnifiedExecSessionManager {
         )
         .await;
         let wall_time = Instant::now().saturating_duration_since(start);
+
+        {
+            let mut guard = transcript.lock().await;
+            guard.append(&collected);
+        }
 
         let text = String::from_utf8_lossy(&collected).to_string();
         let output = formatted_truncate_text(&text, TruncationPolicy::Tokens(max_tokens));
@@ -193,6 +204,7 @@ impl UnifiedExecSessionManager {
 
             session.check_for_sandbox_denial_with_text(&text).await?;
         } else {
+            start_streaming_output(&session, context, Arc::clone(&transcript));
             // Long‑lived command: persist the session so write_stdin can reuse
             // it, and register a background watcher that will emit
             // ExecCommandEnd when the PTY eventually exits (even if no further

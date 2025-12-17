@@ -52,7 +52,7 @@ jobs:
 
       - name: Upload staged npm package artifact
         if: github.repository == 'openai/codex-native'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: codex-npm-staging
           path: ${{ steps.stage_npm_package.outputs.pack_output }}

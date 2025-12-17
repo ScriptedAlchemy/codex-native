@@ -76,7 +76,7 @@ async fn if_parent_of_repo_is_writable_then_dot_git_folder_is_writable() {
     let tmp = TempDir::new().expect("should be able to create temp dir");
     let test_scenario = create_test_scenario(&tmp);
     let policy = SandboxPolicy::WorkspaceWrite {
-        writable_roots: vec![test_scenario.repo_parent.clone()],
+        writable_roots: vec![test_scenario.repo_parent.as_path().try_into().unwrap()],
         network_access: false,
         exclude_tmpdir_env_var: true,
         exclude_slash_tmp: true,
@@ -102,7 +102,7 @@ async fn if_git_repo_is_writable_root_then_dot_git_folder_is_read_only() {
     let tmp = TempDir::new().expect("should be able to create temp dir");
     let test_scenario = create_test_scenario(&tmp);
     let policy = SandboxPolicy::WorkspaceWrite {
-        writable_roots: vec![test_scenario.repo_root.clone()],
+        writable_roots: vec![test_scenario.repo_root.as_path().try_into().unwrap()],
         network_access: false,
         exclude_tmpdir_env_var: true,
         exclude_slash_tmp: true,
@@ -143,7 +143,11 @@ async fn danger_full_access_allows_all_writes() {
 /// Under ReadOnly, writes should not be permitted anywhere on disk.
 #[tokio::test]
 async fn read_only_forbids_all_writes() {
-    let tmp = TempDir::new().expect("should be able to create temp dir");
+    // `ReadOnly` still permits writes to some temp locations (e.g. `/tmp`) so
+    // common system tools can start up reliably. Use a temp dir rooted in the
+    // repo so the sandboxed write attempts are expected to fail.
+    let cwd = std::env::current_dir().expect("getcwd");
+    let tmp = TempDir::new_in(&cwd).expect("should be able to create temp dir");
     let test_scenario = create_test_scenario(&tmp);
     let policy = SandboxPolicy::ReadOnly;
 

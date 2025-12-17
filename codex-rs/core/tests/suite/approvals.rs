@@ -121,12 +121,9 @@ impl ActionKind {
                     .await;
 
                 let url = format!("{}{}", server.uri(), endpoint);
-                let escaped_url = url.replace('\'', "\\'");
-                let script = format!(
-                    "import sys\nimport urllib.request\nurl = '{escaped_url}'\ntry:\n    data = urllib.request.urlopen(url, timeout=2).read().decode()\n    print('OK:' + data.strip())\nexcept Exception as exc:\n    print('ERR:' + exc.__class__.__name__)\n    sys.exit(1)",
+                let command = format!(
+                    "body=$(curl --fail --silent --show-error --max-time 2 {url:?} 2>&1); rc=$?; if [ $rc -eq 0 ]; then printf 'OK:%s\\n' \"$body\"; else printf 'ERR:%s\\n' \"$body\"; exit 1; fi"
                 );
-
-                let command = format!("python3 -c \"{script}\"");
                 let event = shell_event(call_id, &command, 3_000, sandbox_permissions)?;
                 Ok((event, Some(command)))
             }

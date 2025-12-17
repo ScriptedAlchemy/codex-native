@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::ffi::c_void;
 use std::os::windows::process::CommandExt;
 use std::path::Path;
@@ -54,13 +55,22 @@ pub fn run_setup_refresh(
     if matches!(policy, SandboxPolicy::DangerFullAccess) {
         return Ok(());
     }
+    let (read_roots, write_roots) = build_payload_roots(
+        policy,
+        policy_cwd,
+        command_cwd,
+        env_map,
+        codex_home,
+        None,
+        None,
+    );
     let payload = ElevationPayload {
         version: SETUP_VERSION,
         offline_username: OFFLINE_USERNAME.to_string(),
         online_username: ONLINE_USERNAME.to_string(),
         codex_home: codex_home.to_path_buf(),
-        read_roots: gather_read_roots(command_cwd, policy, policy_cwd),
-        write_roots: gather_write_roots(policy, policy_cwd, command_cwd, env_map),
+        read_roots,
+        write_roots,
         real_user: std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string()),
         refresh_only: true,
     };
@@ -183,11 +193,7 @@ fn canonical_existing(paths: &[PathBuf]) -> Vec<PathBuf> {
         .collect()
 }
 
-pub(crate) fn gather_read_roots(
-    command_cwd: &Path,
-    policy: &SandboxPolicy,
-    policy_cwd: &Path,
-) -> Vec<PathBuf> {
+pub(crate) fn gather_read_roots(command_cwd: &Path, policy: &SandboxPolicy) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
     for p in [
         PathBuf::from(r"C:\Windows"),
@@ -203,12 +209,7 @@ pub(crate) fn gather_read_roots(
     roots.push(command_cwd.to_path_buf());
     if let SandboxPolicy::WorkspaceWrite { writable_roots, .. } = policy {
         for root in writable_roots {
-            let candidate = if root.is_absolute() {
-                root.clone()
-            } else {
-                policy_cwd.join(root)
-            };
-            roots.push(candidate);
+            roots.push(root.to_path_buf());
         }
     }
     canonical_existing(&roots)
@@ -228,7 +229,14 @@ pub(crate) fn gather_write_roots(
     let AllowDenyPaths { allow, .. } =
         compute_allow_paths(policy, policy_cwd, command_cwd, env_map);
     roots.extend(allow);
-    canonical_existing(&roots)
+    let mut dedup: HashSet<PathBuf> = HashSet::new();
+    let mut out: Vec<PathBuf> = Vec::new();
+    for r in canonical_existing(&roots) {
+        if dedup.insert(r.clone()) {
+            out.push(r);
+        }
+    }
+    out
 }
 
 #[derive(Serialize)]
@@ -364,19 +372,15 @@ pub fn run_elevated_setup(
     // Ensure the shared sandbox directory exists before we send it to the elevated helper.
     let sbx_dir = sandbox_dir(codex_home);
     std::fs::create_dir_all(&sbx_dir)?;
-    let mut write_roots = if let Some(roots) = write_roots_override {
-        roots
-    } else {
-        gather_write_roots(policy, policy_cwd, command_cwd, env_map)
-    };
-    if !write_roots.contains(&sbx_dir) {
-        write_roots.push(sbx_dir.clone());
-    }
-    let read_roots = if let Some(roots) = read_roots_override {
-        roots
-    } else {
-        gather_read_roots(command_cwd, policy, policy_cwd)
-    };
+    let (read_roots, write_roots) = build_payload_roots(
+        policy,
+        policy_cwd,
+        command_cwd,
+        env_map,
+        codex_home,
+        read_roots_override,
+        write_roots_override,
+    );
     let payload = ElevationPayload {
         version: SETUP_VERSION,
         offline_username: OFFLINE_USERNAME.to_string(),
@@ -389,4 +393,32 @@ pub fn run_elevated_setup(
     };
     let needs_elevation = !is_elevated()?;
     run_setup_exe(&payload, needs_elevation)
+}
+
+fn build_payload_roots(
+    policy: &SandboxPolicy,
+    policy_cwd: &Path,
+    command_cwd: &Path,
+    env_map: &HashMap<String, String>,
+    codex_home: &Path,
+    read_roots_override: Option<Vec<PathBuf>>,
+    write_roots_override: Option<Vec<PathBuf>>,
+) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let sbx_dir = sandbox_dir(codex_home);
+    let mut write_roots = if let Some(roots) = write_roots_override {
+        canonical_existing(&roots)
+    } else {
+        gather_write_roots(policy, policy_cwd, command_cwd, env_map)
+    };
+    if !write_roots.contains(&sbx_dir) {
+        write_roots.push(sbx_dir.clone());
+    }
+    let mut read_roots = if let Some(roots) = read_roots_override {
+        canonical_existing(&roots)
+    } else {
+        gather_read_roots(command_cwd, policy)
+    };
+    let write_root_set: HashSet<PathBuf> = write_roots.iter().cloned().collect();
+    read_roots.retain(|root| !write_root_set.contains(root));
+    (read_roots, write_roots)
 }

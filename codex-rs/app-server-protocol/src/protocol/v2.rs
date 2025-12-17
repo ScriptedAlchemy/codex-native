@@ -21,9 +21,13 @@ use codex_protocol::protocol::CreditsSnapshot as CoreCreditsSnapshot;
 use codex_protocol::protocol::RateLimitSnapshot as CoreRateLimitSnapshot;
 use codex_protocol::protocol::RateLimitWindow as CoreRateLimitWindow;
 use codex_protocol::protocol::SessionSource as CoreSessionSource;
+use codex_protocol::protocol::SkillErrorInfo as CoreSkillErrorInfo;
+use codex_protocol::protocol::SkillMetadata as CoreSkillMetadata;
+use codex_protocol::protocol::SkillScope as CoreSkillScope;
 use codex_protocol::protocol::TokenUsage as CoreTokenUsage;
 use codex_protocol::protocol::TokenUsageInfo as CoreTokenUsageInfo;
 use codex_protocol::user_input::UserInput as CoreUserInput;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use mcp_types::ContentBlock as McpContentBlock;
 use mcp_types::Resource as McpResource;
 use mcp_types::ResourceTemplate as McpResourceTemplate;
@@ -420,7 +424,7 @@ pub enum SandboxPolicy {
     #[ts(rename_all = "camelCase")]
     WorkspaceWrite {
         #[serde(default)]
-        writable_roots: Vec<PathBuf>,
+        writable_roots: Vec<AbsolutePathBuf>,
         #[serde(default)]
         network_access: bool,
         #[serde(default)]
@@ -757,7 +761,7 @@ pub struct ModelListResponse {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct ListMcpServersParams {
+pub struct ListMcpServerStatusParams {
     /// Opaque pagination cursor returned by a previous call.
     pub cursor: Option<String>,
     /// Optional page size; defaults to a server-defined value.
@@ -767,7 +771,7 @@ pub struct ListMcpServersParams {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct McpServer {
+pub struct McpServerStatus {
     pub name: String,
     pub tools: std::collections::HashMap<String, McpTool>,
     pub resources: Vec<McpResource>,
@@ -778,8 +782,8 @@ pub struct McpServer {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct ListMcpServersResponse {
-    pub data: Vec<McpServer>,
+pub struct ListMcpServerStatusResponse {
+    pub data: Vec<McpServerStatus>,
     /// Opaque cursor to pass to the next call to continue after the last item.
     /// If None, there are no more items to return.
     pub next_cursor: Option<String>,
@@ -856,6 +860,12 @@ pub struct ThreadStartParams {
     pub config: Option<HashMap<String, JsonValue>>,
     pub base_instructions: Option<String>,
     pub developer_instructions: Option<String>,
+    /// If true, opt into emitting raw response items on the event stream.
+    ///
+    /// This is for internal use only (e.g. Codex Cloud).
+    /// (TODO): Figure out a better way to categorize internal / experimental events & protocols.
+    #[serde(default)]
+    pub experimental_raw_events: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -957,14 +967,83 @@ pub struct ThreadListResponse {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct ThreadCompactParams {
-    pub thread_id: String,
+pub struct SkillsListParams {
+    /// When empty, defaults to the current session working directory.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cwds: Vec<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct ThreadCompactResponse {}
+pub struct SkillsListResponse {
+    pub data: Vec<SkillsListEntry>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+#[ts(export_to = "v2/")]
+pub enum SkillScope {
+    User,
+    Repo,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct SkillMetadata {
+    pub name: String,
+    pub description: String,
+    pub path: PathBuf,
+    pub scope: SkillScope,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct SkillErrorInfo {
+    pub path: PathBuf,
+    pub message: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct SkillsListEntry {
+    pub cwd: PathBuf,
+    pub skills: Vec<SkillMetadata>,
+    pub errors: Vec<SkillErrorInfo>,
+}
+
+impl From<CoreSkillMetadata> for SkillMetadata {
+    fn from(value: CoreSkillMetadata) -> Self {
+        Self {
+            name: value.name,
+            description: value.description,
+            path: value.path,
+            scope: value.scope.into(),
+        }
+    }
+}
+
+impl From<CoreSkillScope> for SkillScope {
+    fn from(value: CoreSkillScope) -> Self {
+        match value {
+            CoreSkillScope::User => Self::User,
+            CoreSkillScope::Repo => Self::Repo,
+        }
+    }
+}
+
+impl From<CoreSkillErrorInfo> for SkillErrorInfo {
+    fn from(value: CoreSkillErrorInfo) -> Self {
+        Self {
+            path: value.path,
+            message: value.message,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
@@ -1506,6 +1585,15 @@ pub struct ItemCompletedNotification {
     pub item: ThreadItem,
     pub thread_id: String,
     pub turn_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct RawResponseItemCompletedNotification {
+    pub thread_id: String,
+    pub turn_id: String,
+    pub item: ResponseItem,
 }
 
 // Item-specific progress notifications
