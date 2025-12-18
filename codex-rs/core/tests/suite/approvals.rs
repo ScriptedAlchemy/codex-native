@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use anyhow::Result;
+use codex_core::config::Constrained;
 use codex_core::features::Feature;
 use codex_core::protocol::ApplyPatchApprovalRequestEvent;
 use codex_core::protocol::AskForApproval;
@@ -22,7 +23,6 @@ use core_test_support::responses::mount_sse_once;
 use core_test_support::responses::sse;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
-use core_test_support::skip_if_sandbox;
 use core_test_support::test_codex::TestCodex;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
@@ -121,10 +121,13 @@ impl ActionKind {
                     .await;
 
                 let url = format!("{}{}", server.uri(), endpoint);
-                let command = format!(
-                    "body=$(curl --fail --silent --show-error --max-time 2 {url:?} 2>&1); rc=$?; if [ $rc -eq 0 ]; then printf 'OK:%s\\n' \"$body\"; else printf 'ERR:%s\\n' \"$body\"; exit 1; fi"
+                let escaped_url = url.replace('\'', "\\'");
+                let script = format!(
+                    "import sys\nimport urllib.request\nurl = '{escaped_url}'\ntry:\n    data = urllib.request.urlopen(url, timeout=2).read().decode()\n    print('OK:' + data.strip())\nexcept Exception as exc:\n    print('ERR:' + exc.__class__.__name__)\n    sys.exit(1)",
                 );
-                let event = shell_event(call_id, &command, 3_000, sandbox_permissions)?;
+
+                let command = format!("python3 -c \"{script}\"");
+                let event = shell_event(call_id, &command, 5_000, sandbox_permissions)?;
                 Ok((event, Some(command)))
             }
             ActionKind::RunCommand { command } => {
@@ -392,20 +395,16 @@ impl Expectation {
                     "expected non-zero exit for network failure: {}",
                     result.stdout
                 );
-                let has_err_prefix = result.stdout.contains("ERR:");
-                let timed_out = result.stdout.contains("command timed out");
                 assert!(
-                    has_err_prefix || timed_out,
+                    result.stdout.contains("ERR:"),
                     "stdout missing ERR prefix: {}",
                     result.stdout
                 );
-                if has_err_prefix {
-                    assert!(
-                        result.stdout.contains(expect_tag),
-                        "stdout missing expected tag {expect_tag:?}: {}",
-                        result.stdout
-                    );
-                }
+                assert!(
+                    result.stdout.contains(expect_tag),
+                    "stdout missing expected tag {expect_tag:?}: {}",
+                    result.stdout
+                );
             }
             Expectation::CommandSuccess { stdout_contains } => {
                 assert_eq!(
@@ -1446,14 +1445,6 @@ fn scenarios() -> Vec<ScenarioSpec> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn approval_matrix_covers_all_modes() -> Result<()> {
     skip_if_no_network!(Ok(()));
-    skip_if_sandbox!(Ok(()));
-
-    // Isolate caches/tmp so seatbelted environments do not fail creating files under /tmp.
-    let tmp = tempfile::TempDir::new()?;
-    unsafe {
-        std::env::set_var("TMPDIR", tmp.path());
-        std::env::set_var("XDG_CACHE_HOME", tmp.path());
-    }
 
     for scenario in scenarios() {
         run_scenario(&scenario).await?;
@@ -1472,7 +1463,7 @@ async fn run_scenario(scenario: &ScenarioSpec) -> Result<()> {
     let model = model_override.unwrap_or("gpt-5.1");
 
     let mut builder = test_codex().with_model(model).with_config(move |config| {
-        config.approval_policy = approval_policy;
+        config.approval_policy = Constrained::allow_any(approval_policy);
         config.sandbox_policy = sandbox_policy.clone();
         for feature in features {
             config.features.enable(feature);
@@ -1578,7 +1569,7 @@ async fn approving_execpolicy_amendment_persists_policy_and_skips_future_prompts
     let sandbox_policy = SandboxPolicy::ReadOnly;
     let sandbox_policy_for_config = sandbox_policy.clone();
     let mut builder = test_codex().with_config(move |config| {
-        config.approval_policy = approval_policy;
+        config.approval_policy = Constrained::allow_any(approval_policy);
         config.sandbox_policy = sandbox_policy_for_config;
     });
     let test = builder.build(&server).await?;

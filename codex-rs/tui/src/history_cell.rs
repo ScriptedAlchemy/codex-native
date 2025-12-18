@@ -375,6 +375,72 @@ impl HistoryCell for PrefixedWrappedHistoryCell {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct UnifiedExecInteractionCell {
+    command_display: Option<String>,
+    stdin: String,
+}
+
+impl UnifiedExecInteractionCell {
+    pub(crate) fn new(command_display: Option<String>, stdin: String) -> Self {
+        Self {
+            command_display,
+            stdin,
+        }
+    }
+}
+
+impl HistoryCell for UnifiedExecInteractionCell {
+    fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
+        if width == 0 {
+            return Vec::new();
+        }
+        let wrap_width = width as usize;
+
+        let mut header_spans = vec!["↳ ".dim(), "Interacted with background terminal".bold()];
+        if let Some(command) = &self.command_display
+            && !command.is_empty()
+        {
+            header_spans.push(" · ".dim());
+            header_spans.push(command.clone().dim());
+        }
+        let header = Line::from(header_spans);
+
+        let mut out: Vec<Line<'static>> = Vec::new();
+        let header_wrapped = word_wrap_line(&header, RtOptions::new(wrap_width));
+        push_owned_lines(&header_wrapped, &mut out);
+
+        let input_lines: Vec<Line<'static>> = if self.stdin.is_empty() {
+            vec![vec!["(waited)".dim()].into()]
+        } else {
+            self.stdin
+                .lines()
+                .map(|line| Line::from(line.to_string()))
+                .collect()
+        };
+
+        let input_wrapped = word_wrap_lines(
+            input_lines,
+            RtOptions::new(wrap_width)
+                .initial_indent(Line::from("  └ ".dim()))
+                .subsequent_indent(Line::from("    ".dim())),
+        );
+        out.extend(input_wrapped);
+        out
+    }
+
+    fn desired_height(&self, width: u16) -> u16 {
+        self.display_lines(width).len() as u16
+    }
+}
+
+pub(crate) fn new_unified_exec_interaction(
+    command_display: Option<String>,
+    stdin: String,
+) -> UnifiedExecInteractionCell {
+    UnifiedExecInteractionCell::new(command_display, stdin)
+}
+
 fn truncate_exec_snippet(full_cmd: &str) -> String {
     let mut snippet = match full_cmd.split_once('\n') {
         Some((first, _)) => format!("{first} ..."),
@@ -1021,9 +1087,9 @@ pub(crate) fn new_active_mcp_tool_call(
     McpToolCallCell::new(call_id, invocation, animations_enabled)
 }
 
-pub(crate) fn new_web_search_call(query: String) -> PlainHistoryCell {
-    let lines: Vec<Line<'static>> = vec![Line::from(vec![padded_emoji("🌐").into(), query.into()])];
-    PlainHistoryCell { lines }
+pub(crate) fn new_web_search_call(query: String) -> PrefixedWrappedHistoryCell {
+    let text: Text<'static> = Line::from(vec!["Searched".bold(), " ".into(), query.into()]).into();
+    PrefixedWrappedHistoryCell::new(text, "• ".dim(), "  ")
 }
 
 /// If the first content is an image, return a new cell with the image.
@@ -1588,6 +1654,31 @@ mod tests {
     }
 
     #[test]
+    fn unified_exec_interaction_cell_renders_input() {
+        let cell =
+            new_unified_exec_interaction(Some("echo hello".to_string()), "ls\npwd".to_string());
+        let lines = render_transcript(&cell);
+        assert_eq!(
+            lines,
+            vec![
+                "↳ Interacted with background terminal · echo hello",
+                "  └ ls",
+                "    pwd",
+            ],
+        );
+    }
+
+    #[test]
+    fn unified_exec_interaction_cell_renders_wait() {
+        let cell = new_unified_exec_interaction(None, String::new());
+        let lines = render_transcript(&cell);
+        assert_eq!(
+            lines,
+            vec!["↳ Interacted with background terminal", "  └ (waited)"],
+        );
+    }
+
+    #[test]
     fn mcp_tools_output_masks_sensitive_values() {
         let mut config = test_config();
         let mut env = HashMap::new();
@@ -1700,6 +1791,50 @@ mod tests {
                 "  time".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn web_search_history_cell_snapshot() {
+        let cell = new_web_search_call(
+            "example search query with several generic words to exercise wrapping".to_string(),
+        );
+        let rendered = render_lines(&cell.display_lines(64)).join("\n");
+
+        insta::assert_snapshot!(rendered);
+    }
+
+    #[test]
+    fn web_search_history_cell_wraps_with_indented_continuation() {
+        let cell = new_web_search_call(
+            "example search query with several generic words to exercise wrapping".to_string(),
+        );
+        let rendered = render_lines(&cell.display_lines(64));
+
+        assert_eq!(
+            rendered,
+            vec![
+                "• Searched example search query with several generic words to".to_string(),
+                "  exercise wrapping".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn web_search_history_cell_short_query_does_not_wrap() {
+        let cell = new_web_search_call("short query".to_string());
+        let rendered = render_lines(&cell.display_lines(64));
+
+        assert_eq!(rendered, vec!["• Searched short query".to_string()]);
+    }
+
+    #[test]
+    fn web_search_history_cell_transcript_snapshot() {
+        let cell = new_web_search_call(
+            "example search query with several generic words to exercise wrapping".to_string(),
+        );
+        let rendered = render_lines(&cell.transcript_lines(64)).join("\n");
+
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
