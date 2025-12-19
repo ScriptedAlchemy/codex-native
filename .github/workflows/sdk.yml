@@ -55,7 +55,7 @@ jobs:
       - name: Restore sccache cache (fallback)
         if: ${{ env.SCCACHE_GHA_ENABLED != 'true' }}
         id: cache_sccache_restore_ts
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ${{ github.workspace }}/.sccache/
           key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
@@ -65,7 +65,7 @@ jobs:
 
       - name: Restore cargo home cache
         id: cache_cargo_home_restore_ts
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -78,7 +78,7 @@ jobs:
 
       - name: Restore cargo target cache
         id: cache_cargo_target_restore_ts
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: codex-rs/target/
           key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
@@ -105,7 +105,7 @@ jobs:
       - name: Save sccache cache (fallback)
         if: always() && !cancelled() && env.SCCACHE_GHA_ENABLED != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ${{ github.workspace }}/.sccache/
           key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
@@ -113,7 +113,7 @@ jobs:
       - name: Save cargo home cache
         if: always() && !cancelled() && steps.cache_cargo_home_restore_ts.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -125,7 +125,7 @@ jobs:
       - name: Save cargo target cache
         if: always() && !cancelled() && steps.cache_cargo_target_restore_ts.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: codex-rs/target/
           key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
@@ -186,7 +186,7 @@ jobs:
       - name: Restore sccache cache (fallback)
         if: ${{ env.SCCACHE_GHA_ENABLED != 'true' }}
         id: cache_sccache_restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ${{ github.workspace }}/.sccache/
           key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
@@ -197,7 +197,7 @@ jobs:
       # Match rust-ci: split cargo home vs target, so large target dir is separable.
       - name: Restore cargo home cache
         id: cache_cargo_home_restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -210,7 +210,7 @@ jobs:
 
       - name: Restore cargo target cache
         id: cache_cargo_target_restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: codex-rs/target/
           key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}
@@ -233,7 +233,7 @@ jobs:
       - name: Save sccache cache (fallback)
         if: always() && !cancelled() && env.SCCACHE_GHA_ENABLED != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ${{ github.workspace }}/.sccache/
           key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
@@ -246,7 +246,7 @@ jobs:
       - name: Save cargo home cache
         if: always() && !cancelled() && steps.cache_cargo_home_restore.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -258,7 +258,7 @@ jobs:
       - name: Save cargo target cache
         if: always() && !cancelled() && steps.cache_cargo_target_restore.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: codex-rs/target/
           key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}
