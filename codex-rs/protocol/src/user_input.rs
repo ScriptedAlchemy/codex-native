@@ -27,4 +27,10 @@ pub enum UserInput {
         name: String,
         path: std::path::PathBuf,
     },
+
+    /// Skill provided inline by the user (name + contents).
+    SkillInline {
+        name: String,
+        contents: String,
+    },
 }

@@ -1,3 +1,5 @@
+import type { SkillDefinition, SkillMentionTrigger } from "./skills";
+
 export type ApprovalMode = "never" | "on-request" | "on-failure" | "untrusted";
 
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
@@ -48,4 +50,15 @@ export type ThreadOptions = {
   reasoningSummary?: ReasoningSummary;
   /** @deprecated Use sandboxMode and approvalMode instead */
   fullAuto?: boolean;
+  /**
+   * Programmatically registered skills (no SKILL.md files required) for this thread.
+   * These augment any skills registered on the parent Codex instance.
+   */
+  skills?: SkillDefinition[] | Record<string, string | Omit<SkillDefinition, "name">>;
+  /**
+   * Prefixes that activate skills when present immediately before the skill name.
+   *
+   * Defaults to `["$"]` when omitted.
+   */
+  skillMentionTriggers?: SkillMentionTrigger[];
 };

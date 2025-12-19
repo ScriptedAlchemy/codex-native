@@ -17,6 +17,8 @@
 #[napi(object)]
 pub struct RunRequest {
   pub prompt: String,
+  #[napi(js_name = "inputItems")]
+  pub input_items: Option<JsonValue>,
   #[napi(js_name = "threadId")]
   pub thread_id: Option<String>,
   pub images: Option<Vec<String>>,
@@ -200,6 +202,7 @@ pub struct ReviewRequest {
 #[derive(Debug, Clone)]
 pub struct InternalRunRequest {
   pub prompt: String,
+  pub input_items: Option<Vec<UserInput>>,
   pub thread_id: Option<String>,
   pub images: Vec<PathBuf>,
   pub model: Option<String>,
@@ -229,6 +232,7 @@ impl ConversationConfigRequest {
 
     Ok(InternalRunRequest {
       prompt: String::new(),
+      input_items: None,
       thread_id: None,
       images: Vec::new(),
       model: self.model,
@@ -283,6 +287,12 @@ impl RunRequest {
       .map(PathBuf::from)
       .collect();
     let working_directory = self.working_directory.map(PathBuf::from);
+    let input_items = match self.input_items {
+      Some(value) => Some(serde_json::from_value(value).map_err(|err| {
+        napi::Error::from_reason(format!("Invalid inputItems payload: {err}"))
+      })?),
+      None => None,
+    };
 
     if let Some(model_name) = self.model.as_deref() {
       let trimmed = model_name.trim();
@@ -301,6 +311,7 @@ impl RunRequest {
 
     Ok(InternalRunRequest {
       prompt: self.prompt,
+      input_items,
       thread_id: self.thread_id,
       images,
       model: self.model,
@@ -339,6 +350,7 @@ impl ForkRequest {
 
     let run_request = RunRequest {
       prompt: String::new(),
+      input_items: None,
       thread_id: Some(thread_id.clone()),
       images: None,
       model: self.model,
@@ -792,26 +804,27 @@ pub fn build_cli(
     }
   }
 
-  Cli {
-    command,
-    images: options.images.clone(),
-    model: options.model.clone(),
-    oss: options.oss,
-    oss_provider: options.model_provider.clone(),
-    sandbox_mode,
-    config_profile: None,
-    full_auto: cli_full_auto,
-    dangerously_bypass_approvals_and_sandbox: wants_danger,
-    cwd: options.working_directory.clone(),
-    skip_git_repo_check: options.skip_git_repo_check,
-    add_dir,
-    output_schema: schema_path,
-    config_overrides: CliConfigOverrides { raw_overrides },
-    color: Color::Never,
-    json: false,
-    last_message_file: None,
-    prompt: if options.thread_id.is_some() {
-      None
+	  Cli {
+	    command,
+	    images: options.images.clone(),
+	    model: options.model.clone(),
+	    oss: options.oss,
+	    oss_provider: options.model_provider.clone(),
+	    sandbox_mode,
+	    config_profile: None,
+	    full_auto: cli_full_auto,
+	    dangerously_bypass_approvals_and_sandbox: wants_danger,
+	    cwd: options.working_directory.clone(),
+	    skip_git_repo_check: options.skip_git_repo_check,
+	    add_dir,
+	    output_schema: schema_path,
+	    config_overrides: CliConfigOverrides { raw_overrides },
+	    input_items: options.input_items.clone(),
+	    color: Color::Never,
+	    json: false,
+	    last_message_file: None,
+	    prompt: if options.thread_id.is_some() {
+	      None
     } else {
       Some(options.prompt.clone())
     },
@@ -873,7 +886,7 @@ fn build_config_inputs(
 async fn load_config_from_internal(options: &InternalRunRequest) -> napi::Result<Config> {
   let (overrides, cli_kv_overrides) =
     build_config_inputs(options, options.linux_sandbox_path.clone())?;
-  Config::load_with_cli_overrides(cli_kv_overrides, overrides)
+  Config::load_with_cli_overrides_and_harness_overrides(cli_kv_overrides, overrides)
     .await
     .map_err(|e| napi::Error::from_reason(e.to_string()))
 }
@@ -1387,7 +1400,7 @@ fn fork_thread_sync(req: InternalForkRequest) -> napi::Result<ForkResult> {
 
   runtime.block_on(async move {
     let (overrides, cli_kv_overrides) = build_config_inputs(&options, linux_sandbox_path.clone())?;
-    let config = Config::load_with_cli_overrides(cli_kv_overrides, overrides)
+    let config = Config::load_with_cli_overrides_and_harness_overrides(cli_kv_overrides, overrides)
       .await
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
@@ -1537,13 +1550,14 @@ mod tests_run {
   use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
   use tempfile::TempDir;
 
-  fn base_internal_request() -> InternalRunRequest {
-    InternalRunRequest {
-      prompt: "test".to_string(),
-      thread_id: None,
-      images: Vec::new(),
-      model: None,
-      model_provider: None,
+	  fn base_internal_request() -> InternalRunRequest {
+	    InternalRunRequest {
+	      prompt: "test".to_string(),
+	      input_items: None,
+	      thread_id: None,
+	      images: Vec::new(),
+	      model: None,
+	      model_provider: None,
       oss: false,
       sandbox_mode: None,
       approval_mode: None,

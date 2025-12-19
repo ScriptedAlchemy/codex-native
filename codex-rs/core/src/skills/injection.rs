@@ -1,10 +1,8 @@
-use std::collections::HashSet;
-
 use crate::skills::SkillLoadOutcome;
-use crate::skills::SkillMetadata;
 use crate::user_instructions::SkillInstructions;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::user_input::UserInput;
+use std::collections::HashSet;
 use tokio::fs;
 
 #[derive(Debug, Default)]
@@ -21,58 +19,69 @@ pub(crate) async fn build_skill_injections(
         return SkillInjections::default();
     }
 
-    let Some(outcome) = skills else {
-        return SkillInjections::default();
-    };
+    let inline_skill_names: HashSet<String> = inputs
+        .iter()
+        .filter_map(|input| match input {
+            UserInput::SkillInline { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
 
-    let mentioned_skills = collect_explicit_skill_mentions(inputs, &outcome.skills);
-    if mentioned_skills.is_empty() {
-        return SkillInjections::default();
-    }
-
-    let mut result = SkillInjections {
-        items: Vec::with_capacity(mentioned_skills.len()),
-        warnings: Vec::new(),
-    };
-
-    for skill in mentioned_skills {
-        match fs::read_to_string(&skill.path).await {
-            Ok(contents) => {
-                result.items.push(ResponseItem::from(SkillInstructions {
-                    name: skill.name,
-                    path: skill.path.to_string_lossy().into_owned(),
-                    contents,
-                }));
-            }
-            Err(err) => {
-                let message = format!(
-                    "Failed to load skill {} at {}: {err:#}",
-                    skill.name,
-                    skill.path.display()
-                );
-                result.warnings.push(message);
-            }
-        }
-    }
-
-    result
-}
-
-fn collect_explicit_skill_mentions(
-    inputs: &[UserInput],
-    skills: &[SkillMetadata],
-) -> Vec<SkillMetadata> {
-    let mut selected: Vec<SkillMetadata> = Vec::new();
+    let mut result = SkillInjections::default();
     let mut seen: HashSet<String> = HashSet::new();
 
     for input in inputs {
-        if let UserInput::Skill { name, path } = input
-            && seen.insert(name.clone())
-            && let Some(skill) = skills.iter().find(|s| s.name == *name && s.path == *path)
-        {
-            selected.push(skill.clone());
+        match input {
+            UserInput::SkillInline { name, contents } => {
+                if seen.insert(name.clone()) {
+                    result.items.push(ResponseItem::from(SkillInstructions {
+                        name: name.clone(),
+                        path: "(inline)".to_string(),
+                        contents: contents.clone(),
+                    }));
+                }
+            }
+            UserInput::Skill { name, path } => {
+                if inline_skill_names.contains(name) || !seen.insert(name.clone()) {
+                    continue;
+                }
+
+                let Some(outcome) = skills else {
+                    continue;
+                };
+
+                let Some(skill) = outcome
+                    .skills
+                    .iter()
+                    .find(|skill| skill.name == *name && skill.path == *path)
+                else {
+                    continue;
+                };
+
+                match fs::read_to_string(&skill.path).await {
+                    Ok(contents) => {
+                        result.items.push(ResponseItem::from(SkillInstructions {
+                            name: skill.name.clone(),
+                            path: skill.path.to_string_lossy().into_owned(),
+                            contents,
+                        }));
+                    }
+                    Err(err) => {
+                        let name = &skill.name;
+                        let path = skill.path.display();
+                        result
+                            .warnings
+                            .push(format!("Failed to load skill {name} at {path}: {err:#}"));
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
-    selected
+    if result.items.is_empty() && result.warnings.is_empty() {
+        SkillInjections::default()
+    } else {
+        result
+    }
 }

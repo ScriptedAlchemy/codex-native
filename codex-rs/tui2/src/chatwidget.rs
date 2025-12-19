@@ -410,7 +410,10 @@ impl ChatWidget {
         }
         // Ask codex-core to enumerate custom prompts for this session.
         self.submit_op(Op::ListCustomPrompts);
-        self.submit_op(Op::ListSkills { cwds: Vec::new() });
+        self.submit_op(Op::ListSkills {
+            cwds: Vec::new(),
+            force_reload: false,
+        });
         if let Some(user_message) = self.initial_user_message.take() {
             self.submit_user_message(user_message);
         }
@@ -888,10 +891,7 @@ impl ChatWidget {
 
     fn on_web_search_end(&mut self, ev: WebSearchEndEvent) {
         self.flush_answer_stream_with_separator();
-        self.add_to_history(history_cell::new_web_search_call(format!(
-            "Searched: {}",
-            ev.query
-        )));
+        self.add_to_history(history_cell::new_web_search_call(ev.query));
     }
 
     fn on_get_history_entry_response(
@@ -1886,6 +1886,12 @@ impl ChatWidget {
             EventMsg::McpListToolsResponse(ev) => self.on_list_mcp_tools(ev),
             EventMsg::ListCustomPromptsResponse(ev) => self.on_list_custom_prompts(ev),
             EventMsg::ListSkillsResponse(ev) => self.on_list_skills(ev),
+            EventMsg::SkillsUpdateAvailable => {
+                self.submit_op(Op::ListSkills {
+                    cwds: Vec::new(),
+                    force_reload: true,
+                });
+            }
             EventMsg::ShutdownComplete => self.on_shutdown_complete(),
             EventMsg::TurnDiff(TurnDiffEvent { unified_diff }) => self.on_turn_diff(unified_diff),
             EventMsg::DeprecationNotice(ev) => self.on_deprecation_notice(ev),
@@ -1952,15 +1958,8 @@ impl ChatWidget {
                     self.app_event_tx
                         .send(AppEvent::InsertHistoryCell(Box::new(body_cell)));
                 }
-            } else {
-                let message_text =
-                    codex_core::review_format::format_review_findings_block(&output.findings, None);
-                let mut message_lines: Vec<ratatui::text::Line<'static>> = Vec::new();
-                append_markdown(&message_text, None, &mut message_lines);
-                let body_cell = AgentMessageCell::new(message_lines, true);
-                self.app_event_tx
-                    .send(AppEvent::InsertHistoryCell(Box::new(body_cell)));
             }
+            // Final message is rendered as part of the AgentMessage.
         }
 
         self.is_review_mode = false;
@@ -2098,7 +2097,7 @@ impl ChatWidget {
     }
 
     fn lower_cost_preset(&self) -> Option<ModelPreset> {
-        let models = self.models_manager.try_list_models().ok()?;
+        let models = self.models_manager.try_list_models(&self.config).ok()?;
         models
             .iter()
             .find(|preset| preset.model == NUDGE_MODEL_SLUG)
@@ -2207,7 +2206,7 @@ impl ChatWidget {
         let current_model = self.model_family.get_model_slug().to_string();
         let presets: Vec<ModelPreset> =
             // todo(aibrahim): make this async function
-            match self.models_manager.try_list_models() {
+            match self.models_manager.try_list_models(&self.config) {
                 Ok(models) => models,
                 Err(_) => {
                     self.add_info_message(
@@ -2554,7 +2553,7 @@ impl ChatWidget {
 
     /// Open a popup to choose the approvals mode (ask for approval policy + sandbox policy).
     pub(crate) fn open_approvals_popup(&mut self) {
-        let current_approval = self.config.approval_policy;
+        let current_approval = self.config.approval_policy.value();
         let current_sandbox = self.config.sandbox_policy.clone();
         let mut items: Vec<SelectionItem> = Vec::new();
         let presets: Vec<ApprovalPreset> = builtin_approval_presets();
@@ -2952,7 +2951,9 @@ impl ChatWidget {
 
     /// Set the approval policy in the widget's config copy.
     pub(crate) fn set_approval_policy(&mut self, policy: AskForApproval) {
-        self.config.approval_policy = policy;
+        if let Err(err) = self.config.approval_policy.set(policy) {
+            tracing::warn!(%err, "failed to set approval_policy on chat config");
+        }
     }
 
     /// Set the sandbox policy in the widget's config copy.
@@ -3538,6 +3539,7 @@ fn skills_for_cwd(cwd: &Path, skills_entries: &[SkillsListEntry]) -> Vec<SkillMe
                 .map(|skill| SkillMetadata {
                     name: skill.name.clone(),
                     description: skill.description.clone(),
+                    short_description: skill.short_description.clone(),
                     path: skill.path.clone(),
                     scope: skill.scope,
                 })

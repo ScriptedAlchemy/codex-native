@@ -1,6 +1,7 @@
 use clap::Parser;
 use clap::ValueEnum;
 use codex_common::CliConfigOverrides;
+use codex_protocol::user_input::UserInput;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -68,6 +69,10 @@ pub struct Cli {
 
     #[clap(skip)]
     pub config_overrides: CliConfigOverrides,
+
+    /// Structured input items for the initial prompt (for programmatic callers).
+    #[clap(skip)]
+    pub input_items: Option<Vec<UserInput>>,
 
     /// Specifies color settings for use in the output.
     #[arg(long = "color", value_enum, default_value_t = Color::Auto)]

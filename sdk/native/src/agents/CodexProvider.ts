@@ -120,6 +120,12 @@ export class CodexProvider implements ModelProvider {
         this.codex = new Codex({
           apiKey: this.options.apiKey,
           baseUrl: this.options.baseUrl,
+          modelProvider: this.options.modelProvider,
+          defaultModel: this.options.defaultModel,
+          tools: this.options.tools,
+          preserveRegisteredTools: this.options.preserveRegisteredTools,
+          skills: this.options.skills,
+          skillMentionTriggers: this.options.skillMentionTriggers,
         });
       } catch (error) {
         throw new Error(

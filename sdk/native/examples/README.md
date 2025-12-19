@@ -5,3 +5,4 @@ This directory contains various examples demonstrating how to use the Codex Nati
 See the individual example files for specific usage patterns.
 
 - `background_events.ts` – stream a turn and emit mid-turn background notifications.
+- `skills.ts` – register programmatic skills and reference them via `$<name>` / `@<name>`.

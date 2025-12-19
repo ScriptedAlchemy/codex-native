@@ -9,6 +9,7 @@ import {
   NativeForkResult,
   NativeResumeFromRolloutRequest,
   NativeRunRequest,
+  NativeUserInputItem,
   getNativeBinding,
 } from "./nativeBinding";
 
@@ -19,6 +20,7 @@ export type CodexExecArgs = {
   modelProvider?: string;
   threadId?: string | null;
   images?: string[];
+  inputItems?: NativeUserInputItem[];
   model?: string;
   /** Use local OSS provider via Ollama (pulls models as needed) */
   oss?: boolean;
@@ -86,6 +88,7 @@ export class CodexExec {
     const request: NativeRunRequest = {
       prompt: args.input,
       threadId: args.threadId ?? undefined,
+      inputItems: args.inputItems,
       images: args.images && args.images.length > 0 ? args.images : undefined,
       model: args.model,
       oss: args.oss,

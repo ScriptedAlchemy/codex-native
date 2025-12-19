@@ -359,6 +359,7 @@ export declare function runApplyPatch(patch: string): void
 
 export interface RunRequest {
   prompt: string
+  inputItems?: JsonValue
   threadId?: string
   images?: Array<string>
   model?: string

@@ -11,9 +11,11 @@ import { TurnOptions } from "./turnOptions";
 import { createOutputSchemaFile, normalizeOutputSchema } from "./outputSchemaFile";
 import { runTui, startTui } from "./tui";
 import { getNativeBinding } from "./nativeBinding";
-import type { NativeTuiRequest, NativeTuiExitInfo, ApprovalRequest } from "./nativeBinding";
+import type { NativeTuiRequest, NativeTuiExitInfo, ApprovalRequest, NativeUserInputItem } from "./nativeBinding";
 import type { RunTuiOptions, TuiSession } from "./tui";
 import { attachLspDiagnostics } from "./lsp";
+import type { SkillDefinition, SkillMentionTrigger, SkillRegistry } from "./skills";
+import { findSkillMentions, normalizeSkillDefinition } from "./skills";
 
 /** Completed turn. */
 export type Turn = {
@@ -95,6 +97,9 @@ export class Thread {
   private _threadOptions: ThreadOptions;
   private _eventListeners: Array<(event: ThreadEvent) => void> = [];
   private _approvalHandler: ((request: ApprovalRequest) => boolean | Promise<boolean>) | null = null;
+  private readonly _skills: SkillRegistry = new Map();
+  private readonly _skillMentionTriggers: SkillMentionTrigger[];
+  private readonly _codexSkills?: SkillRegistry;
 
   /** Returns the ID of the thread. Populated after the first turn starts. */
   public get id(): string | null {
@@ -351,11 +356,19 @@ export class Thread {
 
     const result = await this._exec.fork(forkArgs);
 
+    const skillsContext = this._codexSkills
+      ? {
+          codexSkills: this._codexSkills,
+          codexSkillMentionTriggers: this._skillMentionTriggers,
+        }
+      : undefined;
+
     return new Thread(
       this._exec,
       this._options,
       nextThreadOptions,
       result.threadId,
+      skillsContext,
     );
   }
   /* @internal */
@@ -364,11 +377,20 @@ export class Thread {
     options: CodexOptions,
     threadOptions: ThreadOptions,
     id: string | null = null,
+    skillsContext?: {
+      codexSkills: SkillRegistry;
+      codexSkillMentionTriggers: SkillMentionTrigger[];
+    },
   ) {
     this._exec = exec;
     this._options = options;
     this._id = id;
     this._threadOptions = threadOptions;
+    this._codexSkills = skillsContext?.codexSkills;
+    this._skillMentionTriggers = normalizeSkillMentionTriggers(
+      threadOptions.skillMentionTriggers ?? skillsContext?.codexSkillMentionTriggers,
+    );
+    this.registerSkillsFromConfig(threadOptions.skills);
   }
 
   /** Provides the input to the agent and streams events as they are produced during the turn. */
@@ -388,6 +410,7 @@ export class Thread {
       : { schemaPath: undefined, cleanup: async () => {} };
     const options = this._threadOptions;
     const { prompt, images } = normalizeInput(input);
+    const inputItems = this.buildNativeInputItems(prompt, images);
     const skipGitRepoCheck =
       options?.skipGitRepoCheck ??
       (typeof process !== "undefined" &&
@@ -401,7 +424,8 @@ export class Thread {
       baseUrl: this._options.baseUrl,
       apiKey: this._options.apiKey,
       threadId: this._id,
-      images,
+      images: inputItems ? undefined : images,
+      inputItems,
       model: options?.model,
       oss: turnOptions?.oss ?? options?.oss,
       sandboxMode: options?.sandboxMode,
@@ -604,6 +628,87 @@ export class Thread {
       waitForDiagnostics: true,
     });
   }
+
+  private registerSkillsFromConfig(config: ThreadOptions["skills"]): void {
+    if (!config) {
+      return;
+    }
+    if (Array.isArray(config)) {
+      for (const skill of config) {
+        const normalized = normalizeSkillDefinition(skill);
+        this._skills.set(normalized.name, normalized);
+      }
+      return;
+    }
+    if (typeof config !== "object") {
+      throw new Error("ThreadOptions.skills must be an array or object when provided");
+    }
+    for (const [name, value] of Object.entries(config)) {
+      if (typeof value === "string") {
+        const normalized = normalizeSkillDefinition({ name, contents: value });
+        this._skills.set(normalized.name, normalized);
+        continue;
+      }
+      if (!value || typeof value !== "object") {
+        throw new Error(`Invalid skill entry for ${name}`);
+      }
+      const normalized = normalizeSkillDefinition({ name, ...value });
+      this._skills.set(normalized.name, normalized);
+    }
+  }
+
+  private buildNativeInputItems(
+    prompt: string,
+    images: string[],
+  ): NativeUserInputItem[] | undefined {
+    if (!prompt) {
+      return undefined;
+    }
+
+    const triggers = this._skillMentionTriggers;
+    const fromThread = findSkillMentions(prompt, this._skills, triggers);
+    const fromCodex = this._codexSkills
+      ? findSkillMentions(prompt, this._codexSkills, triggers)
+      : [];
+
+    const seen = new Set<string>();
+    const mentioned: SkillDefinition[] = [];
+    for (const skill of [...fromThread, ...fromCodex]) {
+      if (seen.has(skill.name)) {
+        continue;
+      }
+      seen.add(skill.name);
+      mentioned.push(skill);
+    }
+
+    if (mentioned.length === 0) {
+      return undefined;
+    }
+
+    const items: NativeUserInputItem[] = [{ type: "text", text: prompt }];
+    for (const path of images) {
+      items.push({ type: "local_image", path });
+    }
+
+    for (const skill of mentioned) {
+      items.push({
+        type: "skill_inline",
+        name: skill.name,
+        contents: skill.contents,
+      });
+    }
+
+    return items;
+  }
+}
+
+function normalizeSkillMentionTriggers(
+  triggers: SkillMentionTrigger[] | undefined,
+): SkillMentionTrigger[] {
+  const filtered = (triggers ?? []).filter(
+    (value): value is SkillMentionTrigger => value === "$" || value === "@",
+  );
+  return filtered.length > 0 ? filtered : ["$"];
 }
 
 function normalizeInput(input: Input): { prompt: string; images: string[] } {

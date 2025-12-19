@@ -207,6 +207,26 @@ const turn = await thread.run([
 ]);
 ```
 
+### Skills (programmatic)
+
+Register skills directly in JS (no `SKILL.md` files required) and reference them in prompts.
+
+By default, skills activate when mentioned as `$<name>` (matching the Codex CLI/TUI). You can also enable `@<name>` mentions via `skillMentionTriggers`.
+
+```typescript
+import { Codex } from "@codex-native/sdk";
+
+const codex = new Codex({
+  skills: {
+    "db expert": "Answer as a database expert. Be concise and include SQL when helpful.",
+  },
+  skillMentionTriggers: ["$", "@"],
+});
+
+const thread = codex.startThread({ skipGitRepoCheck: true });
+await thread.run("Use $db expert to explain this query plan.");
+```
+
 ### Resuming an existing thread
 
 Threads are persisted in `~/.codex/sessions`. If you lose the in-memory `Thread` object, reconstruct it with `resumeThread()` and keep going.

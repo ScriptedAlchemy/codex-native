@@ -54,6 +54,7 @@ export type {
 
 export type { ThreadOptions, ApprovalMode, SandboxMode } from "./threadOptions";
 export type { TurnOptions } from "./turnOptions";
+export type { SkillDefinition, SkillMentionTrigger } from "./skills";
 export type {
   ReviewInvocationOptions,
   ReviewTarget,

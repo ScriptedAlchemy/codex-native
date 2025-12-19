@@ -69,7 +69,7 @@ async fn build_codex_with_test_tool(server: &wiremock::MockServer) -> anyhow::Re
 fn assert_parallel_duration(actual: Duration) {
     // Allow headroom for runtime overhead while still differentiating from serial execution.
     assert!(
-        actual < Duration::from_millis(2_000),
+        actual < Duration::from_millis(750),
         "expected parallel execution to finish quickly, got {actual:?}"
     );
 }
@@ -399,7 +399,7 @@ async fn shell_tools_start_before_response_completed_when_stream_delayed() -> an
     for timestamp in timestamps {
         assert!(
             timestamp <= completed_at,
-            "timestamp {timestamp} should be at or before completed {completed_at}"
+            "timestamp {timestamp} should be before or equal to completed {completed_at}"
         );
     }
 

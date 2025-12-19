@@ -7,9 +7,15 @@ import type { ApprovalMode, SandboxMode, WorkspaceWriteOptions, ReasoningEffort,
 
 const CLI_ENTRYPOINT_ENV = "CODEX_NODE_CLI_ENTRYPOINT";
 
+export type NativeUserInputItem =
+  | { type: "text"; text: string }
+  | { type: "local_image"; path: string }
+  | { type: "skill_inline"; name: string; contents: string };
+
 export type NativeRunRequest = {
   prompt: string;
   threadId?: string;
+  inputItems?: NativeUserInputItem[];
   images?: string[];
   model?: string;
   modelProvider?: string;

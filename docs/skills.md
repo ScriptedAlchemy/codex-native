@@ -40,6 +40,14 @@ Skills are behind the experimental `skills` feature flag and are disabled by def
 
 - Mention a skill by name in a message using `$<skill-name>`.
 - In the TUI, you can also use `/skills` to browse and insert skills.
+- When a skill is selected, Codex loads the skill body (from `SKILL.md`) and injects it into the turn as runtime-only instructions.
+
+## Programmatic skills (SDK)
+
+The Native SDK supports registering skills directly in JavaScript (no on-disk `SKILL.md` required).
+
+- Register via `new Codex({ skills: { ... } })` or `codex.registerSkill(...)`.
+- Mention via `$<name>` (default) or enable `@<name>` with `skillMentionTriggers`.
 
 ## Validation and errors
 

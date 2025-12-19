@@ -7,6 +7,7 @@ use std::path::PathBuf;
 fn base_internal_request() -> InternalRunRequest {
   InternalRunRequest {
     prompt: "placeholder".to_string(),
+    input_items: None,
     thread_id: None,
     images: Vec::new(),
     model: None,

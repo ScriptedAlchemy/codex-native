@@ -70,6 +70,7 @@ use codex_exec::{Cli, Color, Command, ResumeArgs, run_with_thread_event_callback
 use codex_protocol::config_types::ReasoningEffort;
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::config_types::SandboxMode;
+use codex_protocol::user_input::UserInput;
 use codex_tui::AppExitInfo;
 use codex_tui::Cli as TuiCli;
 use codex_tui::update_action::UpdateAction;

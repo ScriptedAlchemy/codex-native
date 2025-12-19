@@ -4,6 +4,7 @@ use pretty_assertions::assert_eq;
 fn base_run_request(prompt: &str) -> RunRequest {
   RunRequest {
     prompt: prompt.to_string(),
+    input_items: None,
     thread_id: None,
     images: None,
     model: None,

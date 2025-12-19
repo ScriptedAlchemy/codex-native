@@ -24,6 +24,8 @@ import { buildReviewPrompt, type ReviewInvocationOptions } from "./reviewOptions
 import { LspManager } from "./lsp/manager";
 import type { LspManagerOptions } from "./lsp/types";
 import { formatDiagnosticsForTool } from "./lsp/format";
+import type { SkillDefinition, SkillMentionTrigger, SkillRegistry } from "./skills";
+import { normalizeSkillDefinition } from "./skills";
 
 export type NativeToolInterceptorContext = {
   invocation: NativeToolInvocation;
@@ -54,6 +56,8 @@ export class Codex {
   private options: CodexOptions;
   private readonly nativeBinding: NativeBinding | null;
   private readonly lspForTools: LspManager | null;
+  private readonly skills: SkillRegistry = new Map();
+  private readonly skillMentionTriggers: SkillMentionTrigger[];
 
   constructor(options: CodexOptions = {}) {
     const predefinedTools = options.tools ? [...options.tools] : [];
@@ -73,7 +77,51 @@ export class Codex {
     if (this.lspForTools && this.nativeBinding) {
       this.registerDefaultReadFileInterceptor();
     }
+    this.skillMentionTriggers = normalizeSkillMentionTriggers(options.skillMentionTriggers);
+    this.registerSkillsFromConfig(options.skills);
     this.exec = new CodexExec();
+  }
+
+  registerSkill(skill: SkillDefinition): void {
+    const normalized = normalizeSkillDefinition(skill);
+    this.skills.set(normalized.name, normalized);
+  }
+
+  registerSkills(skills: SkillDefinition[]): void {
+    for (const skill of skills) {
+      this.registerSkill(skill);
+    }
+  }
+
+  listSkills(): SkillDefinition[] {
+    return [...this.skills.values()];
+  }
+
+  clearSkills(): void {
+    this.skills.clear();
+  }
+
+  private registerSkillsFromConfig(config: CodexOptions["skills"]): void {
+    if (!config) {
+      return;
+    }
+    if (Array.isArray(config)) {
+      this.registerSkills(config);
+      return;
+    }
+    if (typeof config !== "object") {
+      throw new Error("skills must be an array or object when provided");
+    }
+    for (const [name, value] of Object.entries(config)) {
+      if (typeof value === "string") {
+        this.registerSkill({ name, contents: value });
+        continue;
+      }
+      if (!value || typeof value !== "object") {
+        throw new Error(`Invalid skill entry for ${name}`);
+      }
+      this.registerSkill({ name, ...value });
+    }
   }
 
   /**
@@ -270,7 +318,10 @@ export class Codex {
       ...options,
       model: options.model ?? this.options.defaultModel,
     };
-    return new Thread(this.exec, this.options, threadOptions);
+    return new Thread(this.exec, this.options, threadOptions, null, {
+      codexSkills: this.skills,
+      codexSkillMentionTriggers: this.skillMentionTriggers,
+    });
   }
 
   /**
@@ -285,7 +336,10 @@ export class Codex {
       ...options,
       model: options.model ?? this.options.defaultModel,
     };
-    return new Thread(this.exec, this.options, threadOptions, id);
+    return new Thread(this.exec, this.options, threadOptions, id, {
+      codexSkills: this.skills,
+      codexSkillMentionTriggers: this.skillMentionTriggers,
+    });
   }
 
   async listConversations(options: ConversationListOptions = {}): Promise<ConversationListPage> {
@@ -318,7 +372,10 @@ export class Codex {
       ...options,
       model: options.model ?? this.options.defaultModel,
     };
-    return new Thread(this.exec, this.options, threadOptions, result.threadId);
+    return new Thread(this.exec, this.options, threadOptions, result.threadId, {
+      codexSkills: this.skills,
+      codexSkillMentionTriggers: this.skillMentionTriggers,
+    });
   }
 
   /**
@@ -425,6 +482,21 @@ export class Codex {
       await schemaFile.cleanup();
     }
   }
+}
+
+function normalizeSkillMentionTriggers(
+  triggers: CodexOptions["skillMentionTriggers"],
+): SkillMentionTrigger[] {
+  if (!triggers) {
+    return ["$"];
+  }
+  if (!Array.isArray(triggers)) {
+    throw new Error("skillMentionTriggers must be an array when provided");
+  }
+  const normalized = triggers.filter(
+    (value): value is SkillMentionTrigger => value === "$" || value === "@",
+  );
+  return normalized.length > 0 ? normalized : ["$"];
 }
 
 function prependSystemHintToToolResult(

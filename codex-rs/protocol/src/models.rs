@@ -331,6 +331,7 @@ impl From<Vec<UserInput>> for ResponseInputItem {
                         }
                     },
                     UserInput::Skill { .. } => None, // Skill bodies are injected later in core
+                    UserInput::SkillInline { .. } => None, // Skill bodies are injected later in core
                 })
                 .collect::<Vec<ContentItem>>(),
         }

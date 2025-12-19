@@ -86,12 +86,17 @@ impl SkillPopup {
                     .and_then(|n| n.to_str())
                     .unwrap_or(&skill.name);
                 let name = format!("{} ({slug})", skill.name);
-                let description = skill.description.clone();
+                let description = skill
+                    .short_description
+                    .as_ref()
+                    .unwrap_or(&skill.description)
+                    .clone();
                 GenericDisplayRow {
                     name,
                     match_indices: indices,
                     display_shortcut: None,
                     description: Some(description),
+                    disabled_reason: None,
                     wrap_indent: None,
                 }
             })

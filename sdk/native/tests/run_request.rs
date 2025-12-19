@@ -5,6 +5,7 @@ use serde_json::json;
 fn base_run_request(prompt: &str) -> RunRequest {
   RunRequest {
     prompt: prompt.to_string(),
+    input_items: None,
     thread_id: None,
     images: None,
     model: None,
@@ -32,6 +33,7 @@ fn test_run_request_default_values() {
   let req = base_run_request("test prompt");
 
   assert_eq!(req.prompt, "test prompt");
+  assert!(req.input_items.is_none());
   assert!(req.thread_id.is_none());
   assert!(req.images.is_none());
   assert!(req.full_auto.is_none());

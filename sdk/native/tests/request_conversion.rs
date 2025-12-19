@@ -7,6 +7,7 @@ use std::path::PathBuf;
 fn base_run_request(prompt: &str) -> RunRequest {
   RunRequest {
     prompt: prompt.to_string(),
+    input_items: None,
     thread_id: None,
     images: None,
     model: None,
@@ -34,6 +35,7 @@ fn test_run_request_into_internal_default_values() {
   let req = base_run_request("test prompt");
   let internal = req.into_internal().unwrap();
   assert_eq!(internal.prompt, "test prompt");
+  assert!(internal.input_items.is_none());
   assert!(internal.thread_id.is_none());
   assert!(internal.images.is_empty());
   assert!(!internal.skip_git_repo_check);
