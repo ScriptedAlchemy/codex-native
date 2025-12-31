@@ -21,7 +21,7 @@ importers:
         version: 2.18.4
       '@toon-format/toon':
         specifier: ^1.0.0
-        version: 1.0.0
+        version: 1.4.0
       concurrently:
         specifier: ^9.2.1
         version: 9.2.1
@@ -77,7 +77,7 @@ importers:
         version: 1.0.164
       '@toon-format/toon':
         specifier: ^1.0.0
-        version: 1.0.0
+        version: 1.4.0
       pyright:
         specifier: ^1.1.386
         version: 1.1.407
@@ -158,22 +158,6 @@ importers:
       '@codex-native/sdk-win32-x64-msvc':
         specifier: workspace:*
         version: link:npm/win32-x64-msvc
-
-  sdk/native/npm/darwin-arm64: {}
-
-  sdk/native/npm/darwin-x64: {}
-
-  sdk/native/npm/linux-arm64-gnu: {}
-
-  sdk/native/npm/linux-arm64-musl: {}
-
-  sdk/native/npm/linux-x64-gnu: {}
-
-  sdk/native/npm/linux-x64-musl: {}
-
-  sdk/native/npm/win32-arm64-msvc: {}
-
-  sdk/native/npm/win32-x64-msvc: {}
 
   sdk/typescript:
     devDependencies:
@@ -1890,8 +1874,8 @@ packages:
   '@sinonjs/fake-timers@10.3.0':
     resolution: {integrity: sha512-V4BG07kuYSUkTCSBHG8G8TNhM+F19jXFWnQtzj+we8DrkpSBCee9Z3Ms8yiGer/dlmhe35/Xdgyo3/0rQKg7YA==}
 
-  '@toon-format/toon@1.0.0':
-    resolution: {integrity: sha512-2gIk8LaqrzpurNDaDWZ72kucAGcBbxJxUnp+4ZP+Pny/QVNdMVf97yzSDTI3ed2q8ypjj8T271P6iE3bRmQBNw==}
+  '@toon-format/toon@1.4.0':
+    resolution: {integrity: sha512-bjdhhIPjnX2oVk+pKy/nD3bwuESDLX/5fwW0TxwpV7Q4PVNkiRSv1S0sPeuy9TI4PfAlulow1HShdmMTnYvoLg==}
 
   '@tsconfig/node10@1.0.11':
     resolution: {integrity: sha512-DcRjDCujK/kCk/cUe8Xz8ZSpm8mS3mNNpta+jGCA6USEDfktlNvm1+IuZ9eTcDbNk41BHwpHHeW+N1lKCz4zOw==}
@@ -5738,7 +5722,7 @@ snapshots:
     dependencies:
       '@sinonjs/commons': 3.0.1
 
-  '@toon-format/toon@1.0.0': {}
+  '@toon-format/toon@1.4.0': {}
 
   '@tsconfig/node10@1.0.11': {}
 
