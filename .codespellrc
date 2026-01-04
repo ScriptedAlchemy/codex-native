@@ -3,4 +3,4 @@
 skip = .git*,vendor,*-lock.yaml,*.lock,.codespellrc,.codespellignore,*test.ts,*.jsonl,frame*.txt,**/node_modules/**,**/dist/**,**/target/**,sdk/native/dist-examples_ignored/**,sdk/native/dist-examples/**,sdk/native/package-lock.json,**/.cache/**,**/.venv/**,**/.codex-ci/**,**/.fastembed_cache/**
 check-hidden = true
 ignore-regex = ^\s*"image/\S+": ".*|\b(afterAll)\b
-ignore-words-list = ratatui,ser,iTerm,iterm,trys,vEw,ANE,psuedo
+ignore-words-list = ratatui,ser,iTerm,iterm2,iterm,trys,vEw,ANE,psuedo

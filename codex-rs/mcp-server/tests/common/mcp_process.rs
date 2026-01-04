@@ -53,8 +53,8 @@ impl McpProcess {
         codex_home: &Path,
         env_overrides: &[(&str, Option<&str>)],
     ) -> anyhow::Result<Self> {
-        #[allow(deprecated)]
-        let program = assert_cmd::cargo::cargo_bin("codex-mcp-server");
+        let program = codex_utils_cargo_bin::cargo_bin("codex-mcp-server")
+            .context("should find binary for codex-mcp-server")?;
         let mut cmd = Command::new(program);
 
         cmd.stdin(Stdio::piped());

@@ -32,16 +32,18 @@ pub async fn create_transport<P>(
 where
     P: AsRef<Path>,
 {
-    #[allow(deprecated)]
-    let mcp_executable = assert_cmd::cargo::cargo_bin("codex-exec-mcp-server");
-    #[allow(deprecated)]
-    let execve_wrapper = assert_cmd::cargo::cargo_bin("codex-execve-wrapper");
-    let bash = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("tests")
-        .join("suite")
-        .join("bash");
+    let mcp_executable = codex_utils_cargo_bin::cargo_bin("codex-exec-mcp-server")?;
+    let execve_wrapper = codex_utils_cargo_bin::cargo_bin("codex-execve-wrapper")?;
+    // `bash` requires a special lookup when running under Buck because it is a
+    // _resource_ rather than a binary target.
+    let bash = if let Some(root) = codex_utils_cargo_bin::buck_project_root()? {
+        root.join("codex-rs/exec-server/tests/suite/bash")
+    } else {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("suite")
+            .join("bash")
+    };
 
     // Need to ensure the artifact associated with the bash DotSlash file is
     // available before it is run in a read-only sandbox.

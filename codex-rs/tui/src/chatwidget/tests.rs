@@ -11,7 +11,7 @@ use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
 use codex_core::config::Constrained;
 use codex_core::config::ConstraintError;
-use codex_core::openai_models::models_manager::ModelsManager;
+use codex_core::models_manager::manager::ModelsManager;
 use codex_core::protocol::AgentMessageDeltaEvent;
 use codex_core::protocol::AgentMessageEvent;
 use codex_core::protocol::AgentReasoningDeltaEvent;
@@ -39,6 +39,7 @@ use codex_core::protocol::ReviewTarget;
 use codex_core::protocol::StreamErrorEvent;
 use codex_core::protocol::TaskCompleteEvent;
 use codex_core::protocol::TaskStartedEvent;
+use codex_core::protocol::TerminalInteractionEvent;
 use codex_core::protocol::TokenCountEvent;
 use codex_core::protocol::TokenUsage;
 use codex_core::protocol::TokenUsageInfo;
@@ -312,7 +313,6 @@ async fn helpers_are_available_and_do_not_panic() {
     let tx = AppEventSender::new(tx_raw);
     let cfg = test_config().await;
     let resolved_model = ModelsManager::get_model_offline(cfg.model.as_deref());
-    let model_family = ModelsManager::construct_model_family_offline(&resolved_model, &cfg);
     let conversation_manager = Arc::new(ConversationManager::with_models_provider(
         CodexAuth::from_api_key("test"),
         cfg.model_provider.clone(),
@@ -329,7 +329,7 @@ async fn helpers_are_available_and_do_not_panic() {
         models_manager: conversation_manager.get_models_manager(),
         feedback: codex_feedback::CodexFeedback::new(),
         is_first_run: true,
-        model_family,
+        model: resolved_model,
     };
     let mut w = ChatWidget::new(init, conversation_manager);
     // Basic construction sanity.
@@ -370,11 +370,11 @@ async fn make_chatwidget_manual(
         codex_op_tx: op_tx,
         bottom_pane: bottom,
         active_cell: None,
-        config: cfg.clone(),
-        model_family: ModelsManager::construct_model_family_offline(&resolved_model, &cfg),
+        config: cfg,
+        model: resolved_model.clone(),
         auth_manager: auth_manager.clone(),
         models_manager: Arc::new(ModelsManager::new(auth_manager)),
-        session_header: SessionHeader::new(resolved_model.clone()),
+        session_header: SessionHeader::new(resolved_model),
         initial_user_message: None,
         token_info: None,
         rate_limit_snapshot: None,
@@ -406,6 +406,7 @@ async fn make_chatwidget_manual(
         last_rendered_width: std::cell::Cell::new(None),
         feedback: codex_feedback::CodexFeedback::new(),
         current_rollout_path: None,
+        external_editor_state: ExternalEditorState::Closed,
     };
     (widget, rx, op_rx)
 }
@@ -866,6 +867,42 @@ fn begin_exec_with_source(
     event
 }
 
+fn begin_unified_exec_startup(
+    chat: &mut ChatWidget,
+    call_id: &str,
+    process_id: &str,
+    raw_cmd: &str,
+) -> ExecCommandBeginEvent {
+    let command = vec!["bash".to_string(), "-lc".to_string(), raw_cmd.to_string()];
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let event = ExecCommandBeginEvent {
+        call_id: call_id.to_string(),
+        process_id: Some(process_id.to_string()),
+        turn_id: "turn-1".to_string(),
+        command,
+        cwd,
+        parsed_cmd: Vec::new(),
+        source: ExecCommandSource::UnifiedExecStartup,
+        interaction_input: None,
+    };
+    chat.handle_codex_event(Event {
+        id: call_id.to_string(),
+        msg: EventMsg::ExecCommandBegin(event.clone()),
+    });
+    event
+}
+
+fn terminal_interaction(chat: &mut ChatWidget, call_id: &str, process_id: &str, stdin: &str) {
+    chat.handle_codex_event(Event {
+        id: call_id.to_string(),
+        msg: EventMsg::TerminalInteraction(TerminalInteractionEvent {
+            call_id: call_id.to_string(),
+            process_id: process_id.to_string(),
+            stdin: stdin.to_string(),
+        }),
+    });
+}
+
 fn begin_exec(chat: &mut ChatWidget, call_id: &str, raw_cmd: &str) -> ExecCommandBeginEvent {
     begin_exec_with_source(chat, call_id, raw_cmd, ExecCommandSource::Agent)
 }
@@ -1247,6 +1284,90 @@ async fn unified_exec_end_after_task_complete_is_suppressed() {
     );
 }
 
+#[tokio::test]
+async fn unified_exec_waiting_multiple_empty_snapshots() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+    begin_unified_exec_startup(&mut chat, "call-wait-1", "proc-1", "just fix");
+
+    terminal_interaction(&mut chat, "call-wait-1a", "proc-1", "");
+    terminal_interaction(&mut chat, "call-wait-1b", "proc-1", "");
+    assert_snapshot!(
+        "unified_exec_waiting_multiple_empty_active",
+        active_blob(&chat)
+    );
+
+    chat.handle_codex_event(Event {
+        id: "turn-wait-1".into(),
+        msg: EventMsg::TaskComplete(TaskCompleteEvent {
+            last_agent_message: None,
+        }),
+    });
+
+    let cells = drain_insert_history(&mut rx);
+    let combined = cells
+        .iter()
+        .map(|lines| lines_to_single_string(lines))
+        .collect::<String>();
+    assert_snapshot!("unified_exec_waiting_multiple_empty_after", combined);
+}
+
+#[tokio::test]
+async fn unified_exec_empty_then_non_empty_snapshot() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+    begin_unified_exec_startup(&mut chat, "call-wait-2", "proc-2", "just fix");
+
+    terminal_interaction(&mut chat, "call-wait-2a", "proc-2", "");
+    terminal_interaction(&mut chat, "call-wait-2b", "proc-2", "ls\n");
+
+    let cells = drain_insert_history(&mut rx);
+    let combined = cells
+        .iter()
+        .map(|lines| lines_to_single_string(lines))
+        .collect::<String>();
+    assert_snapshot!("unified_exec_empty_then_non_empty_after", combined);
+}
+
+#[tokio::test]
+async fn unified_exec_non_empty_then_empty_snapshots() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
+    begin_unified_exec_startup(&mut chat, "call-wait-3", "proc-3", "just fix");
+
+    terminal_interaction(&mut chat, "call-wait-3a", "proc-3", "pwd\n");
+    terminal_interaction(&mut chat, "call-wait-3b", "proc-3", "");
+    let pre_cells = drain_insert_history(&mut rx);
+    let mut active_combined = pre_cells
+        .iter()
+        .map(|lines| lines_to_single_string(lines))
+        .collect::<String>();
+    if !active_combined.is_empty() {
+        active_combined.push('\n');
+    }
+    active_combined.push_str(&active_blob(&chat));
+    assert_snapshot!("unified_exec_non_empty_then_empty_active", active_combined);
+
+    chat.handle_codex_event(Event {
+        id: "turn-wait-3".into(),
+        msg: EventMsg::TaskComplete(TaskCompleteEvent {
+            last_agent_message: None,
+        }),
+    });
+
+    let post_cells = drain_insert_history(&mut rx);
+    let mut combined = pre_cells
+        .iter()
+        .map(|lines| lines_to_single_string(lines))
+        .collect::<String>();
+    let post = post_cells
+        .iter()
+        .map(|lines| lines_to_single_string(lines))
+        .collect::<String>();
+    if !combined.is_empty() && !post.is_empty() {
+        combined.push('\n');
+    }
+    combined.push_str(&post);
+    assert_snapshot!("unified_exec_non_empty_then_empty_after", combined);
+}
+
 /// Selecting the custom prompt option from the review popup sends
 /// OpenReviewCustomPrompt to the app event channel.
 #[tokio::test]
@@ -1333,19 +1454,6 @@ async fn slash_resume_opens_picker() {
     assert_matches!(rx.try_recv(), Ok(AppEvent::OpenResumePicker));
 }
 
-#[tokio::test]
-async fn slash_undo_sends_op() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
-
-    chat.dispatch_command(SlashCommand::Undo);
-
-    match rx.try_recv() {
-        Ok(AppEvent::CodexOp(Op::Undo)) => {}
-        other => panic!("expected AppEvent::CodexOp(Op::Undo), got {other:?}"),
-    }
-}
-
-#[tokio::test]
 async fn slash_rollout_displays_current_path() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
     let rollout_path = PathBuf::from("/tmp/codex-test-rollout.jsonl");
@@ -2154,12 +2262,12 @@ async fn approvals_popup_shows_disabled_presets() {
     chat.config.approval_policy =
         Constrained::new(AskForApproval::OnRequest, |candidate| match candidate {
             AskForApproval::OnRequest => Ok(()),
-            _ => Err(ConstraintError {
-                message: "this message should be printed in the description".to_string(),
-            }),
+            _ => Err(ConstraintError::invalid_value(
+                candidate.to_string(),
+                "this message should be printed in the description",
+            )),
         })
         .expect("construct constrained approval policy");
-
     chat.open_approvals_popup();
 
     let width = 80;
@@ -2190,12 +2298,12 @@ async fn approvals_popup_navigation_skips_disabled() {
     chat.config.approval_policy =
         Constrained::new(AskForApproval::OnRequest, |candidate| match candidate {
             AskForApproval::OnRequest => Ok(()),
-            _ => Err(ConstraintError {
-                message: "disabled preset".to_string(),
-            }),
+            _ => Err(ConstraintError::invalid_value(
+                candidate.to_string(),
+                "[on-request]",
+            )),
         })
         .expect("construct constrained approval policy");
-
     chat.open_approvals_popup();
 
     // The approvals popup is the active bottom-pane view; drive navigation via chat handle_key_event.
@@ -3113,11 +3221,13 @@ async fn stream_error_updates_status_indicator() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(None).await;
     chat.bottom_pane.set_task_running(true);
     let msg = "Reconnecting... 2/5";
+    let details = "Idle timeout waiting for SSE";
     chat.handle_codex_event(Event {
         id: "sub-1".into(),
         msg: EventMsg::StreamError(StreamErrorEvent {
             message: msg.to_string(),
             codex_error_info: Some(CodexErrorInfo::Other),
+            additional_details: Some(details.to_string()),
         }),
     });
 
@@ -3131,6 +3241,7 @@ async fn stream_error_updates_status_indicator() {
         .status_widget()
         .expect("status indicator should be visible");
     assert_eq!(status.header(), msg);
+    assert_eq!(status.details(), Some(details));
 }
 
 #[tokio::test]
@@ -3167,6 +3278,7 @@ async fn stream_recovery_restores_previous_status_header() {
         msg: EventMsg::StreamError(StreamErrorEvent {
             message: "Reconnecting... 1/5".to_string(),
             codex_error_info: Some(CodexErrorInfo::Other),
+            additional_details: None,
         }),
     });
     drain_insert_history(&mut rx);
@@ -3182,6 +3294,7 @@ async fn stream_recovery_restores_previous_status_header() {
         .status_widget()
         .expect("status indicator should be visible");
     assert_eq!(status.header(), "Working");
+    assert_eq!(status.details(), None);
     assert!(chat.retry_status_header.is_none());
 }
 

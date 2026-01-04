@@ -10,7 +10,6 @@ use std::time::UNIX_EPOCH;
 
 use codex_core::config::types::McpServerConfig;
 use codex_core::config::types::McpServerTransportConfig;
-use codex_core::features::Feature;
 
 use codex_core::protocol::AskForApproval;
 use codex_core::protocol::EventMsg;
@@ -80,7 +79,6 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
 
     let fixture = test_codex()
         .with_config(move |config| {
-            config.features.enable(Feature::RmcpClient);
             config.mcp_servers.insert(
                 server_name.to_string(),
                 McpServerConfig {
@@ -219,7 +217,6 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
 
     let fixture = test_codex()
         .with_config(move |config| {
-            config.features.enable(Feature::RmcpClient);
             config.mcp_servers.insert(
                 server_name.to_string(),
                 McpServerConfig {
@@ -416,7 +413,6 @@ async fn stdio_image_completions_round_trip() -> anyhow::Result<()> {
     let fixture = test_codex()
         .with_config(move |config| {
             config.model_provider.wire_api = codex_core::WireApi::Chat;
-            config.features.enable(Feature::RmcpClient);
             config.mcp_servers.insert(
                 server_name.to_string(),
                 McpServerConfig {
@@ -564,7 +560,6 @@ async fn stdio_server_propagates_whitelisted_env_vars() -> anyhow::Result<()> {
 
     let fixture = test_codex()
         .with_config(move |config| {
-            config.features.enable(Feature::RmcpClient);
             config.mcp_servers.insert(
                 server_name.to_string(),
                 McpServerConfig {
@@ -715,7 +710,6 @@ async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
 
     let fixture = test_codex()
         .with_config(move |config| {
-            config.features.enable(Feature::RmcpClient);
             config.mcp_servers.insert(
                 server_name.to_string(),
                 McpServerConfig {
@@ -897,7 +891,6 @@ async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
 
     let fixture = test_codex()
         .with_config(move |config| {
-            config.features.enable(Feature::RmcpClient);
             config.mcp_servers.insert(
                 server_name.to_string(),
                 McpServerConfig {

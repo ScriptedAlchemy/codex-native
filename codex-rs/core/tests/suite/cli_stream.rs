@@ -3,7 +3,6 @@ use codex_core::RolloutRecorder;
 use codex_core::protocol::GitInfo;
 use core_test_support::fs_wait;
 use core_test_support::skip_if_no_network;
-use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -13,9 +12,11 @@ use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
-fn codex_bin_or_skip(test_name: &str) -> Option<PathBuf> {
-    #[allow(deprecated)]
-    let bin = assert_cmd::cargo::cargo_bin("codex");
+fn codex_bin_or_skip(test_name: &str) -> Option<std::path::PathBuf> {
+    let Ok(bin) = codex_utils_cargo_bin::cargo_bin("codex") else {
+        eprintln!("Skipping {test_name}: codex binary not available.");
+        return None;
+    };
     if bin.is_file() {
         Some(bin)
     } else {

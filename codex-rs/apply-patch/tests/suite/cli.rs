@@ -1,10 +1,11 @@
+use assert_cmd::Command;
 use std::fs;
 use tempfile::tempdir;
 
-fn apply_patch_cmd() -> assert_cmd::Command {
-    #[allow(deprecated)]
-    let exe = assert_cmd::cargo::cargo_bin("apply_patch");
-    assert_cmd::Command::new(exe)
+fn apply_patch_command() -> anyhow::Result<Command> {
+    Ok(Command::new(codex_utils_cargo_bin::cargo_bin(
+        "apply_patch",
+    )?))
 }
 
 #[test]
@@ -20,7 +21,7 @@ fn test_apply_patch_cli_add_and_update() -> anyhow::Result<()> {
 +hello
 *** End Patch"#
     );
-    apply_patch_cmd()
+    apply_patch_command()?
         .arg(add_patch)
         .current_dir(tmp.path())
         .assert()
@@ -37,7 +38,7 @@ fn test_apply_patch_cli_add_and_update() -> anyhow::Result<()> {
 +world
 *** End Patch"#
     );
-    apply_patch_cmd()
+    apply_patch_command()?
         .arg(update_patch)
         .current_dir(tmp.path())
         .assert()
@@ -61,8 +62,8 @@ fn test_apply_patch_cli_stdin_add_and_update() -> anyhow::Result<()> {
 +hello
 *** End Patch"#
     );
-    let mut cmd = apply_patch_cmd();
-    cmd.current_dir(tmp.path())
+    apply_patch_command()?
+        .current_dir(tmp.path())
         .write_stdin(add_patch)
         .assert()
         .success()
@@ -78,8 +79,8 @@ fn test_apply_patch_cli_stdin_add_and_update() -> anyhow::Result<()> {
 +world
 *** End Patch"#
     );
-    let mut cmd = apply_patch_cmd();
-    cmd.current_dir(tmp.path())
+    apply_patch_command()?
+        .current_dir(tmp.path())
         .write_stdin(update_patch)
         .assert()
         .success()
