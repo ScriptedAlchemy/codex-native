@@ -218,14 +218,10 @@ async fn read_only_disallows_writes_to_tmp_when_tmp_is_cwd() {
 
     let policy = SandboxPolicy::ReadOnly;
 
-    assert!(
-        !(touch_with_cwd(&in_cwd, &policy, cwd.path().to_path_buf()).await)
-    );
+    assert!(!(touch_with_cwd(&in_cwd, &policy, cwd.path().to_path_buf()).await));
     assert!(!in_cwd.exists());
 
-    assert!(
-        touch_with_cwd(&outside_cwd, &policy, cwd.path().to_path_buf()).await
-    );
+    assert!(touch_with_cwd(&outside_cwd, &policy, cwd.path().to_path_buf()).await);
     assert!(outside_cwd.exists());
 }
 
