@@ -240,11 +240,13 @@ async fn unicode_output(login: bool) -> anyhow::Result<()> {
     .await?;
 
     let call_id = "unicode_output";
-    mount_shell_responses(
+    // Starting PowerShell + invoking git can exceed the default 2s timeout on Windows CI.
+    mount_shell_responses_with_timeout(
         &harness,
         call_id,
         "git -c alias.say='!printf \"%s\" \"naïve_café\"' say",
         Some(login),
+        10_000,
     )
     .await;
     harness.submit("run the command without login").await?;
@@ -269,11 +271,13 @@ async fn unicode_output_with_newlines(login: bool) -> anyhow::Result<()> {
     .await?;
 
     let call_id = "unicode_output";
-    mount_shell_responses(
+    // Starting PowerShell can exceed the default 2s timeout on Windows CI.
+    mount_shell_responses_with_timeout(
         &harness,
         call_id,
         "echo 'line1\nnaïve café\nline3'",
         Some(login),
+        10_000,
     )
     .await;
     harness.submit("run the command without login").await?;
