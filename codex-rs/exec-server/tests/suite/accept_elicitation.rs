@@ -9,10 +9,8 @@ use anyhow::Result;
 use anyhow::ensure;
 use codex_exec_server::ExecResult;
 use exec_server_test_support::InteractiveClient;
-use exec_server_test_support::TestBash;
 use exec_server_test_support::create_transport;
 use exec_server_test_support::notify_readable_sandbox;
-use exec_server_test_support::should_use_dotslash_bash;
 use exec_server_test_support::write_default_execpolicy;
 use maplit::hashset;
 use pretty_assertions::assert_eq;
@@ -51,12 +49,7 @@ prefix_rule(
         codex_home.as_ref(),
     )
     .await?;
-    let bash = if should_use_dotslash_bash() {
-        TestBash::DotSlash
-    } else {
-        TestBash::System
-    };
-    let transport = create_transport(codex_home.as_ref(), bash).await?;
+    let transport = create_transport(codex_home.as_ref()).await?;
 
     // Create an MCP client that approves expected elicitation messages.
     let project_root = TempDir::new()?;

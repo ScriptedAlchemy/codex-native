@@ -25,53 +25,37 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::process::Command;
 
-#[derive(Debug, Clone, Copy)]
-pub enum TestBash {
-    /// Use the `tests/suite/bash` DotSlash file (downloaded/cache-managed by DotSlash).
-    DotSlash,
-    /// Use the system-provided Bash at `/bin/bash` (no DotSlash fetch needed).
-    System,
-}
-
-pub async fn create_transport<P>(codex_home: P, bash: TestBash) -> anyhow::Result<TokioChildProcess>
+pub async fn create_transport<P>(codex_home: P) -> anyhow::Result<TokioChildProcess>
 where
     P: AsRef<Path>,
 {
     let mcp_executable = codex_utils_cargo_bin::cargo_bin("codex-exec-mcp-server")?;
     let execve_wrapper = codex_utils_cargo_bin::cargo_bin("codex-execve-wrapper")?;
 
-    let use_dotslash = matches!(bash, TestBash::DotSlash);
-    let bash = match bash {
-        TestBash::System => PathBuf::from("/bin/bash"),
-        TestBash::DotSlash => {
-            // `bash` requires a special lookup when running under Buck because it is a
-            // _resource_ rather than a binary target.
-            if let Some(root) = codex_utils_cargo_bin::buck_project_root()? {
-                root.join("codex-rs/exec-server/tests/suite/bash")
-            } else {
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("..")
-                    .join("suite")
-                    .join("bash")
-            }
-        }
+    // `bash` requires a special lookup when running under Buck because it is a
+    // _resource_ rather than a binary target.
+    let bash = if let Some(root) = codex_utils_cargo_bin::buck_project_root()? {
+        root.join("codex-rs/exec-server/tests/suite/bash")
+    } else {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("suite")
+            .join("bash")
     };
 
-    if use_dotslash {
-        // Need to ensure the artifact associated with the bash DotSlash file is
-        // available before it is run in a read-only sandbox.
-        //
-        // Note we intentionally *do not* set `DOTSLASH_CACHE`: tests should use the
-        // user's configured cache (or DotSlash default) so that `cargo nextest`
-        // doesn't re-download the tarball for each test case.
-        let status = Command::new("dotslash")
-            .arg("--")
-            .arg("fetch")
-            .arg(bash.clone())
-            .status()
-            .await?;
-        assert!(status.success(), "dotslash fetch failed: {status:?}");
-    }
+    // Need to ensure the artifact associated with the bash DotSlash file is
+    // available before it is run in a read-only sandbox.
+    //
+    // Note we intentionally *do not* set `DOTSLASH_CACHE`: tests should use the
+    // user's configured cache (or DotSlash default) so that `cargo nextest`
+    // doesn't re-download the tarball for each test case.
+    let status = Command::new("dotslash")
+        .arg("--")
+        .arg("fetch")
+        .arg(bash.clone())
+        .status()
+        .await?;
+    assert!(status.success(), "dotslash fetch failed: {status:?}");
 
     let transport = TokioChildProcess::new(Command::new(&mcp_executable).configure(|cmd| {
         cmd.arg("--bash").arg(bash);
@@ -87,15 +71,6 @@ where
     }))?;
 
     Ok(transport)
-}
-
-pub fn should_use_dotslash_bash() -> bool {
-    // On macOS, `/bin/bash` is a system-provided binary that is not patched to support our
-    // execve-wrapping protocol. Use the DotSlash-provided Bash in that case.
-    //
-    // On Linux, either variant works, but using `/bin/bash` avoids a cold DotSlash download
-    // that can exceed `cargo nextest`'s slow-timeout when the cache is empty.
-    cfg!(target_os = "macos")
 }
 
 pub async fn write_default_execpolicy<P>(policy: &str, codex_home: P) -> anyhow::Result<()>

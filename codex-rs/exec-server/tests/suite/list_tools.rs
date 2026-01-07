@@ -4,9 +4,7 @@ use std::fs;
 use std::sync::Arc;
 
 use anyhow::Result;
-use exec_server_test_support::TestBash;
 use exec_server_test_support::create_transport;
-use exec_server_test_support::should_use_dotslash_bash;
 use pretty_assertions::assert_eq;
 use rmcp::ServiceExt;
 use rmcp::model::Tool;
@@ -24,12 +22,7 @@ async fn list_tools() -> Result<()> {
         policy_dir.join("default.rules"),
         r#"prefix_rule(pattern=["ls"], decision="prompt")"#,
     )?;
-    let bash = if should_use_dotslash_bash() {
-        TestBash::DotSlash
-    } else {
-        TestBash::System
-    };
-    let transport = create_transport(codex_home.path(), bash).await?;
+    let transport = create_transport(codex_home.path()).await?;
 
     let service = ().serve(transport).await?;
     let tools = service.list_tools(Default::default()).await?.tools;
