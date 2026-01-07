@@ -16,8 +16,12 @@ use crate::codex::TurnContext;
 use crate::exec_env::create_env;
 use crate::protocol::BackgroundEventEvent;
 use crate::protocol::EventMsg;
+use crate::protocol::ExecCommandSource;
 use crate::sandboxing::ExecEnv;
 use crate::sandboxing::SandboxPermissions;
+use crate::tools::events::ToolEmitter;
+use crate::tools::events::ToolEventCtx;
+use crate::tools::events::ToolEventStage;
 use crate::tools::orchestrator::ToolOrchestrator;
 use crate::tools::runtimes::unified_exec::UnifiedExecRequest as UnifiedExecToolRequest;
 use crate::tools::runtimes::unified_exec::UnifiedExecRuntime;
@@ -25,27 +29,26 @@ use crate::tools::sandboxing::ToolCtx;
 use crate::truncate::TruncationPolicy;
 use crate::truncate::approx_token_count;
 use crate::truncate::formatted_truncate_text;
-
-use super::CommandTranscript;
-use super::ExecCommandRequest;
-use super::MAX_UNIFIED_EXEC_SESSIONS;
-use super::SessionEntry;
-use super::SessionStore;
-use super::UnifiedExecContext;
-use super::UnifiedExecError;
-use super::UnifiedExecResponse;
-use super::UnifiedExecSessionManager;
-use super::WARNING_UNIFIED_EXEC_SESSIONS;
-use super::WriteStdinRequest;
-use super::async_watcher::emit_exec_end_for_unified_exec;
-use super::async_watcher::spawn_exit_watcher;
-use super::async_watcher::start_streaming_output;
-use super::clamp_yield_time;
-use super::generate_chunk_id;
-use super::resolve_max_tokens;
-use super::session::OutputBuffer;
-use super::session::OutputHandles;
-use super::session::UnifiedExecSession;
+use crate::unified_exec::ExecCommandRequest;
+use crate::unified_exec::MAX_UNIFIED_EXEC_SESSIONS;
+use crate::unified_exec::SessionEntry;
+use crate::unified_exec::SessionStore;
+use crate::unified_exec::UnifiedExecContext;
+use crate::unified_exec::UnifiedExecError;
+use crate::unified_exec::UnifiedExecResponse;
+use crate::unified_exec::UnifiedExecSessionManager;
+use crate::unified_exec::WARNING_UNIFIED_EXEC_SESSIONS;
+use crate::unified_exec::WriteStdinRequest;
+use crate::unified_exec::async_watcher::emit_exec_end_for_unified_exec;
+use crate::unified_exec::async_watcher::spawn_exit_watcher;
+use crate::unified_exec::async_watcher::start_streaming_output;
+use crate::unified_exec::clamp_yield_time;
+use crate::unified_exec::generate_chunk_id;
+use crate::unified_exec::head_tail_buffer::HeadTailBuffer;
+use crate::unified_exec::resolve_max_tokens;
+use crate::unified_exec::session::OutputBuffer;
+use crate::unified_exec::session::OutputHandles;
+use crate::unified_exec::session::UnifiedExecSession;
 
 const UNIFIED_EXEC_ENV: [(&str, &str); 9] = [
     ("NO_COLOR", "1"),
@@ -140,14 +143,22 @@ impl UnifiedExecSessionManager {
             }
         };
 
-        // Do not stream ExecCommandOutputDelta events during the initial poll.
-        //
-        // The initial exec_command call has a `yield_time_ms` poll window. If
-        // the command exits within that window (early-exit), we should emit
-        // only ExecCommandBegin/ExecCommandEnd, not output deltas. This keeps
-        // event semantics deterministic: we only start streaming deltas once we
-        // know the session will outlive the initial poll.
-        let transcript = Arc::new(tokio::sync::Mutex::new(CommandTranscript::default()));
+        let transcript = Arc::new(tokio::sync::Mutex::new(HeadTailBuffer::default()));
+        let event_ctx = ToolEventCtx::new(
+            context.session.as_ref(),
+            context.turn.as_ref(),
+            &context.call_id,
+            None,
+        );
+        let emitter = ToolEmitter::unified_exec(
+            &request.command,
+            cwd.clone(),
+            ExecCommandSource::UnifiedExecStartup,
+            Some(request.process_id.clone()),
+        );
+        emitter.emit(event_ctx, ToolEventStage::Begin).await;
+
+        start_streaming_output(&session, context, Arc::clone(&transcript));
 
         let max_tokens = resolve_max_tokens(request.max_output_tokens);
         let yield_time_ms = clamp_yield_time(request.yield_time_ms);
@@ -170,11 +181,6 @@ impl UnifiedExecSessionManager {
         )
         .await;
         let wall_time = Instant::now().saturating_duration_since(start);
-
-        {
-            let mut guard = transcript.lock().await;
-            guard.append(&collected);
-        }
 
         let text = String::from_utf8_lossy(&collected).to_string();
         let output = formatted_truncate_text(&text, TruncationPolicy::Tokens(max_tokens));
@@ -204,7 +210,6 @@ impl UnifiedExecSessionManager {
             self.release_process_id(&request.process_id).await;
             session.check_for_sandbox_denial_with_text(&text).await?;
         } else {
-            start_streaming_output(&session, context, Arc::clone(&transcript));
             // Long‑lived command: persist the session so write_stdin can reuse
             // it, and register a background watcher that will emit
             // ExecCommandEnd when the PTY eventually exits (even if no further
@@ -403,7 +408,7 @@ impl UnifiedExecSessionManager {
         cwd: PathBuf,
         started_at: Instant,
         process_id: String,
-        transcript: Arc<tokio::sync::Mutex<CommandTranscript>>,
+        transcript: Arc<tokio::sync::Mutex<HeadTailBuffer>>,
     ) {
         let entry = SessionEntry {
             session: Arc::clone(&session),
@@ -545,11 +550,11 @@ impl UnifiedExecSessionManager {
         let mut collected: Vec<u8> = Vec::with_capacity(4096);
         let mut exit_signal_received = cancellation_token.is_cancelled();
         loop {
-            let drained_chunks;
+            let drained_chunks: Vec<Vec<u8>>;
             let mut wait_for_output = None;
             {
                 let mut guard = output_buffer.lock().await;
-                drained_chunks = guard.drain();
+                drained_chunks = guard.drain_chunks();
                 if drained_chunks.is_empty() {
                     wait_for_output = Some(output_notify.notified());
                 }
