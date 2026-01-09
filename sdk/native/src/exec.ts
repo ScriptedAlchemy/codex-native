@@ -1,4 +1,10 @@
-import { ApprovalMode, SandboxMode, WorkspaceWriteOptions } from "./threadOptions";
+import {
+  ApprovalMode,
+  ReasoningEffort,
+  ReasoningSummary,
+  SandboxMode,
+  WorkspaceWriteOptions,
+} from "./threadOptions";
 import {
   NativeBinding,
   NativeConversationListPage,
@@ -31,6 +37,8 @@ export type CodexExecArgs = {
   skipGitRepoCheck?: boolean;
   outputSchemaFile?: string;
   outputSchema?: unknown;
+  reasoningEffort?: ReasoningEffort;
+  reasoningSummary?: ReasoningSummary;
   /** @deprecated Use sandboxMode and approvalMode instead */
   fullAuto?: boolean;
   review?: ReviewExecOptions | null;
@@ -101,6 +109,8 @@ export class CodexExec {
       baseUrl: args.baseUrl,
       apiKey: args.apiKey,
       modelProvider: args.modelProvider,
+      reasoningEffort: args.reasoningEffort,
+      reasoningSummary: args.reasoningSummary,
       fullAuto: args.fullAuto,
       reviewMode: args.review ? true : undefined,
       reviewHint: args.review?.userFacingHint,
@@ -168,6 +178,8 @@ export class CodexExec {
       baseUrl: args.baseUrl,
       apiKey: args.apiKey,
       fullAuto: args.fullAuto,
+      reasoningEffort: args.reasoningEffort,
+      reasoningSummary: args.reasoningSummary,
       reviewMode: args.review ? true : undefined,
       reviewHint: args.review?.userFacingHint,
     };
@@ -298,6 +310,8 @@ function validateModel(model: string | undefined | null, oss: boolean): void {
     "gpt-5",
     "gpt-5-codex",
     "gpt-5-codex-mini",
+    "gpt-5.2",
+    "gpt-5.2-codex",
     "gpt-5.1",
     "gpt-5.1-codex",
     "gpt-5.1-codex-mini",
