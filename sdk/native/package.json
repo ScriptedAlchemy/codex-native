@@ -1,6 +1,6 @@
 {
   "name": "@codex-native/sdk",
-  "version": "0.0.20",
+  "version": "0.0.23",
   "description": "Native NAPI-based Codex SDK - complete standalone implementation.",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
@@ -26,7 +26,10 @@
     "build:ts": "tsup",
     "build:napi": "node -e \"const {execFileSync}=require('node:child_process');const {readFileSync,readdirSync,rmSync}=require('node:fs');const {platform,arch}=process;for(const entry of readdirSync(process.cwd())){if(entry.endsWith('.node')&&entry.startsWith('codex_native.')){try{rmSync(entry);}catch{}}}const isMusl=()=>{if(platform!=='linux')return false;try{if(readFileSync('/usr/bin/ldd','utf8').includes('musl'))return true;}catch{}if(typeof process.report?.getReport==='function'){const r=process.report.getReport();if(r?.header?.glibcVersionRuntime)return false;if(Array.isArray(r?.sharedObjects)&&r.sharedObjects.some((p)=>p.includes('libc.musl-')||p.includes('ld-musl-')))return true;}try{return require('node:child_process').execSync('ldd --version',{encoding:'utf8'}).includes('musl');}catch{}return false;};let dir=null;if(platform==='darwin'){dir=arch==='arm64'?'darwin-arm64':arch==='x64'?'darwin-x64':null;}else if(platform==='linux'){const suffix=isMusl()?'musl':'gnu';dir=arch==='arm64'?'linux-arm64-'+suffix:arch==='x64'?'linux-x64-'+suffix:null;}else if(platform==='win32'){dir=arch==='arm64'?'win32-arm64-msvc':arch==='x64'?'win32-x64-msvc':null;}if(!dir){throw new Error('Unsupported platform/arch: '+platform+' '+arch);}execFileSync('napi',['build','--platform','--release','--features','napi-bindings','--no-js','--output-dir','npm/'+dir],{stdio:'inherit'});\"",
     "build:napi:debug": "node -e \"const {execFileSync}=require('node:child_process');const {readFileSync}=require('node:fs');const {platform,arch}=process;const isMusl=()=>{if(platform!=='linux')return false;try{if(readFileSync('/usr/bin/ldd','utf8').includes('musl'))return true;}catch{}if(typeof process.report?.getReport==='function'){const r=process.report.getReport();if(r?.header?.glibcVersionRuntime)return false;if(Array.isArray(r?.sharedObjects)&&r.sharedObjects.some((p)=>p.includes('libc.musl-')||p.includes('ld-musl-')))return true;}try{return require('node:child_process').execSync('ldd --version',{encoding:'utf8'}).includes('musl');}catch{}return false;};let dir=null;if(platform==='darwin'){dir=arch==='arm64'?'darwin-arm64':arch==='x64'?'darwin-x64':null;}else if(platform==='linux'){const suffix=isMusl()?'musl':'gnu';dir=arch==='arm64'?'linux-arm64-'+suffix:arch==='x64'?'linux-x64-'+suffix:null;}else if(platform==='win32'){dir=arch==='arm64'?'win32-arm64-msvc':arch==='x64'?'win32-x64-msvc':null;}if(!dir){throw new Error('Unsupported platform/arch: '+platform+' '+arch);}execFileSync('napi',['build','--platform','--features','napi-bindings','--no-js','--output-dir','npm/'+dir],{stdio:'inherit'});\"",
-    "release": "node scripts/publish.mjs",
+    "release": "node scripts/release.mjs publish",
+    "release:patch": "node scripts/release.mjs patch",
+    "release:minor": "node scripts/release.mjs minor",
+    "release:major": "node scripts/release.mjs major",
     "test": "NODE_OPTIONS='--experimental-vm-modules' jest --runInBand",
     "version": "napi version"
   },
@@ -44,14 +47,14 @@
     ]
   },
   "optionalDependencies": {
-    "@codex-native/sdk-darwin-arm64": "0.0.15",
-    "@codex-native/sdk-darwin-x64": "0.0.15",
-    "@codex-native/sdk-linux-arm64-gnu": "0.0.15",
-    "@codex-native/sdk-linux-x64-gnu": "0.0.15",
-    "@codex-native/sdk-linux-arm64-musl": "0.0.15",
-    "@codex-native/sdk-linux-x64-musl": "0.0.15",
-    "@codex-native/sdk-win32-arm64-msvc": "0.0.15",
-    "@codex-native/sdk-win32-x64-msvc": "0.0.15"
+    "@codex-native/sdk-darwin-arm64": "0.0.23",
+    "@codex-native/sdk-darwin-x64": "0.0.23",
+    "@codex-native/sdk-linux-arm64-gnu": "0.0.23",
+    "@codex-native/sdk-linux-x64-gnu": "0.0.23",
+    "@codex-native/sdk-linux-arm64-musl": "0.0.23",
+    "@codex-native/sdk-linux-x64-musl": "0.0.23",
+    "@codex-native/sdk-win32-arm64-msvc": "0.0.23",
+    "@codex-native/sdk-win32-x64-msvc": "0.0.23"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.22.0",
