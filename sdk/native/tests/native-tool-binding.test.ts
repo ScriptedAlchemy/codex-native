@@ -101,4 +101,62 @@ describe("Native Tool Binding", () => {
     });
     expect(result).toEqual({ output: "ok" });
   });
+
+  it("delivers function payloads from native binding to JS handler", async () => {
+    const { Codex, getNativeBinding } = await import("../src/index");
+    const binding = getNativeBinding();
+    expect(binding?.callRegisteredToolForTest).toBeDefined();
+
+    const received: NativeToolInvocation[] = [];
+    const codex = new Codex();
+
+    codex.registerTool({
+      name: "roundtrip_function_tool",
+      description: "Captures arguments payload",
+      parameters: { type: "object", properties: { msg: { type: "string" } } },
+      handler: async (invocation: NativeToolInvocation): Promise<NativeToolResult> => {
+        received.push(invocation);
+        return { output: "ok" };
+      },
+    });
+
+    const invocation: NativeToolInvocation = {
+      toolName: "roundtrip_function_tool",
+      callId: "call-1",
+      arguments: JSON.stringify({ msg: "hello" }),
+    };
+
+    await binding!.callRegisteredToolForTest!("roundtrip_function_tool", invocation);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual(invocation);
+  });
+
+  it("delivers custom input payloads from native binding to JS handler", async () => {
+    const { Codex, getNativeBinding } = await import("../src/index");
+    const binding = getNativeBinding();
+    expect(binding?.callRegisteredToolForTest).toBeDefined();
+
+    const received: NativeToolInvocation[] = [];
+    const codex = new Codex();
+
+    codex.registerTool({
+      name: "roundtrip_custom_tool",
+      description: "Captures custom input payload",
+      parameters: { type: "object", properties: {} },
+      handler: async (invocation: NativeToolInvocation): Promise<NativeToolResult> => {
+        received.push(invocation);
+        return { output: "ok" };
+      },
+    });
+
+    const invocation: NativeToolInvocation = {
+      toolName: "roundtrip_custom_tool",
+      callId: "call-2",
+      input: "raw-json-string",
+    };
+
+    await binding!.callRegisteredToolForTest!("roundtrip_custom_tool", invocation);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual(invocation);
+  });
 });

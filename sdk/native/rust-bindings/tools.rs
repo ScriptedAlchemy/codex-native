@@ -18,6 +18,24 @@ fn registered_native_tools() -> &'static Mutex<Vec<ExternalToolRegistration>> {
   TOOLS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+// Store JS callbacks for test-only invocation so JS can verify payloads are delivered
+// without needing a full Codex session. This reuses the same threadsafe function
+// created during register_tool, ensuring the call path matches production.
+type ToolTsfn = Arc<
+  ThreadsafeFunction<
+    JsToolInvocation,
+    NativeToolResponse,
+    JsToolInvocation,
+    napi::Status,
+    false,
+  >,
+>;
+
+fn test_tool_callbacks() -> &'static Mutex<HashMap<String, ToolTsfn>> {
+  static CALLBACKS: OnceLock<Mutex<HashMap<String, ToolTsfn>>> = OnceLock::new();
+  CALLBACKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn registered_tool_infos() -> &'static Mutex<Vec<NativeToolInfo>> {
   static TOOLS: OnceLock<Mutex<Vec<NativeToolInfo>>> = OnceLock::new();
   TOOLS.get_or_init(|| Mutex::new(Vec::new()))
@@ -274,6 +292,10 @@ pub fn clear_registered_tools() -> napi::Result<()> {
     .lock()
     .map_err(|e| napi::Error::from_reason(format!("pending builtin mutex poisoned: {e}")))?
     .clear();
+  test_tool_callbacks()
+    .lock()
+    .map_err(|e| napi::Error::from_reason(format!("test tool callbacks mutex poisoned: {e}")))?
+    .clear();
   Ok(())
 }
 
@@ -346,10 +368,17 @@ pub fn register_tool(
     .build()?;
   #[allow(deprecated)]
   let _ = tsfn.unref(&env);
+  let tsfn = Arc::new(tsfn);
+
+  // Keep a copy for test-only direct invocation to validate payload delivery.
+  test_tool_callbacks()
+    .lock()
+    .map_err(|e| napi::Error::from_reason(format!("test tool callbacks mutex poisoned: {e}")))? 
+    .insert(info.name.clone(), tsfn.clone());
 
   let registration = ExternalToolRegistration {
     spec,
-    handler: Arc::new(JsToolHandler { callback: tsfn }),
+    handler: Arc::new(JsToolHandler { callback: tsfn.clone() }),
     supports_parallel_tool_calls: info.supports_parallel.unwrap_or(true),
   };
 
@@ -369,6 +398,29 @@ pub fn register_tool(
   }
 
   Ok(())
+}
+
+/// Test helper: invoke a registered tool's JS callback directly to validate payload wiring.
+/// Not intended for production use.
+#[napi(ts_args_type = "toolName: string, invocation: JsToolInvocation")]
+pub async fn call_registered_tool_for_test(
+  tool_name: String,
+  invocation: JsToolInvocation,
+) -> napi::Result<NativeToolResponse> {
+  let callback = {
+    let guard = test_tool_callbacks()
+      .lock()
+      .map_err(|e| napi::Error::from_reason(format!("test tool callbacks mutex poisoned: {e}")))?;
+    guard
+      .get(&tool_name)
+      .cloned()
+      .ok_or_else(|| napi::Error::from_reason(format!("No registered tool named `{tool_name}`")))?
+  };
+
+  callback
+    .call_async(invocation)
+    .await
+    .map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
 #[napi]
@@ -680,8 +732,9 @@ pub struct JsToolInvocation {
 
 struct JsToolHandler {
   // NOTE: Using callee_handled::<false> so JS callback receives (payload) not (err, payload)
-  callback:
+  callback: Arc<
     ThreadsafeFunction<JsToolInvocation, NativeToolResponse, JsToolInvocation, napi::Status, false>,
+  >,
 }
 
 struct JsApprovalInterceptor {

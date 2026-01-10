@@ -135,29 +135,29 @@ importers:
         version: 3.25.76
     optionalDependencies:
       '@codex-native/sdk-darwin-arm64':
-        specifier: 0.0.15
-        version: 0.0.15
+        specifier: 0.0.23
+        version: 0.0.23
       '@codex-native/sdk-darwin-x64':
-        specifier: 0.0.15
-        version: 0.0.15
+        specifier: 0.0.23
+        version: 0.0.23
       '@codex-native/sdk-linux-arm64-gnu':
-        specifier: 0.0.15
-        version: 0.0.15
+        specifier: 0.0.23
+        version: 0.0.23
       '@codex-native/sdk-linux-arm64-musl':
-        specifier: 0.0.15
-        version: 0.0.15
+        specifier: 0.0.23
+        version: 0.0.23
       '@codex-native/sdk-linux-x64-gnu':
-        specifier: 0.0.15
-        version: 0.0.15
+        specifier: 0.0.23
+        version: 0.0.23
       '@codex-native/sdk-linux-x64-musl':
-        specifier: 0.0.15
-        version: 0.0.15
+        specifier: 0.0.23
+        version: 0.0.23
       '@codex-native/sdk-win32-arm64-msvc':
-        specifier: 0.0.15
-        version: 0.0.15
+        specifier: 0.0.23
+        version: 0.0.23
       '@codex-native/sdk-win32-x64-msvc':
-        specifier: 0.0.15
-        version: 0.0.15
+        specifier: 0.0.23
+        version: 0.0.23
 
   sdk/native/npm/darwin-arm64: {}
 
@@ -869,50 +869,50 @@ packages:
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
 
-  '@codex-native/sdk-darwin-arm64@0.0.15':
-    resolution: {integrity: sha512-ylRV7maembYzeTEITu0DUW+IiAj4u8owNenInlB8YVsv6T2Qlmb9U4DTzkHHyNjOctOqjkt13FlAOtmyW9lBOQ==}
+  '@codex-native/sdk-darwin-arm64@0.0.23':
+    resolution: {integrity: sha512-X6HO7pm8JdmuzIyDp4DKeC3ckwTnPHSDskUUZIpgCgoTDuqHMkPfMygzpfdVKwbSjQ0Gts7bUvOn3L0OCsZlUw==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [darwin]
 
-  '@codex-native/sdk-darwin-x64@0.0.15':
-    resolution: {integrity: sha512-+WWGG9I6B008eW+gDR8qbe6RRE+ANrMt52rhdV7YNnA66ayhsZZpM/QBUGfGb8hL+fRO+WxTUVunr7yyf1tcVA==}
+  '@codex-native/sdk-darwin-x64@0.0.23':
+    resolution: {integrity: sha512-4G9UE3jFJlLtkcfXwi7+hJpm2d7rz44vUBe276NT6StKc5NW0g93nm+XvJRXMqZy/AQfVwbI69T/XWDWy+LSYQ==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [darwin]
 
-  '@codex-native/sdk-linux-arm64-gnu@0.0.15':
-    resolution: {integrity: sha512-o+JUGDpD04vaP/wIlLH8xXNcfNGr/enkxz1hlOJoM2AJqNuxT5bFgJNPHtqiH1WKpDA23hjI+A4GuROqm1RUmg==}
+  '@codex-native/sdk-linux-arm64-gnu@0.0.23':
+    resolution: {integrity: sha512-kfxrLLXTGhRi8KIBxOTgp4jRQ+0YCv+O8kkCa5+DXYn0sZGado6hGvdbP7iLhP3PjslKKaN6B84QGk6pGny4ZQ==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [linux]
 
-  '@codex-native/sdk-linux-arm64-musl@0.0.15':
-    resolution: {integrity: sha512-fGyWO/Bxdct4T8vKZPlERrLCm6jz9Qv/O41PBeuYH9QiQTv0hPrl1b3X5WeBtUhLq31QueEpdCEG/mFwlUwV2Q==}
+  '@codex-native/sdk-linux-arm64-musl@0.0.23':
+    resolution: {integrity: sha512-Cp2gvBGJKuPGbAdY9TX2OuYqCqaFGiSI53qo9KZRQJveUTobvwYFLR3eIA/V/l8Sz4KaCRI0saRqT2Iy9tC9fg==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [linux]
 
-  '@codex-native/sdk-linux-x64-gnu@0.0.15':
-    resolution: {integrity: sha512-sTd6u6+42E6DhN6nfPxDyzlJjL1FPxXnxfLHWG4dKWytilC5ikj/meLNQjE60SEwvwGrArZMZCHmodnZpXAHUQ==}
+  '@codex-native/sdk-linux-x64-gnu@0.0.23':
+    resolution: {integrity: sha512-K3ghLXR2OH3LfPgZUNS2IHEj7FoKlJkMQx45vcE/79uxaDFmp8ZuQuols4BY8bAZprLzAZRZ8jxcmf7ICrChyg==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [linux]
 
-  '@codex-native/sdk-linux-x64-musl@0.0.15':
-    resolution: {integrity: sha512-sxi0V2+YSiSozD/DpZ1/f/82sxZ16iaJJkieUANew0qLRasMwMKZNXZHws7ha8Kz6C6L5UXcx8T5wUkMn3Cghw==}
+  '@codex-native/sdk-linux-x64-musl@0.0.23':
+    resolution: {integrity: sha512-2BX1lHfbDM3jGiaVHWJSZage+SONRvMb/AiL5nlhnlTa5r6I3mLpSCqgDVhRxDZau5Ah4TJczCiNZaQfsUgUtA==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [linux]
 
-  '@codex-native/sdk-win32-arm64-msvc@0.0.15':
-    resolution: {integrity: sha512-bDn/46Ye5fbHKetyZSb6lvkOJhw1B/SP6/2JT0lWqOBA/QRACBQdyyf2rXuznT3IEZisuZ8ucM0nE5GM3JfqeQ==}
+  '@codex-native/sdk-win32-arm64-msvc@0.0.23':
+    resolution: {integrity: sha512-ofDH1xqsvzxvSv0pnKs7odnGWfe51uYRYHS00SxK46YKCs5AEJlV4jtl+Qj234ozGpcniWAv3i2UcUoxx2Al1A==}
     engines: {node: '>=18'}
     cpu: [arm64]
     os: [win32]
 
-  '@codex-native/sdk-win32-x64-msvc@0.0.15':
-    resolution: {integrity: sha512-kPHgZmXt8TLZHyJ/ioBrKQh/fiCQYmgcfeKa421L3RtCYpwUNhA+hDbgw42FtYkPpWjrwTbnYO2iE7cru8auKA==}
+  '@codex-native/sdk-win32-x64-msvc@0.0.23':
+    resolution: {integrity: sha512-82Dc32U/SjVHHMkjFXPDl5xRHLJTmHCkMLrHfo42SvlwtG+f0XvbvBG8yyHzkBCT4x/NuOjRWScVV2SIoWJLwQ==}
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
@@ -4778,28 +4778,28 @@ snapshots:
 
   '@bcoe/v8-coverage@0.2.3': {}
 
-  '@codex-native/sdk-darwin-arm64@0.0.15':
+  '@codex-native/sdk-darwin-arm64@0.0.23':
     optional: true
 
-  '@codex-native/sdk-darwin-x64@0.0.15':
+  '@codex-native/sdk-darwin-x64@0.0.23':
     optional: true
 
-  '@codex-native/sdk-linux-arm64-gnu@0.0.15':
+  '@codex-native/sdk-linux-arm64-gnu@0.0.23':
     optional: true
 
-  '@codex-native/sdk-linux-arm64-musl@0.0.15':
+  '@codex-native/sdk-linux-arm64-musl@0.0.23':
     optional: true
 
-  '@codex-native/sdk-linux-x64-gnu@0.0.15':
+  '@codex-native/sdk-linux-x64-gnu@0.0.23':
     optional: true
 
-  '@codex-native/sdk-linux-x64-musl@0.0.15':
+  '@codex-native/sdk-linux-x64-musl@0.0.23':
     optional: true
 
-  '@codex-native/sdk-win32-arm64-msvc@0.0.15':
+  '@codex-native/sdk-win32-arm64-msvc@0.0.23':
     optional: true
 
-  '@codex-native/sdk-win32-x64-msvc@0.0.15':
+  '@codex-native/sdk-win32-x64-msvc@0.0.23':
     optional: true
 
   '@cspotcode/source-map-support@0.8.1':

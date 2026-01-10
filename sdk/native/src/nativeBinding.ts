@@ -347,6 +347,10 @@ export type NativeBinding = {
     lines: string[];
   }): Promise<string[]>;
   callToolBuiltin(token: string, invocation?: NativeToolInvocation): Promise<NativeToolResult>;
+  callRegisteredToolForTest?(
+    toolName: string,
+    invocation: NativeToolInvocation,
+  ): Promise<NativeToolResult>;
   clearRegisteredTools(): void;
   registerTool(info: NativeToolInfo, handler: (call: NativeToolInvocation) => Promise<NativeToolResult> | NativeToolResult): void;
   registerToolInterceptor(toolName: string, handler: (context: NativeToolInterceptorNativeContext) => Promise<NativeToolResult> | NativeToolResult): void;

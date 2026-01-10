@@ -38,6 +38,7 @@ export type { ConversationListOptions, ConversationListPage, ConversationSummary
 export type { CodexOptions, NativeToolDefinition } from "./codexOptions";
 export type { NativeToolInterceptorContext } from "./codex";
 export type { NativeToolInvocation, NativeToolResult, NativeForkResult } from "./nativeBinding";
+export { getNativeBinding } from "./nativeBinding";
 export type { ApprovalRequest } from "./nativeBinding";
 export type { TokenizerOptions, TokenizerEncodeOptions } from "./nativeBinding";
 
