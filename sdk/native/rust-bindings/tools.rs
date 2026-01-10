@@ -339,9 +339,10 @@ pub fn register_tool(
   )
   .map_err(|err| napi::Error::from_reason(format!("invalid tool schema: {err}")))?;
 
+  // Use callee_handled::<false>() so JS callback receives single arg (payload) not (err, payload)
   let mut tsfn = handler
     .build_threadsafe_function::<JsToolInvocation>()
-    .callee_handled::<true>()
+    .callee_handled::<false>()
     .build()?;
   #[allow(deprecated)]
   let _ = tsfn.unref(&env);
@@ -678,8 +679,9 @@ pub struct JsToolInvocation {
 }
 
 struct JsToolHandler {
+  // NOTE: Using callee_handled::<false> so JS callback receives (payload) not (err, payload)
   callback:
-    ThreadsafeFunction<JsToolInvocation, NativeToolResponse, JsToolInvocation, napi::Status, true>,
+    ThreadsafeFunction<JsToolInvocation, NativeToolResponse, JsToolInvocation, napi::Status, false>,
 }
 
 struct JsApprovalInterceptor {
@@ -858,9 +860,10 @@ impl ToolHandler for JsToolHandler {
       }
     };
 
+    // With callee_handled::<false>, pass payload directly (not wrapped in Result)
     let response = self
       .callback
-      .call_async(Ok(payload))
+      .call_async(payload)
       .await
       .map_err(|e| FunctionCallError::Fatal(e.to_string()))?;
     native_response_to_tool_output(response)

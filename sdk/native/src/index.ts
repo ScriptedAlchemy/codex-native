@@ -102,6 +102,14 @@ export { formatStream } from "./agents";
 export type { FormattedStream, FormatStreamOptions, ToolCallEvent } from "./agents";
 export { OpenCodeAgent } from "./agents";
 export type { OpenCodeAgentOptions, DelegationResult, PermissionDecision, PermissionRequest } from "./agents";
+export {
+  clearCodexToolExecutors,
+  getCodexToolExecutor,
+  registerCodexToolExecutor,
+  type ToolExecutionContext,
+  type ToolExecutor,
+  type ToolExecutorResult,
+} from "./agents/toolRegistry";
 
 // Cloud tasks (remote agent tasks; applied locally)
 export { CloudTasks } from "./cloudTasks";

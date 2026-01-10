@@ -30,6 +30,12 @@ export { CodexProvider } from "./CodexProvider";
 export type { CodexProviderOptions } from "./CodexProvider";
 export { codexTool } from "./codexTool";
 export type { CodexToolOptions } from "./codexTool";
+export {
+  registerCodexToolExecutor,
+  getCodexToolExecutor,
+  clearCodexToolExecutors,
+} from "./toolRegistry";
+export type { ToolExecutor, ToolExecutionContext, ToolExecutorResult } from "./toolRegistry";
 export { formatStream } from "./streamFormatter";
 export type { FormattedStream, FormatStreamOptions, ToolCallEvent } from "./streamFormatter";
 export { OpenCodeAgent } from "./OpenCodeAgent";

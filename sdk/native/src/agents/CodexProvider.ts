@@ -411,6 +411,9 @@ class CodexModel implements Model {
   private async executeToolViaFramework(
     invocation: NativeToolInvocation
   ): Promise<NativeToolResult> {
+    console.log('[DEBUG executeToolViaFramework] invocation:', JSON.stringify(invocation, null, 2));
+    console.log('[DEBUG executeToolViaFramework] invocation type:', typeof invocation);
+    console.log('[DEBUG executeToolViaFramework] invocation keys:', invocation ? Object.keys(invocation) : 'null/undefined');
     if (!invocation) {
       console.warn('Codex requested a tool execution without invocation data.');
       return {
