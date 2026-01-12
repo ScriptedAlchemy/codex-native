@@ -6,7 +6,7 @@ use codex_core::config::Config;
 use codex_core::protocol::Event;
 use codex_core::protocol::EventMsg;
 use codex_core::protocol::SessionConfiguredEvent;
-use codex_core::protocol::TaskCompleteEvent;
+use codex_core::protocol::TurnCompleteEvent;
 use std::path::PathBuf;
 
 struct CallbackEventProcessor {
@@ -46,7 +46,7 @@ impl EventProcessor for CallbackEventProcessor {
         }
 
         let Event { msg, .. } = event;
-        if let EventMsg::TaskComplete(TaskCompleteEvent { .. }) = msg {
+        if let EventMsg::TurnComplete(TurnCompleteEvent { .. }) = msg {
             CodexStatus::InitiateShutdown
         } else {
             CodexStatus::Running

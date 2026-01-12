@@ -19,6 +19,39 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
+/// Build a `function` tool spec from a JSON schema value.
+///
+/// This is used by workspace consumers (for example the native SDK) that
+/// accept JSON-schema tool definitions from other languages (JS/TS) and need
+/// them to be compatible with Codex's limited `JsonSchema` subset.
+pub fn create_function_tool_spec_from_schema(
+    name: String,
+    description: Option<String>,
+    mut schema: JsonValue,
+    strict: bool,
+) -> Result<ToolSpec, serde_json::Error> {
+    // OpenAI models mandate the "properties" field in the schema. Mirror the
+    // behavior we apply for MCP tools by inserting an empty object if missing.
+    if schema.get("properties").is_none()
+        && let Some(obj) = schema.as_object_mut()
+    {
+        obj.insert(
+            "properties".to_string(),
+            JsonValue::Object(serde_json::Map::new()),
+        );
+    }
+
+    sanitize_json_schema(&mut schema);
+    let schema = serde_json::from_value::<JsonSchema>(schema)?;
+
+    Ok(ToolSpec::Function(ResponsesApiTool {
+        name,
+        description: description.unwrap_or_default(),
+        strict,
+        parameters: schema,
+    }))
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ToolsConfig {
     pub shell_type: ConfigShellToolType,
@@ -84,7 +117,7 @@ impl ToolsConfig {
 /// Generic JSON‑Schema subset needed for our tool definitions
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
-pub(crate) enum JsonSchema {
+pub enum JsonSchema {
     Boolean {
         #[serde(skip_serializing_if = "Option::is_none")]
         description: Option<String>,
@@ -120,7 +153,7 @@ pub(crate) enum JsonSchema {
 /// Whether additional properties are allowed, and if so, any required schema
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
-pub(crate) enum AdditionalProperties {
+pub enum AdditionalProperties {
     Boolean(bool),
     Schema(Box<JsonSchema>),
 }

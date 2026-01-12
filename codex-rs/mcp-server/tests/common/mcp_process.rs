@@ -137,7 +137,8 @@ impl McpProcess {
 
         let initialized = self.read_jsonrpc_message().await?;
         let os_info = os_info::get();
-        let originator = codex_core::default_client::originator().value.as_str();
+        let originator = codex_core::default_client::originator();
+        let originator = originator.value.as_str();
         let user_agent = format!(
             "{originator}/0.0.0 ({} {}; {}) {} (elicitation test; 0.0.0)",
             os_info.os_type(),

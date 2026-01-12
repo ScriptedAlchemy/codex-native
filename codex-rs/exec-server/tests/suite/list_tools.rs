@@ -16,13 +16,14 @@ use tempfile::TempDir;
 #[tokio::test(flavor = "current_thread")]
 async fn list_tools() -> Result<()> {
     let codex_home = TempDir::new()?;
+    let dotslash_cache = TempDir::new()?;
     let policy_dir = codex_home.path().join("rules");
     fs::create_dir_all(&policy_dir)?;
     fs::write(
         policy_dir.join("default.rules"),
         r#"prefix_rule(pattern=["ls"], decision="prompt")"#,
     )?;
-    let transport = create_transport(codex_home.path()).await?;
+    let transport = create_transport(codex_home.path(), dotslash_cache.path()).await?;
 
     let service = ().serve(transport).await?;
     let tools = service.list_tools(Default::default()).await?.tools;

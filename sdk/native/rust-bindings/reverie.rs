@@ -572,7 +572,7 @@ async fn load_reverie_conversations(
   }
 
   let page_size = limit.saturating_add(offset).max(1);
-  let page = RolloutRecorder::list_conversations(
+  let page = RolloutRecorder::list_threads(
     codex_home,
     page_size,
     None,
@@ -593,7 +593,7 @@ async fn load_reverie_conversations(
   )
 }
 
-fn conversation_item_to_reverie(item: ConversationItem) -> ReverieConversation {
+fn conversation_item_to_reverie(item: codex_core::ThreadItem) -> ReverieConversation {
   let id = item
     .path
     .file_stem()

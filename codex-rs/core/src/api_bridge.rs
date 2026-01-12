@@ -105,7 +105,7 @@ fn extract_request_id(headers: Option<&HeaderMap>) -> Option<String> {
     })
 }
 
-pub(crate) fn auth_provider_from_auth(
+pub(crate) async fn auth_provider_from_auth(
     auth: Option<CodexAuth>,
     provider: &ModelProviderInfo,
 ) -> crate::error::Result<CoreAuthProvider> {

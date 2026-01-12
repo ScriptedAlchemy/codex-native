@@ -389,19 +389,15 @@ impl Default for Notifications {
 /// infer wheel vs trackpad per stream, or forces a specific behavior.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ScrollInputMode {
     /// Infer wheel vs trackpad behavior per scroll stream.
+    #[default]
     Auto,
     /// Always treat scroll events as mouse-wheel input (fixed lines per tick).
     Wheel,
     /// Always treat scroll events as trackpad input (fractional accumulation).
     Trackpad,
-}
-
-impl Default for ScrollInputMode {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 /// Collection of settings that are specific to the TUI.

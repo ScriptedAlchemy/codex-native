@@ -330,6 +330,16 @@ pub fn all_model_presets() -> &'static Vec<ModelPreset> {
     &PRESETS
 }
 
+/// Model IDs that are supported by the API (for example, used by the native SDK to validate
+/// user-provided model slugs in non-test builds).
+pub fn supported_model_slugs() -> Vec<String> {
+    PRESETS
+        .iter()
+        .filter(|preset| preset.supported_in_api)
+        .map(|preset| preset.model.clone())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

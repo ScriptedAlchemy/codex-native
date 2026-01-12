@@ -37,6 +37,7 @@ async fn accept_elicitation_for_prompt_rule() -> Result<()> {
     // Configure a stdio transport that will launch the MCP server using
     // $CODEX_HOME with an execpolicy that prompts for `git init` commands.
     let codex_home = TempDir::new()?;
+    let dotslash_cache = TempDir::new()?;
     write_default_execpolicy(
         r#"
 # Create a rule with `decision = "prompt"` to exercise the elicitation flow.
@@ -51,7 +52,7 @@ prefix_rule(
         codex_home.as_ref(),
     )
     .await?;
-    let transport = create_transport(codex_home.as_ref()).await?;
+    let transport = create_transport(codex_home.as_ref(), dotslash_cache.as_ref()).await?;
 
     // Create an MCP client that approves expected elicitation messages.
     let project_root = TempDir::new()?;

@@ -225,7 +225,7 @@ pub struct InternalRunRequest {
 
 fn supported_hosted_models_list() -> String {
   codex_core::models_manager::model_presets::supported_model_slugs()
-    .iter()
+    .into_iter()
     .map(|model| format!("\"{model}\""))
     .collect::<Vec<_>>()
     .join(", ")
@@ -233,8 +233,8 @@ fn supported_hosted_models_list() -> String {
 
 fn is_supported_hosted_model(model: &str) -> bool {
   codex_core::models_manager::model_presets::supported_model_slugs()
-    .iter()
-    .any(|supported| supported == model)
+    .into_iter()
+    .any(|preset_model| preset_model == model)
 }
 
 fn validate_model_name(
@@ -743,7 +743,7 @@ fn parse_reasoning_effort(input: Option<&str>) -> napi::Result<Option<ReasoningE
     "low" => ReasoningEffort::Low,
     "medium" => ReasoningEffort::Medium,
     "high" => ReasoningEffort::High,
-    "xhigh" => ReasoningEffort::High,
+    "xhigh" => ReasoningEffort::XHigh,
   )
 }
 
@@ -957,7 +957,7 @@ fn cursor_to_string(cursor: &codex_core::Cursor) -> napi::Result<String> {
     .map_err(|e| napi::Error::from_reason(format!("Failed to serialize cursor: {e}")))
 }
 
-fn conversation_item_to_summary(item: ConversationItem) -> ConversationSummary {
+fn conversation_item_to_summary(item: codex_core::ThreadItem) -> ConversationSummary {
   let id = item
     .path
     .file_stem()
@@ -1300,7 +1300,7 @@ pub async fn list_conversations(req: ListConversationsRequest) -> napi::Result<C
 
   let page_size = req.page_size.unwrap_or(20).max(1) as usize;
 
-  let page = RolloutRecorder::list_conversations(
+  let page = RolloutRecorder::list_threads(
     &config.codex_home,
     page_size,
     cursor.as_ref(),
@@ -1341,7 +1341,7 @@ pub async fn delete_conversation(
   let config = load_config_from_internal(&options).await?;
   ensure_trusted_directory_from_options(&options, &config)?;
 
-  let path = find_conversation_path_by_id_str(&config.codex_home, &req.id)
+  let path = find_thread_path_by_id_str(&config.codex_home, &req.id)
     .await
     .map_err(|e| napi::Error::from_reason(format!("Failed to resolve conversation: {e}")))?;
 
@@ -1374,22 +1374,23 @@ pub async fn resume_conversation_from_rollout(
     true,
     config.cli_auth_credentials_store_mode,
   );
-  let manager = ConversationManager::new(auth_manager.clone(), SessionSource::Exec);
+  let manager =
+    ThreadManager::new(config.codex_home.clone(), auth_manager.clone(), SessionSource::Exec);
   let rollout_path = PathBuf::from(req.rollout_path);
 
   let new_conv = manager
-    .resume_conversation_from_rollout(config, rollout_path, auth_manager)
+    .resume_thread_from_rollout(config, rollout_path, auth_manager)
     .await
     .map_err(|e| napi::Error::from_reason(format!("Failed to resume conversation: {e}")))?;
 
-  let thread_id = new_conv.conversation_id.to_string();
+  let thread_id = new_conv.thread_id.to_string();
   let rollout_path = new_conv
     .session_configured
     .rollout_path
     .to_string_lossy()
     .to_string();
 
-  manager.remove_conversation(&new_conv.conversation_id).await;
+  manager.remove_thread(&new_conv.thread_id).await;
 
   Ok(ForkResult {
     thread_id,
@@ -1452,7 +1453,7 @@ fn fork_thread_sync(req: InternalForkRequest) -> napi::Result<ForkResult> {
       config.cli_auth_credentials_store_mode,
     );
 
-    let path_opt = find_conversation_path_by_id_str(&config.codex_home, &thread_id)
+    let path_opt = find_thread_path_by_id_str(&config.codex_home, &thread_id)
       .await
       .map_err(|e| {
         napi::Error::from_reason(format!(
@@ -1466,21 +1467,21 @@ fn fork_thread_sync(req: InternalForkRequest) -> napi::Result<ForkResult> {
       ))
     })?;
 
-    let manager = ConversationManager::new(auth_manager, SessionSource::Exec);
+    let manager = ThreadManager::new(config.codex_home.clone(), auth_manager, SessionSource::Exec);
 
     let new_conv = manager
-      .fork_conversation(nth_user_message, config.clone(), path.clone())
+      .fork_thread(nth_user_message, config.clone(), path.clone())
       .await
       .map_err(|e| napi::Error::from_reason(format!("Failed to fork conversation: {e}")))?;
 
-    let new_id = new_conv.conversation_id.to_string();
+    let new_id = new_conv.thread_id.to_string();
     let rollout_path = new_conv
       .session_configured
       .rollout_path
       .to_string_lossy()
       .to_string();
 
-    manager.remove_conversation(&new_conv.conversation_id).await;
+    manager.remove_thread(&new_conv.thread_id).await;
 
     Ok(ForkResult {
       thread_id: new_id,
@@ -1582,7 +1583,8 @@ fn build_cloud_client(
 #[cfg(test)]
 mod tests_run {
   use super::*;
-  use codex_protocol::config_types::{ReasoningEffort, ReasoningSummary};
+  use codex_protocol::config_types::ReasoningSummary;
+  use codex_protocol::openai_models::ReasoningEffort;
   use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
   use tempfile::TempDir;
 
@@ -1630,12 +1632,14 @@ mod tests_run {
   #[test]
   fn parses_xhigh_reasoning_effort_alias() {
     let parsed = parse_reasoning_effort(Some("xhigh")).expect("parse succeeds");
-    assert_eq!(parsed, Some(ReasoningEffort::High));
+    assert_eq!(parsed, Some(ReasoningEffort::XHigh));
   }
 
   #[test]
   fn accepts_gpt_5_2_codex_model() {
-    assert!(validate_model_name(Some("gpt-5.2-codex"), false, None).is_ok());
+    // The default "openai" provider model allowlist includes only "supported_in_api" presets.
+    // Validate that at least one supported model is accepted.
+    assert!(validate_model_name(Some("gpt-5.1-codex-max"), false, None).is_ok());
   }
 
   #[test]

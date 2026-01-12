@@ -54,6 +54,8 @@ pub struct TuiRequest {
   pub reasoning_effort: Option<String>,
   #[napi(js_name = "reasoningSummary")]
   pub reasoning_summary: Option<String>,
+  #[napi(js_name = "noAltScreen")]
+  pub no_alt_screen: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -106,6 +108,7 @@ impl TuiRequest {
       cwd: self.working_directory.map(PathBuf::from),
       web_search: self.web_search.unwrap_or(false),
       add_dir,
+      no_alt_screen: self.no_alt_screen.unwrap_or(false),
       config_overrides: CliConfigOverrides {
         raw_overrides: self.config_overrides.unwrap_or_default(),
       },
@@ -211,8 +214,8 @@ impl From<UpdateAction> for UpdateActionInfo {
 pub struct TuiExitInfo {
   #[napi(js_name = "tokenUsage")]
   pub token_usage: TokenUsageSummary,
-  #[napi(js_name = "conversationId")]
-  pub conversation_id: Option<String>,
+  #[napi(js_name = "threadId")]
+  pub thread_id: Option<String>,
   #[napi(js_name = "updateAction")]
   pub update_action: Option<UpdateActionInfo>,
 }
@@ -220,11 +223,11 @@ pub struct TuiExitInfo {
 impl From<AppExitInfo> for TuiExitInfo {
   fn from(info: AppExitInfo) -> Self {
     let token_usage = TokenUsageSummary::from(info.token_usage);
-    let conversation_id = info.conversation_id.map(|id| id.to_string());
+    let thread_id = info.thread_id.map(|id| id.to_string());
     let update_action = info.update_action.map(UpdateActionInfo::from);
     Self {
       token_usage,
-      conversation_id,
+      thread_id,
       update_action,
     }
   }
@@ -454,6 +457,7 @@ mod tests_tui_reasoning_overrides {
       cwd: None,
       web_search: false,
       add_dir: Vec::new(),
+      no_alt_screen: false,
       config_overrides: CliConfigOverrides { raw_overrides: Vec::new() },
     };
 
