@@ -58,8 +58,9 @@ describe("Agents tools interop", () => {
 
     const model = provider.getModel("gpt-5-codex");
 
-    // Spy on registration logging to confirm registration path is executed.
-    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+    // Spy on stderr logging to confirm registration path is executed.
+    // CodexProvider logs to stderr when DEBUG is enabled.
+    const logSpy = jest.spyOn(process.stderr, "write").mockImplementation(() => true as any);
 
     const tool = {
       type: "function",
@@ -70,6 +71,7 @@ describe("Agents tools interop", () => {
     };
 
     try {
+      process.env.DEBUG = "1";
       await model.getResponse({
         systemInstructions: "You are a tool testing agent",
         input: "test",
@@ -87,6 +89,7 @@ describe("Agents tools interop", () => {
       expect(logged).toContain("Registered tool with Codex: say_hello");
     } finally {
       logSpy.mockRestore();
+      delete process.env.DEBUG;
     }
   });
 });

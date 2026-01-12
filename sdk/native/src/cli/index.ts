@@ -420,7 +420,7 @@ function validateOptionChoices(
 function logError(error: unknown): void {
   if (error instanceof Error) {
     console.error(error.message);
-    if (process.env.CODEX_NATIVE_DEBUG) {
+    if (process.env.DEBUG) {
       console.error(error.stack);
     }
   } else {

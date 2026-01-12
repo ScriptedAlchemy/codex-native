@@ -377,10 +377,23 @@ class CodexModel implements Model {
         this.codex.registerTool(nativeToolDef);
         this.registeredTools.add(tool.name);
 
-        console.log(`Registered tool with Codex: ${tool.name}`);
+        // Avoid stdout noise by default; some consumers reserve stdout for
+        // protocol traffic (e.g. stdio JSON-RPC transports). Opt-in via env.
+        const DEBUG = (process.env.DEBUG === "1" || process.env.DEBUG === "true");
+        if (DEBUG) {
+          try {
+            process.stderr.write(`[codex-native] Registered tool with Codex: ${tool.name}\n`);
+          } catch {
+            // ignore
+          }
+        }
       } catch (error) {
         const errorMessage = `Failed to register tool ${tool.name}: ${error instanceof Error ? error.message : String(error)}`;
-        console.error(errorMessage);
+        try {
+          process.stderr.write(`[codex-native] ${errorMessage}\n`);
+        } catch {
+          // ignore
+        }
         // Don't throw - allow other tools to register even if one fails
         // Individual tool failures shouldn't block the entire request
       }
@@ -411,11 +424,22 @@ class CodexModel implements Model {
   private async executeToolViaFramework(
     invocation: NativeToolInvocation
   ): Promise<NativeToolResult> {
-    console.log('[DEBUG executeToolViaFramework] invocation:', JSON.stringify(invocation, null, 2));
-    console.log('[DEBUG executeToolViaFramework] invocation type:', typeof invocation);
-    console.log('[DEBUG executeToolViaFramework] invocation keys:', invocation ? Object.keys(invocation) : 'null/undefined');
+    const DEBUG = (process.env.DEBUG === "1" || process.env.DEBUG === "true");
+    if (DEBUG) {
+      try {
+        process.stderr.write(
+          `[codex-native] executeToolViaFramework invocation: ${JSON.stringify(invocation)}\n`
+        );
+      } catch {
+        // ignore
+      }
+    }
     if (!invocation) {
-      console.warn('Codex requested a tool execution without invocation data.');
+      try {
+        process.stderr.write('[codex-native] Codex requested a tool execution without invocation data.\n');
+      } catch {
+        // ignore
+      }
       return {
         output: JSON.stringify({
           message: 'Tool invocation payload missing',
@@ -426,13 +450,23 @@ class CodexModel implements Model {
       };
     }
 
-    console.log(
-      `Tool execution requested by Codex: ${invocation.toolName} (callId: ${invocation.callId})`
-    );
+    if (DEBUG) {
+      try {
+        process.stderr.write(
+          `[codex-native] Tool execution requested: ${invocation.toolName} (callId: ${invocation.callId})\n`
+        );
+      } catch {
+        // ignore
+      }
+    }
     const executor = this.toolExecutors.get(invocation.toolName) ?? getCodexToolExecutor(invocation.toolName);
     if (!executor) {
       const message = `No Codex executor registered for tool '${invocation.toolName}'. Use codexTool() or provide a codexExecute handler.`;
-      console.warn(message);
+      try {
+        process.stderr.write(`[codex-native] ${message}\n`);
+      } catch {
+        // ignore
+      }
       return {
         success: false,
         error: message,
@@ -483,7 +517,18 @@ class CodexModel implements Model {
       return { success: true, output: result };
     }
 
-    if (typeof result === "object" && ("output" in result || "error" in result || "success" in result)) {
+    const isNativeToolResultLike = (value: any): value is { success?: boolean; output?: string; error?: string } => {
+      if (!value || typeof value !== "object") return false;
+      // Require at least one of the NativeToolResult-ish keys to be present.
+      if (!("output" in value) && !("error" in value) && !("success" in value)) return false;
+      // Narrow types to the native binding contract.
+      if ("success" in value && value.success != null && typeof value.success !== "boolean") return false;
+      if ("output" in value && value.output != null && typeof value.output !== "string") return false;
+      if ("error" in value && value.error != null && typeof value.error !== "string") return false;
+      return true;
+    };
+
+    if (isNativeToolResultLike(result)) {
       return {
         success: result.success ?? !result.error,
         output: result.output,

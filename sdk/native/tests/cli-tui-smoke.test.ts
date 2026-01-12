@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, beforeAll } from "@jest/globals";
 
 import { setupNativeBinding } from "./testHelpers";
@@ -16,8 +17,10 @@ beforeAll(async () => {
 
 describe("codex-native tui command", () => {
   it("starts and renders the welcome screen under a pseudo-TTY", async () => {
-    if (!process.stdout.isTTY) {
-      return; // skip when no TTY available
+    // Skip when tests run without an interactive TTY. The CLI explicitly errors
+    // in this case (by design).
+    if (!process.stdout.isTTY || !process.stdin.isTTY) {
+      return;
     }
     if (!binding || typeof binding.getNativeBinding !== "function") {
       return; // binding not available
@@ -27,6 +30,7 @@ describe("codex-native tui command", () => {
       return; // skip if helper missing in build
     }
 
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const cliPath = path.resolve(__dirname, "../dist/cli.cjs");
 
     const promise = execFileAsync(

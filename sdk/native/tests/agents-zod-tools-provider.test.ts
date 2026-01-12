@@ -55,10 +55,12 @@ describe("Agents zod tools with CodexProvider", () => {
     // Create mock Codex backend
     const mockCodex = createMockCodex("Tool registered and run completed");
 
-    // Intercept registration log to assert tool registration
-    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+    // Intercept registration log to assert tool registration.
+    // CodexProvider logs to stderr when DEBUG is enabled.
+    const logSpy = jest.spyOn(process.stderr, "write").mockImplementation(() => true as any);
 
     try {
+      process.env.DEBUG = "1";
       const helloTool = tool({
         name: "say_hello",
         description: "Says hello",
@@ -90,6 +92,7 @@ describe("Agents zod tools with CodexProvider", () => {
       expect(logs).toContain("Registered tool with Codex: say_hello");
     } finally {
       logSpy.mockRestore();
+      delete process.env.DEBUG;
     }
   });
 });

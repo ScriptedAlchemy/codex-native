@@ -7,7 +7,18 @@ export interface ToolExecutionContext {
   rawInvocation: NativeToolInvocation;
 }
 
-export type ToolExecutorResult = string | NativeToolResult | { output?: string; error?: string; success?: boolean } | void;
+// Tool executors may return raw strings, native tool results, lightweight result wrappers,
+// or arbitrary JSON-serializable objects (which will be JSON.stringified).
+export type ToolExecutorResult =
+  | string
+  | NativeToolResult
+  | { output?: string; error?: string; success?: boolean }
+  | Record<string, unknown>
+  | unknown[]
+  | number
+  | boolean
+  | null
+  | void;
 export type ToolExecutor = (context: ToolExecutionContext) => Promise<ToolExecutorResult> | ToolExecutorResult;
 
 const executors = new Map<string, ToolExecutor>();
