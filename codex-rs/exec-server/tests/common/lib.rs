@@ -1,6 +1,7 @@
 use codex_core::MCP_SANDBOX_STATE_METHOD;
 use codex_core::SandboxState;
 use codex_core::protocol::SandboxPolicy;
+use codex_utils_cargo_bin::find_resource;
 use rmcp::ClientHandler;
 use rmcp::ErrorData as McpError;
 use rmcp::RoleClient;
@@ -25,34 +26,27 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::process::Command;
 
-pub async fn create_transport<P>(codex_home: P) -> anyhow::Result<TokioChildProcess>
+pub async fn create_transport<P>(
+    codex_home: P,
+    dotslash_cache: P,
+) -> anyhow::Result<TokioChildProcess>
 where
     P: AsRef<Path>,
 {
     let mcp_executable = codex_utils_cargo_bin::cargo_bin("codex-exec-mcp-server")?;
     let execve_wrapper = codex_utils_cargo_bin::cargo_bin("codex-execve-wrapper")?;
 
-    // `bash` requires a special lookup when running under Buck because it is a
-    // _resource_ rather than a binary target.
-    let bash = if let Some(root) = codex_utils_cargo_bin::buck_project_root()? {
-        root.join("codex-rs/exec-server/tests/suite/bash")
-    } else {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("suite")
-            .join("bash")
-    };
+    // `bash` is a test resource rather than a binary target, so we must use
+    // `find_resource!` to locate it instead of `cargo_bin()`.
+    let bash = find_resource!("../suite/bash")?;
 
     // Need to ensure the artifact associated with the bash DotSlash file is
     // available before it is run in a read-only sandbox.
-    //
-    // Note we intentionally *do not* set `DOTSLASH_CACHE`: tests should use the
-    // user's configured cache (or DotSlash default) so that `cargo nextest`
-    // doesn't re-download the tarball for each test case.
     let status = Command::new("dotslash")
         .arg("--")
         .arg("fetch")
         .arg(bash.clone())
+        .env("DOTSLASH_CACHE", dotslash_cache.as_ref())
         .status()
         .await?;
     assert!(status.success(), "dotslash fetch failed: {status:?}");
@@ -61,6 +55,7 @@ where
         cmd.arg("--bash").arg(bash);
         cmd.arg("--execve").arg(&execve_wrapper);
         cmd.env("CODEX_HOME", codex_home.as_ref());
+        cmd.env("DOTSLASH_CACHE", dotslash_cache.as_ref());
 
         // Important: pipe stdio so rmcp can speak JSON-RPC over stdin/stdout
         cmd.stdin(Stdio::piped());

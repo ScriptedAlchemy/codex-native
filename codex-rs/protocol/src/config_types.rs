@@ -2,51 +2,8 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
 use strum_macros::Display;
-use strum_macros::EnumIter;
 use ts_rs::TS;
 
-/// See https://platform.openai.com/docs/guides/reasoning?api-mode=responses#get-started-with-reasoning
-#[derive(
-    Debug, Serialize, Default, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS, EnumIter, Hash,
-)]
-#[serde(rename_all = "lowercase")]
-#[strum(serialize_all = "lowercase")]
-pub enum ReasoningEffort {
-    None,
-    Minimal,
-    Low,
-    #[default]
-    Medium,
-    High,
-    XHigh,
-}
-
-impl<'de> Deserialize<'de> for ReasoningEffort {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let raw = String::deserialize(deserializer)?;
-        let normalized = raw.to_lowercase();
-        let parsed = match normalized.as_str() {
-            "xhigh" | "x-high" => ReasoningEffort::XHigh,
-            "none" => ReasoningEffort::None,
-            "minimal" => ReasoningEffort::Minimal,
-            "low" => ReasoningEffort::Low,
-            "medium" => ReasoningEffort::Medium,
-            "high" => ReasoningEffort::High,
-            other => {
-                return Err(serde::de::Error::unknown_variant(
-                    other,
-                    &[
-                        "none", "minimal", "low", "medium", "high", "xhigh", "x-high",
-                    ],
-                ));
-            }
-        };
-        Ok(parsed)
-    }
-}
 /// A summary of the reasoning performed by the model. This can be useful for
 /// debugging and understanding the model's reasoning process.
 /// See https://platform.openai.com/docs/guides/reasoning?api-mode=responses#reasoning-summaries
@@ -124,21 +81,37 @@ pub enum TrustLevel {
     Untrusted,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::ReasoningEffort;
-
-    #[test]
-    fn parsing_xhigh_maps_to_xhigh() {
-        let parsed: ReasoningEffort =
-            serde_json::from_str("\"xhigh\"").expect("xhigh should deserialize");
-        assert_eq!(parsed, ReasoningEffort::XHigh);
-    }
-
-    #[test]
-    fn high_serializes_without_aliases() {
-        let serialized =
-            serde_json::to_string(&ReasoningEffort::High).expect("serialization should succeed");
-        assert_eq!(serialized, "\"high\"");
-    }
+/// Controls whether the TUI uses the terminal's alternate screen buffer.
+///
+/// **Background:** The alternate screen buffer provides a cleaner fullscreen experience
+/// without polluting the terminal's scrollback history. However, it conflicts with terminal
+/// multiplexers like Zellij that strictly follow the xterm specification, which defines
+/// that alternate screen buffers should not have scrollback.
+///
+/// **Zellij's behavior:** Zellij intentionally disables scrollback in alternate screen mode
+/// (see https://github.com/zellij-org/zellij/pull/1032) to comply with the xterm spec. This
+/// is by design and not configurable in Zellij—there is no option to enable scrollback in
+/// alternate screen mode.
+///
+/// **Solution:** This setting provides a pragmatic workaround:
+/// - `auto` (default): Automatically detect the terminal multiplexer. If running in Zellij,
+///   disable alternate screen to preserve scrollback. Enable it everywhere else.
+/// - `always`: Always use alternate screen mode (original behavior before this fix).
+/// - `never`: Never use alternate screen mode. Runs in inline mode, preserving scrollback
+///   in all multiplexers.
+///
+/// The CLI flag `--no-alt-screen` can override this setting at runtime.
+#[derive(
+    Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS,
+)]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum AltScreenMode {
+    /// Auto-detect: disable alternate screen in Zellij, enable elsewhere.
+    #[default]
+    Auto,
+    /// Always use alternate screen (original behavior).
+    Always,
+    /// Never use alternate screen (inline mode only).
+    Never,
 }

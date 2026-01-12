@@ -11,6 +11,7 @@ use crate::sandboxing::SandboxPermissions;
 use crate::sandboxing::execute_env;
 use crate::tools::sandboxing::Approvable;
 use crate::tools::sandboxing::ApprovalCtx;
+use crate::tools::sandboxing::ExecApprovalRequirement;
 use crate::tools::sandboxing::SandboxAttempt;
 use crate::tools::sandboxing::Sandboxable;
 use crate::tools::sandboxing::SandboxablePreference;
@@ -18,32 +19,27 @@ use crate::tools::sandboxing::ToolCtx;
 use crate::tools::sandboxing::ToolError;
 use crate::tools::sandboxing::ToolRuntime;
 use crate::tools::sandboxing::with_cached_approval;
+use codex_apply_patch::ApplyPatchAction;
 use codex_protocol::protocol::AskForApproval;
+use codex_protocol::protocol::FileChange;
 use codex_protocol::protocol::ReviewDecision;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use futures::future::BoxFuture;
 use std::collections::HashMap;
-use std::path::Path;
 use std::path::PathBuf;
 
-const NODE_CLI_ENTRYPOINT_ENV: &str = "CODEX_NODE_CLI_ENTRYPOINT";
-
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ApplyPatchRequest {
-    pub patch: String,
-    pub cwd: PathBuf,
+    pub action: ApplyPatchAction,
+    pub file_paths: Vec<AbsolutePathBuf>,
+    pub changes: std::collections::HashMap<PathBuf, FileChange>,
+    pub exec_approval_requirement: ExecApprovalRequirement,
     pub timeout_ms: Option<u64>,
-    pub user_explicitly_approved: bool,
     pub codex_exe: Option<PathBuf>,
 }
 
 #[derive(Default)]
 pub struct ApplyPatchRuntime;
-
-#[derive(serde::Serialize, Clone, Debug, Eq, PartialEq, Hash)]
-pub(crate) struct ApprovalKey {
-    patch: String,
-    cwd: PathBuf,
-}
 
 impl ApplyPatchRuntime {
     pub fn new() -> Self {
@@ -59,19 +55,10 @@ impl ApplyPatchRuntime {
                 .map_err(|e| ToolError::Rejected(format!("failed to determine codex exe: {e}")))?
         };
         let program = exe.to_string_lossy().to_string();
-        let mut args = Vec::new();
-        if should_use_node_entrypoint(&exe)
-            && let Ok(entrypoint) = env::var(NODE_CLI_ENTRYPOINT_ENV)
-            && !entrypoint.is_empty()
-        {
-            args.push(entrypoint);
-        }
-        args.push(CODEX_APPLY_PATCH_ARG1.to_string());
-        args.push(req.patch.clone());
         Ok(CommandSpec {
             program,
-            args,
-            cwd: req.cwd.clone(),
+            args: vec![CODEX_APPLY_PATCH_ARG1.to_string(), req.action.patch.clone()],
+            cwd: req.action.cwd.clone(),
             expiration: req.timeout_ms.into(),
             // Run apply_patch with a minimal environment for determinism and to avoid leaks.
             env: HashMap::new(),
@@ -89,13 +76,6 @@ impl ApplyPatchRuntime {
     }
 }
 
-fn should_use_node_entrypoint(exe: &Path) -> bool {
-    exe.file_stem()
-        .and_then(|stem| stem.to_str())
-        .map(|name| matches!(name, "node" | "nodejs"))
-        .unwrap_or(false)
-}
-
 impl Sandboxable for ApplyPatchRuntime {
     fn sandbox_preference(&self) -> SandboxablePreference {
         SandboxablePreference::Auto
@@ -106,13 +86,10 @@ impl Sandboxable for ApplyPatchRuntime {
 }
 
 impl Approvable<ApplyPatchRequest> for ApplyPatchRuntime {
-    type ApprovalKey = ApprovalKey;
+    type ApprovalKey = AbsolutePathBuf;
 
-    fn approval_key(&self, req: &ApplyPatchRequest) -> Self::ApprovalKey {
-        ApprovalKey {
-            patch: req.patch.clone(),
-            cwd: req.cwd.clone(),
-        }
+    fn approval_keys(&self, req: &ApplyPatchRequest) -> Vec<Self::ApprovalKey> {
+        req.file_paths.clone()
     }
 
     fn start_approval_async<'a>(
@@ -120,38 +97,48 @@ impl Approvable<ApplyPatchRequest> for ApplyPatchRuntime {
         req: &'a ApplyPatchRequest,
         ctx: ApprovalCtx<'a>,
     ) -> BoxFuture<'a, ReviewDecision> {
-        let key = self.approval_key(req);
         let session = ctx.session;
         let turn = ctx.turn;
         let call_id = ctx.call_id.to_string();
-        let cwd = req.cwd.clone();
         let retry_reason = ctx.retry_reason.clone();
-        let user_explicitly_approved = req.user_explicitly_approved;
+        let approval_keys = self.approval_keys(req);
+        let changes = req.changes.clone();
         Box::pin(async move {
-            with_cached_approval(&session.services, key, move || async move {
-                if let Some(reason) = retry_reason {
-                    session
-                        .request_command_approval(
-                            turn,
-                            call_id,
-                            vec!["apply_patch".to_string()],
-                            cwd,
-                            Some(reason),
-                            None,
-                        )
-                        .await
-                } else if user_explicitly_approved {
-                    ReviewDecision::ApprovedForSession
-                } else {
-                    ReviewDecision::Approved
-                }
-            })
+            if let Some(reason) = retry_reason {
+                let rx_approve = session
+                    .request_patch_approval(turn, call_id, changes.clone(), Some(reason), None)
+                    .await;
+                return rx_approve.await.unwrap_or_default();
+            }
+
+            with_cached_approval(
+                &session.services,
+                "apply_patch",
+                approval_keys,
+                || async move {
+                    let rx_approve = session
+                        .request_patch_approval(turn, call_id, changes, None, None)
+                        .await;
+                    rx_approve.await.unwrap_or_default()
+                },
+            )
             .await
         })
     }
 
     fn wants_no_sandbox_approval(&self, policy: AskForApproval) -> bool {
         !matches!(policy, AskForApproval::Never)
+    }
+
+    // apply_patch approvals are decided upstream by assess_patch_safety.
+    //
+    // This override ensures the orchestrator runs the patch approval flow when required instead
+    // of falling back to the global exec approval policy.
+    fn exec_approval_requirement(
+        &self,
+        req: &ApplyPatchRequest,
+    ) -> Option<ExecApprovalRequirement> {
+        Some(req.exec_approval_requirement.clone())
     }
 }
 
@@ -170,62 +157,5 @@ impl ToolRuntime<ApplyPatchRequest, ExecToolCallOutput> for ApplyPatchRuntime {
             .await
             .map_err(ToolError::Codex)?;
         Ok(out)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::CODEX_APPLY_PATCH_ARG1;
-    use serial_test::serial;
-    use std::env;
-
-    fn make_request_with_exe(exe: &str) -> ApplyPatchRequest {
-        ApplyPatchRequest {
-            patch: "*** Begin Patch\n*** End Patch".to_string(),
-            cwd: PathBuf::from("/tmp"),
-            timeout_ms: None,
-            user_explicitly_approved: true,
-            codex_exe: Some(PathBuf::from(exe)),
-        }
-    }
-
-    fn with_entrypoint_env<T>(value: Option<&str>, f: impl FnOnce() -> T) -> T {
-        let original = env::var(NODE_CLI_ENTRYPOINT_ENV).ok();
-        match value {
-            Some(val) => unsafe { env::set_var(NODE_CLI_ENTRYPOINT_ENV, val) },
-            None => unsafe { env::remove_var(NODE_CLI_ENTRYPOINT_ENV) },
-        }
-        let result = f();
-        match original {
-            Some(val) => unsafe { env::set_var(NODE_CLI_ENTRYPOINT_ENV, val) },
-            None => unsafe { env::remove_var(NODE_CLI_ENTRYPOINT_ENV) },
-        }
-        result
-    }
-
-    #[test]
-    #[serial]
-    fn build_command_spec_skips_entrypoint_for_codex_binary() {
-        with_entrypoint_env(Some("cli.cjs"), || {
-            let req = make_request_with_exe("/usr/local/bin/codex");
-            let spec = ApplyPatchRuntime::build_command_spec(&req).expect("spec");
-            assert_eq!(spec.args.len(), 2);
-            assert_eq!(spec.args[0], CODEX_APPLY_PATCH_ARG1);
-            assert_eq!(spec.args[1], req.patch);
-        });
-    }
-
-    #[test]
-    #[serial]
-    fn build_command_spec_includes_entrypoint_for_node_binary() {
-        with_entrypoint_env(Some("/app/cli.cjs"), || {
-            let req = make_request_with_exe("/usr/local/bin/node");
-            let spec = ApplyPatchRuntime::build_command_spec(&req).expect("spec");
-            assert_eq!(spec.args.len(), 3);
-            assert_eq!(spec.args[0], "/app/cli.cjs");
-            assert_eq!(spec.args[1], CODEX_APPLY_PATCH_ARG1);
-            assert_eq!(spec.args[2], req.patch);
-        });
     }
 }

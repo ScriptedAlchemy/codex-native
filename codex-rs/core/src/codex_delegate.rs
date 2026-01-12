@@ -28,12 +28,12 @@ use crate::error::CodexErr;
 use crate::models_manager::manager::ModelsManager;
 use codex_protocol::protocol::InitialHistory;
 
-/// Start an interactive sub-Codex conversation and return IO channels.
+/// Start an interactive sub-Codex thread and return IO channels.
 ///
 /// The returned `events_rx` yields non-approval events emitted by the sub-agent.
 /// Approval requests are handled via `parent_session` and are not surfaced.
 /// The returned `ops_tx` allows the caller to submit additional `Op`s to the sub-agent.
-pub(crate) async fn run_codex_conversation_interactive(
+pub(crate) async fn run_codex_thread_interactive(
     config: Config,
     auth_manager: Arc<AuthManager>,
     models_manager: Arc<ModelsManager>,
@@ -95,7 +95,7 @@ pub(crate) async fn run_codex_conversation_interactive(
 ///
 /// Internally calls the interactive variant, then immediately submits the provided input.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn run_codex_conversation_one_shot(
+pub(crate) async fn run_codex_thread_one_shot(
     config: Config,
     auth_manager: Arc<AuthManager>,
     models_manager: Arc<ModelsManager>,
@@ -108,7 +108,7 @@ pub(crate) async fn run_codex_conversation_one_shot(
     // Use a child token so we can stop the delegate after completion without
     // requiring the caller to cancel the parent token.
     let child_cancel = cancel_token.child_token();
-    let io = run_codex_conversation_interactive(
+    let io = run_codex_thread_interactive(
         config,
         auth_manager,
         models_manager,
@@ -135,7 +135,7 @@ pub(crate) async fn run_codex_conversation_one_shot(
         while let Ok(event) = io_for_bridge.next_event().await {
             let should_shutdown = matches!(
                 event.msg,
-                EventMsg::TaskComplete(_) | EventMsg::TurnAborted(_)
+                EventMsg::TurnComplete(_) | EventMsg::TurnAborted(_)
             );
             let _ = tx_bridge.send(event).await;
             if should_shutdown {
@@ -253,7 +253,7 @@ async fn shutdown_delegate(codex: &Codex) {
         while let Ok(event) = codex.next_event().await {
             if matches!(
                 event.msg,
-                EventMsg::TurnAborted(_) | EventMsg::TaskComplete(_)
+                EventMsg::TurnAborted(_) | EventMsg::TurnComplete(_)
             ) {
                 break;
             }
