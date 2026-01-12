@@ -406,6 +406,7 @@ impl From<Vec<UserInput>> for ResponseInputItem {
                         local_image_content_items_with_label_number(&path, Some(image_index))
                     }
                     UserInput::Skill { .. } => Vec::new(), // Skill bodies are injected later in core
+                    UserInput::SkillInline { .. } => Vec::new(), // Skill bodies are injected later in core
                 })
                 .collect::<Vec<ContentItem>>(),
         }
