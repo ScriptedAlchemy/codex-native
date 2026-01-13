@@ -292,6 +292,20 @@ pub(crate) fn find_model_info_for_slug(slug: &str) -> ModelInfo {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::find_model_info_for_slug;
+
+    #[test]
+    fn gpt_4_1_supports_parallel_tool_calls() {
+        let info = find_model_info_for_slug("gpt-4.1");
+        assert!(
+            info.supports_parallel_tool_calls,
+            "gpt-4.1 must allow parallel tool calls for Chat Completions"
+        );
+    }
+}
+
 fn supported_reasoning_level_low_medium_high() -> Vec<ReasoningEffortPreset> {
     vec![
         ReasoningEffortPreset {

@@ -830,6 +830,75 @@ fn normalize_mixed_inserts_and_removals() {
 }
 
 #[test]
+fn normalize_reorders_outputs_after_calls() {
+    let items = vec![
+        user_input_text_msg("hi"),
+        ResponseItem::FunctionCallOutput {
+            call_id: "call-a".to_string(),
+            output: FunctionCallOutputPayload {
+                content: "A".to_string(),
+                ..Default::default()
+            },
+        },
+        ResponseItem::FunctionCall {
+            id: None,
+            name: "read_file".to_string(),
+            arguments: "{}".to_string(),
+            call_id: "call-a".to_string(),
+        },
+        ResponseItem::FunctionCall {
+            id: None,
+            name: "read_file".to_string(),
+            arguments: "{}".to_string(),
+            call_id: "call-b".to_string(),
+        },
+        ResponseItem::FunctionCallOutput {
+            call_id: "call-b".to_string(),
+            output: FunctionCallOutputPayload {
+                content: "B".to_string(),
+                ..Default::default()
+            },
+        },
+    ];
+    let mut h = create_history_with_items(items);
+
+    h.normalize_history();
+
+    assert_eq!(
+        h.raw_items(),
+        vec![
+            user_input_text_msg("hi"),
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "read_file".to_string(),
+                arguments: "{}".to_string(),
+                call_id: "call-a".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "call-a".to_string(),
+                output: FunctionCallOutputPayload {
+                    content: "A".to_string(),
+                    ..Default::default()
+                },
+            },
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "read_file".to_string(),
+                arguments: "{}".to_string(),
+                call_id: "call-b".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "call-b".to_string(),
+                output: FunctionCallOutputPayload {
+                    content: "B".to_string(),
+                    ..Default::default()
+                },
+            },
+        ]
+    );
+}
+
+#[test]
 fn normalize_adds_missing_output_for_function_call_inserts_output() {
     let items = vec![ResponseItem::FunctionCall {
         id: None,

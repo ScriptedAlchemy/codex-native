@@ -94,6 +94,57 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
     }
 }
 
+pub(crate) fn reorder_tool_outputs(items: &mut Vec<ResponseItem>) {
+    use std::collections::HashMap;
+
+    let mut outputs_by_call: HashMap<String, Vec<ResponseItem>> = HashMap::new();
+    let mut retained: Vec<ResponseItem> = Vec::with_capacity(items.len());
+
+    for item in items.drain(..) {
+        match &item {
+            ResponseItem::FunctionCallOutput { call_id, .. }
+            | ResponseItem::CustomToolCallOutput { call_id, .. } => {
+                outputs_by_call
+                    .entry(call_id.clone())
+                    .or_default()
+                    .push(item);
+            }
+            _ => retained.push(item),
+        }
+    }
+
+    let mut reordered: Vec<ResponseItem> =
+        Vec::with_capacity(retained.len() + outputs_by_call.len());
+
+    for item in retained {
+        let call_id = match &item {
+            ResponseItem::FunctionCall { call_id, .. } => Some(call_id.clone()),
+            ResponseItem::CustomToolCall { call_id, .. } => Some(call_id.clone()),
+            ResponseItem::LocalShellCall {
+                call_id: Some(call_id),
+                ..
+            } => Some(call_id.clone()),
+            _ => None,
+        };
+
+        reordered.push(item);
+
+        if let Some(call_id) = call_id {
+            if let Some(outputs) = outputs_by_call.remove(&call_id) {
+                for output in outputs {
+                    reordered.push(output);
+                }
+            }
+        }
+    }
+
+    for (call_id, _outputs) in outputs_by_call {
+        error_or_panic(format!("Orphan tool output for call id: {call_id}"));
+    }
+
+    *items = reordered;
+}
+
 pub(crate) fn remove_orphan_outputs(items: &mut Vec<ResponseItem>) {
     let function_call_ids: HashSet<String> = items
         .iter()

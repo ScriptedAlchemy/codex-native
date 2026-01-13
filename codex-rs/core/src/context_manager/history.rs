@@ -247,6 +247,9 @@ impl ContextManager {
 
         // all outputs must have a corresponding function/tool call
         normalize::remove_orphan_outputs(&mut self.items);
+
+        // ensure outputs appear after their associated calls
+        normalize::reorder_tool_outputs(&mut self.items);
     }
 
     fn process_item(&self, item: &ResponseItem, policy: TruncationPolicy) -> ResponseItem {
