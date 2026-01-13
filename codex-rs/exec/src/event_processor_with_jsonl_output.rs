@@ -37,6 +37,8 @@ use codex_core::config::Config;
 use codex_core::protocol;
 use codex_protocol::plan_tool::StepStatus;
 use codex_protocol::plan_tool::UpdatePlanArgs;
+use base64::Engine;
+use serde_json::json;
 use serde_json::Value as JsonValue;
 use tracing::error;
 use tracing::warn;
@@ -129,10 +131,21 @@ impl EventProcessorWithJsonOutput {
                 if let Some(info) = &ev.info {
                     self.last_total_token_usage = Some(info.total_token_usage.clone());
                 }
-                Vec::new()
+                vec![ThreadEvent::Raw(crate::exec_events::RawEvent {
+                    raw: json!({
+                        "type": "token_count",
+                        "info": ev.info,
+                        "rate_limits": ev.rate_limits,
+                    }),
+                })]
             }
             protocol::EventMsg::TurnStarted(ev) => self.handle_task_started(ev),
             protocol::EventMsg::TurnComplete(_) => self.handle_task_complete(),
+            protocol::EventMsg::BackgroundEvent(ev) => vec![ThreadEvent::BackgroundEvent(
+                crate::exec_events::BackgroundEventEvent {
+                    message: ev.message.clone(),
+                },
+            )],
             protocol::EventMsg::Error(ev) => {
                 let error = ThreadErrorEvent {
                     message: ev.message.clone(),
@@ -191,9 +204,17 @@ impl EventProcessorWithJsonOutput {
         vec![ThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
     }
 
-    fn handle_output_chunk(&mut self, _call_id: &str, _chunk: &[u8]) -> Vec<ThreadEvent> {
-        //TODO see how we want to process them
-        vec![]
+    fn handle_output_chunk(&mut self, call_id: &str, chunk: &[u8]) -> Vec<ThreadEvent> {
+        // Forward raw output deltas so JS consumers can stream command output.
+        // Use base64 encoding so the payload is JSON-safe.
+        vec![ThreadEvent::Raw(crate::exec_events::RawEvent {
+            raw: json!({
+                "type": "exec_command_output_delta",
+                "call_id": call_id,
+                "stream": "stdout",
+                "chunk": base64::engine::general_purpose::STANDARD.encode(chunk),
+            }),
+        })]
     }
 
     fn handle_terminal_interaction(
@@ -439,7 +460,13 @@ impl EventProcessorWithJsonOutput {
         self.running_patch_applies
             .insert(ev.call_id.clone(), ev.clone());
 
-        Vec::new()
+        vec![ThreadEvent::Raw(crate::exec_events::RawEvent {
+            raw: json!({
+                "type": "patch_apply_begin",
+                "call_id": ev.call_id,
+                "changes": ev.changes,
+            }),
+        })]
     }
 
     fn map_change_kind(&self, kind: &protocol::FileChange) -> PatchChangeKind {
@@ -486,11 +513,16 @@ impl EventProcessorWithJsonOutput {
             aggregated_output,
         }) = self.running_commands.remove(&ev.call_id)
         else {
-            warn!(
-                call_id = ev.call_id,
-                "ExecCommandEnd without matching ExecCommandBegin; skipping item.completed"
-            );
-            return Vec::new();
+            // Preserve fidelity for JS clients and tests: forward a raw end event even if we
+            // didn't observe the begin event (can happen with dropped events).
+            return vec![ThreadEvent::Raw(crate::exec_events::RawEvent {
+                raw: json!({
+                    "type": "exec_command_end",
+                    "call_id": ev.call_id,
+                    "exit_code": ev.exit_code,
+                    "duration_ms": ev.duration.as_millis(),
+                }),
+            })];
         };
         let status = if ev.exit_code == 0 {
             CommandExecutionStatus::Completed

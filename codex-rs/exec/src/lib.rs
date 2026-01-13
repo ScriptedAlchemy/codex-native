@@ -149,8 +149,12 @@ async fn run_exec(
         Ok(v) => v,
         #[allow(clippy::print_stderr)]
         Err(e) => {
+            // IMPORTANT: codex_exec is used both by the standalone CLI and via the
+            // N-API binding (@codex-native/sdk). Calling std::process::exit from a
+            // libuv worker thread (N-API async task) will abort the Node process
+            // (Abort trap: 6). Bubble errors instead so callers can handle them.
             eprintln!("Error parsing -c overrides: {e}");
-            std::process::exit(1);
+            return Err(anyhow::anyhow!("Error parsing -c overrides: {e}"));
         }
     };
 
@@ -167,7 +171,7 @@ async fn run_exec(
             Ok(codex_home) => codex_home,
             Err(err) => {
                 eprintln!("Error finding codex home: {err}");
-                std::process::exit(1);
+                return Err(anyhow::anyhow!("Error finding codex home: {err}"));
             }
         };
 
@@ -181,7 +185,7 @@ async fn run_exec(
             Ok(config_toml) => config_toml,
             Err(err) => {
                 eprintln!("Error loading config.toml: {err}");
-                std::process::exit(1);
+                return Err(anyhow::anyhow!("Error loading config.toml: {err}"));
             }
         }
     };
@@ -241,7 +245,7 @@ async fn run_exec(
 
     if let Err(err) = enforce_login_restrictions(&config) {
         eprintln!("{err}");
-        std::process::exit(1);
+        return Err(anyhow::anyhow!("{err}"));
     }
 
     let otel =
@@ -252,7 +256,7 @@ async fn run_exec(
         Ok(otel) => otel,
         Err(e) => {
             eprintln!("Could not create otel exporter: {e}");
-            std::process::exit(1);
+            return Err(anyhow::anyhow!("Could not create otel exporter: {e}"));
         }
     };
 
@@ -304,7 +308,9 @@ async fn run_exec(
 
     if !skip_git_repo_check && get_git_repo_root(&default_cwd).is_none() {
         eprintln!("Not inside a trusted directory and --skip-git-repo-check was not specified.");
-        std::process::exit(1);
+        return Err(anyhow::anyhow!(
+            "Not inside a trusted directory and --skip-git-repo-check was not specified."
+        ));
     }
 
     let auth_manager = AuthManager::shared(
@@ -517,7 +523,9 @@ async fn run_exec(
     }
     event_processor.print_final_output();
     if error_seen {
-        std::process::exit(1);
+        // Never hard-exit from library code (this is invoked via N-API too).
+        // Report an error to the caller so Node can handle it without aborting.
+        return Err(anyhow::anyhow!("codex exec reported an error event"));
     }
 
     Ok(())
@@ -563,7 +571,7 @@ fn load_output_schema(path: Option<PathBuf>) -> Option<Value> {
                 "Failed to read output schema file {}: {err}",
                 path.display()
             );
-            std::process::exit(1);
+            return None;
         }
     };
 
@@ -574,7 +582,7 @@ fn load_output_schema(path: Option<PathBuf>) -> Option<Value> {
                 "Output schema file {} is not valid JSON: {err}",
                 path.display()
             );
-            std::process::exit(1);
+            None
         }
     }
 }
@@ -610,7 +618,7 @@ fn resolve_prompt(prompt_arg: Option<String>) -> String {
                 eprintln!(
                     "No prompt provided. Either specify one as an argument or pipe the prompt into stdin."
                 );
-                std::process::exit(1);
+                return String::new();
             }
 
             if !force_stdin {
@@ -619,10 +627,10 @@ fn resolve_prompt(prompt_arg: Option<String>) -> String {
             let mut buffer = String::new();
             if let Err(e) = std::io::stdin().read_to_string(&mut buffer) {
                 eprintln!("Failed to read prompt from stdin: {e}");
-                std::process::exit(1);
+                return String::new();
             } else if buffer.trim().is_empty() {
                 eprintln!("No prompt provided via stdin.");
-                std::process::exit(1);
+                return String::new();
             }
             buffer
         }
