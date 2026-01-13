@@ -1809,7 +1809,7 @@ dependencies = [
  "uuid",
  "vt100",
  "which",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.1",
  "winsplit",
 ]
 
