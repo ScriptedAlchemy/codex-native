@@ -23,7 +23,6 @@ use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use pretty_assertions::assert_eq;
-use wiremock::MockServer;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn refresh_models_on_models_etag_mismatch_and_avoid_duplicate_models_fetch() -> Result<()> {
@@ -33,7 +32,7 @@ async fn refresh_models_on_models_etag_mismatch_and_avoid_duplicate_models_fetch
     const ETAG_2: &str = "\"models-etag-2\"";
     const CALL_ID: &str = "local-shell-call-1";
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     // 1) On spawn, Codex fetches /models and stores the ETag.
     let spawn_models_mock = responses::mount_models_once_with_etag(

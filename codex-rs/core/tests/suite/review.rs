@@ -813,7 +813,7 @@ async fn start_responses_server_with_sse(
     sse_raw: &str,
     expected_requests: usize,
 ) -> (MockServer, ResponseMock) {
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     let sse = load_sse_fixture_with_id_from_str(sse_raw, &Uuid::new_v4().to_string());
     let responses = vec![sse; expected_requests];
     let request_log = mount_sse_sequence(&server, responses).await;

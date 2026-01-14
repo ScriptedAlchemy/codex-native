@@ -26,6 +26,7 @@ use core_test_support::wait_for_event;
 use core_test_support::wait_for_event_match;
 use std::collections::VecDeque;
 use tempfile::TempDir;
+use wiremock::MockServer;
 
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
@@ -40,7 +41,6 @@ use core_test_support::responses::sse_failed;
 use core_test_support::responses::start_mock_server;
 use pretty_assertions::assert_eq;
 use serde_json::json;
-use wiremock::MockServer;
 // --- Test helpers -----------------------------------------------------------
 
 pub(super) const FIRST_REPLY: &str = "FIRST_REPLY";

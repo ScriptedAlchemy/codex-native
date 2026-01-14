@@ -17,6 +17,10 @@ use tempfile::TempDir;
 async fn list_tools() -> Result<()> {
     let codex_home = TempDir::new()?;
     let dotslash_cache = TempDir::new()?;
+    if !exec_server_test_support::dotslash_available() {
+        eprintln!("skipping: dotslash not available in PATH");
+        return Ok(());
+    }
     let policy_dir = codex_home.path().join("rules");
     fs::create_dir_all(&policy_dir)?;
     fs::write(

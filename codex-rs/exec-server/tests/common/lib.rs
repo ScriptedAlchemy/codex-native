@@ -26,6 +26,18 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::process::Command;
 
+pub fn dotslash_available() -> bool {
+    if let Some(path) = std::env::var_os("PATH") {
+        for entry in std::env::split_paths(&path) {
+            let candidate = entry.join("dotslash");
+            if candidate.is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub async fn create_transport<P>(
     codex_home: P,
     dotslash_cache: P,

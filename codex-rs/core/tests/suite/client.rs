@@ -1,3 +1,7 @@
+use codex_api::Provider;
+use codex_api::ResponsesRequestBuilder;
+use codex_api::WireApi as ApiWireApi;
+use codex_api::provider::RetryConfig;
 use codex_core::AuthManager;
 use codex_core::CodexAuth;
 use codex_core::ContentItem;
@@ -47,6 +51,7 @@ use serde_json::json;
 use std::io::Write;
 use std::sync::Arc;
 use tempfile::TempDir;
+use tokio::time::Duration;
 use uuid::Uuid;
 use wiremock::Mock;
 use wiremock::MockServer;
@@ -55,7 +60,6 @@ use wiremock::matchers::body_string_contains;
 use wiremock::matchers::header_regex;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
-use wiremock::matchers::query_param;
 
 /// Build minimal SSE stream with completed marker using the JSON fixture.
 fn sse_completed(id: &str) -> String {
@@ -245,7 +249,7 @@ async fn resume_includes_initial_messages_and_sends_prior_items() {
     drop(f);
 
     // Mock server that will receive the resumed request
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
 
     // Configure Codex to resume from our file
@@ -285,15 +289,18 @@ async fn resume_includes_initial_messages_and_sends_prior_items() {
     assert_eq!(initial_json, expected_initial_json);
 
     // 2) Submit new input; the request body must include the prior item followed by the new user input.
-    codex
-        .submit(Op::UserInput {
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        codex.submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
             }],
             final_output_json_schema: None,
-        })
-        .await
-        .unwrap();
+        }),
+    )
+    .await
+    .expect("submit should complete in time")
+    .unwrap();
     wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
     let request = resp_mock.single_request();
@@ -323,7 +330,7 @@ async fn includes_conversation_id_and_model_headers_in_request() {
     skip_if_no_network!();
 
     // Mock server
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
 
@@ -352,17 +359,26 @@ async fn includes_conversation_id_and_model_headers_in_request() {
         .await
         .expect("create new conversation");
 
-    codex
-        .submit(Op::UserInput {
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        codex.submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
             }],
             final_output_json_schema: None,
-        })
-        .await
-        .unwrap();
+        }),
+    )
+    .await
+    .expect("submit should complete in time")
+    .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while resp_mock.requests().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("request should be captured in time");
 
     let request = resp_mock.single_request();
     assert_eq!(request.path(), "/v1/responses");
@@ -383,7 +399,7 @@ async fn includes_conversation_id_and_model_headers_in_request() {
 async fn includes_base_instructions_override_in_request() {
     skip_if_no_network!();
     // Mock server
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
 
     let model_provider = ModelProviderInfo {
@@ -407,15 +423,18 @@ async fn includes_base_instructions_override_in_request() {
         .expect("create new conversation")
         .thread;
 
-    codex
-        .submit(Op::UserInput {
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        codex.submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
             }],
             final_output_json_schema: None,
-        })
-        .await
-        .unwrap();
+        }),
+    )
+    .await
+    .expect("submit should complete in time")
+    .unwrap();
 
     wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
@@ -434,8 +453,8 @@ async fn includes_base_instructions_override_in_request() {
 async fn chatgpt_auth_sends_correct_request() {
     skip_if_no_network!();
 
-    // Mock server
-    let server = MockServer::start().await;
+    // Mock server (use a dedicated instance to avoid pooled server reuse blocking on open SSE)
+    let server = MockServer::builder().start().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
 
@@ -444,36 +463,62 @@ async fn chatgpt_auth_sends_correct_request() {
         ..built_in_model_providers()["openai"].clone()
     };
 
-    // Init session
     let codex_home = TempDir::new().unwrap();
     let mut config = load_default_config_for_test(&codex_home).await;
-    config.model_provider = model_provider;
-    let thread_manager = ThreadManager::with_models_provider_and_home(
-        create_dummy_codex_auth(),
-        config.model_provider.clone(),
-        config.codex_home.clone(),
+    config.model_provider_id = model_provider.name.clone();
+    config.model_provider = model_provider.clone();
+    let effort = config.model_reasoning_effort;
+    let summary = config.model_reasoning_summary;
+    let model = ModelsManager::get_model_offline(config.model.as_deref());
+    config.model = Some(model.clone());
+    let config = Arc::new(config);
+
+    let conversation_id = ThreadId::new();
+    let auth_manager = AuthManager::from_auth_for_testing(create_dummy_codex_auth());
+    let auth_mode = auth_manager.get_auth_mode();
+    let model_info = ModelsManager::construct_model_info_offline(model.as_str(), &config);
+    let otel_manager = OtelManager::new(
+        conversation_id,
+        model.as_str(),
+        model_info.slug.as_str(),
+        None,
+        Some("test@test.com".to_string()),
+        auth_mode,
+        false,
+        "test".to_string(),
+        SessionSource::Exec,
     );
-    let NewThread {
-        thread: codex,
-        thread_id: conversation_id,
-        session_configured: _,
-        ..
-    } = thread_manager
-        .start_thread(config)
-        .await
-        .expect("create new conversation");
 
-    codex
-        .submit(Op::UserInput {
-            items: vec![UserInput::Text {
-                text: "hello".into(),
-            }],
-            final_output_json_schema: None,
-        })
-        .await
-        .unwrap();
+    let client = ModelClient::new(
+        Arc::clone(&config),
+        Some(Arc::clone(&auth_manager)),
+        model_info,
+        otel_manager,
+        model_provider,
+        effort,
+        summary,
+        conversation_id,
+        SessionSource::Exec,
+    );
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+    let mut prompt = Prompt::default();
+    prompt.input = vec![ResponseItem::Message {
+        id: None,
+        role: "user".to_string(),
+        content: vec![ContentItem::InputText {
+            text: "hello".to_string(),
+        }],
+    }];
+
+    let mut stream = client
+        .stream(&prompt)
+        .await
+        .expect("responses stream to start");
+    while let Some(event) = stream.next().await {
+        if let Ok(ResponseEvent::Completed { .. }) = event {
+            break;
+        }
+    }
 
     let request = resp_mock.single_request();
     assert_eq!(request.path(), "/api/codex/responses");
@@ -505,7 +550,7 @@ async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
     skip_if_no_network!();
 
     // Mock server
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let first = ResponseTemplate::new(200)
         .insert_header("content-type", "text/event-stream")
@@ -556,23 +601,31 @@ async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
         .await
         .expect("create new conversation");
 
-    codex
-        .submit(Op::UserInput {
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        codex.submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
             }],
             final_output_json_schema: None,
-        })
-        .await
-        .unwrap();
+        }),
+    )
+    .await
+    .expect("submit should complete in time")
+    .unwrap();
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))),
+    )
+    .await
+    .expect("turn complete in time");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_user_instructions_message_in_request() {
     skip_if_no_network!();
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
 
@@ -597,15 +650,18 @@ async fn includes_user_instructions_message_in_request() {
         .expect("create new conversation")
         .thread;
 
-    codex
-        .submit(Op::UserInput {
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        codex.submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
             }],
             final_output_json_schema: None,
-        })
-        .await
-        .unwrap();
+        }),
+    )
+    .await
+    .expect("submit should complete in time")
+    .unwrap();
 
     wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
@@ -634,7 +690,7 @@ async fn includes_user_instructions_message_in_request() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn skills_append_to_instructions() {
     skip_if_no_network!();
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
 
@@ -667,15 +723,18 @@ async fn skills_append_to_instructions() {
         .expect("create new conversation")
         .thread;
 
-    codex
-        .submit(Op::UserInput {
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        codex.submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
             }],
             final_output_json_schema: None,
-        })
-        .await
-        .unwrap();
+        }),
+    )
+    .await
+    .expect("submit should complete in time")
+    .unwrap();
 
     wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
@@ -706,7 +765,7 @@ async fn skills_append_to_instructions() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_configured_effort_in_request() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
     let TestCodex { codex, .. } = test_codex()
@@ -746,7 +805,7 @@ async fn includes_configured_effort_in_request() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_no_effort_in_request() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
     let TestCodex { codex, .. } = test_codex()
@@ -784,7 +843,7 @@ async fn includes_no_effort_in_request() -> anyhow::Result<()> {
 async fn includes_default_reasoning_effort_in_request_when_defined_by_model_info()
 -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
     let TestCodex { codex, .. } = test_codex().with_model("gpt-5.1").build(&server).await?;
@@ -818,7 +877,7 @@ async fn includes_default_reasoning_effort_in_request_when_defined_by_model_info
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configured_reasoning_summary_is_sent() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
     let TestCodex { codex, .. } = test_codex()
@@ -857,7 +916,7 @@ async fn configured_reasoning_summary_is_sent() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reasoning_summary_is_omitted_when_disabled() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
     let TestCodex { codex, .. } = test_codex()
@@ -895,7 +954,7 @@ async fn reasoning_summary_is_omitted_when_disabled() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_default_verbosity_in_request() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
     let TestCodex { codex, .. } = test_codex().with_model("gpt-5.1").build(&server).await?;
@@ -929,7 +988,7 @@ async fn includes_default_verbosity_in_request() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configured_verbosity_not_sent_for_models_without_support() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
     let TestCodex { codex, .. } = test_codex()
@@ -968,7 +1027,7 @@ async fn configured_verbosity_not_sent_for_models_without_support() -> anyhow::R
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configured_verbosity_is_sent() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
     let TestCodex { codex, .. } = test_codex()
@@ -1008,7 +1067,7 @@ async fn configured_verbosity_is_sent() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_developer_instructions_message_in_request() {
     skip_if_no_network!();
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
 
@@ -1034,15 +1093,18 @@ async fn includes_developer_instructions_message_in_request() {
         .expect("create new conversation")
         .thread;
 
-    codex
-        .submit(Op::UserInput {
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        codex.submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
             }],
             final_output_json_schema: None,
-        })
-        .await
-        .unwrap();
+        }),
+    )
+    .await
+    .expect("submit should complete in time")
+    .unwrap();
 
     wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
@@ -1072,67 +1134,21 @@ async fn includes_developer_instructions_message_in_request() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn azure_responses_request_includes_store_and_reasoning_ids() {
-    skip_if_no_network!();
-
-    let server = MockServer::start().await;
-
-    let sse_body = concat!(
-        "data: {\"type\":\"response.created\",\"response\":{}}\n\n",
-        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\"}}\n\n",
-    );
-    let resp_mock = mount_sse_once(&server, sse_body.to_string()).await;
-
-    let provider = ModelProviderInfo {
+    let provider = Provider {
         name: "azure".into(),
-        base_url: Some(format!("{}/openai", server.uri())),
-        env_key: None,
-        env_key_instructions: None,
-        experimental_bearer_token: None,
-        wire_api: WireApi::Responses,
+        base_url: "https://example.openai.azure.com/openai".into(),
         query_params: None,
-        http_headers: None,
-        env_http_headers: None,
-        request_max_retries: Some(0),
-        stream_max_retries: Some(0),
-        stream_idle_timeout_ms: Some(5_000),
-        requires_openai_auth: false,
+        wire: ApiWireApi::Responses,
+        headers: http::HeaderMap::new(),
+        retry: RetryConfig {
+            max_attempts: 1,
+            base_delay: Duration::from_millis(10),
+            retry_429: false,
+            retry_5xx: false,
+            retry_transport: false,
+        },
+        stream_idle_timeout: Duration::from_secs(5),
     };
-
-    let codex_home = TempDir::new().unwrap();
-    let mut config = load_default_config_for_test(&codex_home).await;
-    config.model_provider_id = provider.name.clone();
-    config.model_provider = provider.clone();
-    let effort = config.model_reasoning_effort;
-    let summary = config.model_reasoning_summary;
-    let model = ModelsManager::get_model_offline(config.model.as_deref());
-    config.model = Some(model.clone());
-    let config = Arc::new(config);
-    let model_info = ModelsManager::construct_model_info_offline(model.as_str(), &config);
-    let conversation_id = ThreadId::new();
-    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
-    let otel_manager = OtelManager::new(
-        conversation_id,
-        model.as_str(),
-        model_info.slug.as_str(),
-        None,
-        Some("test@test.com".to_string()),
-        auth_manager.get_auth_mode(),
-        false,
-        "test".to_string(),
-        SessionSource::Exec,
-    );
-
-    let client = ModelClient::new(
-        Arc::clone(&config),
-        None,
-        model_info,
-        otel_manager,
-        provider,
-        effort,
-        summary,
-        conversation_id,
-        SessionSource::Exec,
-    );
 
     let mut prompt = Prompt::default();
     prompt.input.push(ResponseItem::Reasoning {
@@ -1196,20 +1212,10 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
         output: "ok".into(),
     });
 
-    let mut stream = client
-        .stream(&prompt)
-        .await
-        .expect("responses stream to start");
-
-    while let Some(event) = stream.next().await {
-        if let Ok(ResponseEvent::Completed { .. }) = event {
-            break;
-        }
-    }
-
-    let request = resp_mock.single_request();
-    assert_eq!(request.path(), "/openai/responses");
-    let body = request.body_json();
+    let request = ResponsesRequestBuilder::new("gpt-test", "inst", &prompt.input)
+        .build(&provider)
+        .expect("build responses request");
+    let body = request.body;
 
     assert_eq!(body["store"], serde_json::Value::Bool(true));
     assert_eq!(body["stream"], serde_json::Value::Bool(true));
@@ -1233,7 +1239,7 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn token_count_includes_rate_limits_snapshot() {
     skip_if_no_network!();
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let sse_body = sse(vec![ev_completed_with_tokens("resp_rate", 123)]);
 
@@ -1387,7 +1393,7 @@ async fn token_count_includes_rate_limits_snapshot() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn usage_limit_error_emits_rate_limit_event() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let response = ResponseTemplate::new(429)
         .insert_header("x-codex-primary-used-percent", "100.0")
@@ -1470,7 +1476,7 @@ async fn usage_limit_error_emits_rate_limit_event() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn context_window_error_sets_total_tokens_to_model_window() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     const EFFECTIVE_CONTEXT_WINDOW: i64 = (272_000 * 95) / 100;
 
@@ -1567,30 +1573,10 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
     let existing_env_var_with_random_value = if cfg!(windows) { "USERNAME" } else { "USER" };
 
     // Mock server
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     // First request – must NOT include `previous_response_id`.
-    let first = ResponseTemplate::new(200)
-        .insert_header("content-type", "text/event-stream")
-        .set_body_raw(sse_completed("resp1"), "text/event-stream");
-
-    // Expect POST to /openai/responses with api-version query param
-    Mock::given(method("POST"))
-        .and(path("/openai/responses"))
-        .and(query_param("api-version", "2025-04-01-preview"))
-        .and(header_regex("Custom-Header", "Value"))
-        .and(header_regex(
-            "Authorization",
-            format!(
-                "Bearer {}",
-                std::env::var(existing_env_var_with_random_value).unwrap()
-            )
-            .as_str(),
-        ))
-        .respond_with(first)
-        .expect(1)
-        .mount(&server)
-        .await;
+    let response_mock = mount_sse_once(&server, sse_completed("resp1")).await;
 
     let provider = ModelProviderInfo {
         name: "custom".to_string(),
@@ -1609,39 +1595,83 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
             "Value".to_string(),
         )])),
         env_http_headers: None,
-        request_max_retries: None,
-        stream_max_retries: None,
-        stream_idle_timeout_ms: None,
+        request_max_retries: Some(0),
+        stream_max_retries: Some(0),
+        stream_idle_timeout_ms: Some(5_000),
         requires_openai_auth: false,
     };
 
-    // Init session
+    // Init client
     let codex_home = TempDir::new().unwrap();
     let mut config = load_default_config_for_test(&codex_home).await;
-    config.model_provider = provider;
+    config.model_provider_id = provider.name.clone();
+    config.model_provider = provider.clone();
+    let effort = config.model_reasoning_effort;
+    let summary = config.model_reasoning_summary;
+    let config = Arc::new(config);
 
-    let thread_manager = ThreadManager::with_models_provider_and_home(
-        create_dummy_codex_auth(),
-        config.model_provider.clone(),
-        config.codex_home.clone(),
+    let conversation_id = ThreadId::new();
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
+    let auth_mode = auth_manager.get_auth_mode();
+    let model = ModelsManager::get_model_offline(config.model.as_deref());
+    let model_info = ModelsManager::construct_model_info_offline(model.as_str(), &config);
+    let otel_manager = OtelManager::new(
+        conversation_id,
+        model.as_str(),
+        model_info.slug.as_str(),
+        None,
+        Some("test@test.com".to_string()),
+        auth_mode,
+        false,
+        "test".to_string(),
+        SessionSource::Exec,
     );
-    let codex = thread_manager
-        .start_thread(config)
-        .await
-        .expect("create new conversation")
-        .thread;
 
-    codex
-        .submit(Op::UserInput {
-            items: vec![UserInput::Text {
-                text: "hello".into(),
-            }],
-            final_output_json_schema: None,
-        })
-        .await
-        .unwrap();
+    let client = ModelClient::new(
+        Arc::clone(&config),
+        None,
+        model_info,
+        otel_manager,
+        provider,
+        effort,
+        summary,
+        conversation_id,
+        SessionSource::Exec,
+    );
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+    let mut prompt = Prompt::default();
+    prompt.input = vec![ResponseItem::Message {
+        id: None,
+        role: "user".to_string(),
+        content: vec![ContentItem::InputText {
+            text: "hello".to_string(),
+        }],
+    }];
+
+    let mut stream = client
+        .stream(&prompt)
+        .await
+        .expect("responses stream to start");
+    while let Some(event) = stream.next().await {
+        if let Ok(ResponseEvent::Completed { .. }) = event {
+            break;
+        }
+    }
+
+    let request = response_mock.single_request();
+    assert_eq!(request.path(), "/openai/responses");
+    assert_eq!(
+        request.query_param("api-version"),
+        Some("2025-04-01-preview".to_string())
+    );
+    assert_eq!(request.header("Custom-Header"), Some("Value".to_string()));
+    assert_eq!(
+        request.header("Authorization"),
+        Some(format!(
+            "Bearer {}",
+            std::env::var(existing_env_var_with_random_value).unwrap()
+        ))
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1650,30 +1680,10 @@ async fn env_var_overrides_loaded_auth() {
     let existing_env_var_with_random_value = if cfg!(windows) { "USERNAME" } else { "USER" };
 
     // Mock server
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     // First request – must NOT include `previous_response_id`.
-    let first = ResponseTemplate::new(200)
-        .insert_header("content-type", "text/event-stream")
-        .set_body_raw(sse_completed("resp1"), "text/event-stream");
-
-    // Expect POST to /openai/responses with api-version query param
-    Mock::given(method("POST"))
-        .and(path("/openai/responses"))
-        .and(query_param("api-version", "2025-04-01-preview"))
-        .and(header_regex("Custom-Header", "Value"))
-        .and(header_regex(
-            "Authorization",
-            format!(
-                "Bearer {}",
-                std::env::var(existing_env_var_with_random_value).unwrap()
-            )
-            .as_str(),
-        ))
-        .respond_with(first)
-        .expect(1)
-        .mount(&server)
-        .await;
+    let response_mock = mount_sse_once(&server, sse_completed("resp1")).await;
 
     let provider = ModelProviderInfo {
         name: "custom".to_string(),
@@ -1692,39 +1702,83 @@ async fn env_var_overrides_loaded_auth() {
             "Value".to_string(),
         )])),
         env_http_headers: None,
-        request_max_retries: None,
-        stream_max_retries: None,
-        stream_idle_timeout_ms: None,
+        request_max_retries: Some(0),
+        stream_max_retries: Some(0),
+        stream_idle_timeout_ms: Some(5_000),
         requires_openai_auth: false,
     };
 
-    // Init session
+    // Init client
     let codex_home = TempDir::new().unwrap();
     let mut config = load_default_config_for_test(&codex_home).await;
-    config.model_provider = provider;
+    config.model_provider_id = provider.name.clone();
+    config.model_provider = provider.clone();
+    let effort = config.model_reasoning_effort;
+    let summary = config.model_reasoning_summary;
+    let config = Arc::new(config);
 
-    let thread_manager = ThreadManager::with_models_provider_and_home(
-        create_dummy_codex_auth(),
-        config.model_provider.clone(),
-        config.codex_home.clone(),
+    let conversation_id = ThreadId::new();
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
+    let auth_mode = auth_manager.get_auth_mode();
+    let model = ModelsManager::get_model_offline(config.model.as_deref());
+    let model_info = ModelsManager::construct_model_info_offline(model.as_str(), &config);
+    let otel_manager = OtelManager::new(
+        conversation_id,
+        model.as_str(),
+        model_info.slug.as_str(),
+        None,
+        Some("test@test.com".to_string()),
+        auth_mode,
+        false,
+        "test".to_string(),
+        SessionSource::Exec,
     );
-    let codex = thread_manager
-        .start_thread(config)
-        .await
-        .expect("create new conversation")
-        .thread;
 
-    codex
-        .submit(Op::UserInput {
-            items: vec![UserInput::Text {
-                text: "hello".into(),
-            }],
-            final_output_json_schema: None,
-        })
-        .await
-        .unwrap();
+    let client = ModelClient::new(
+        Arc::clone(&config),
+        None,
+        model_info,
+        otel_manager,
+        provider,
+        effort,
+        summary,
+        conversation_id,
+        SessionSource::Exec,
+    );
 
-    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+    let mut prompt = Prompt::default();
+    prompt.input = vec![ResponseItem::Message {
+        id: None,
+        role: "user".to_string(),
+        content: vec![ContentItem::InputText {
+            text: "hello".to_string(),
+        }],
+    }];
+
+    let mut stream = client
+        .stream(&prompt)
+        .await
+        .expect("responses stream to start");
+    while let Some(event) = stream.next().await {
+        if let Ok(ResponseEvent::Completed { .. }) = event {
+            break;
+        }
+    }
+
+    let request = response_mock.single_request();
+    assert_eq!(request.path(), "/openai/responses");
+    assert_eq!(
+        request.query_param("api-version"),
+        Some("2025-04-01-preview".to_string())
+    );
+    assert_eq!(request.header("Custom-Header"), Some("Value".to_string()));
+    assert_eq!(
+        request.header("Authorization"),
+        Some(format!(
+            "Bearer {}",
+            std::env::var(existing_env_var_with_random_value).unwrap()
+        ))
+    );
 }
 
 fn create_dummy_codex_auth() -> CodexAuth {
@@ -1744,7 +1798,7 @@ async fn history_dedupes_streamed_and_final_messages_across_turns() {
 
     // Mock server that will receive three sequential requests and return the same SSE stream
     // each time: a few deltas, then a final assistant message, then completed.
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     // Build a small SSE stream with deltas and a final assistant message.
     // We emit the same body for all 3 turns; ids vary but are unused by assertions.

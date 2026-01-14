@@ -199,8 +199,8 @@ liveDescribe("GitHub Copilot provider (live)", () => {
     expect(finalText.length).toBeGreaterThan(0);
   });
 
-  it("executes tool calls with gpt-4.1 via CodexProvider + Agents", async () => {
-    await runToolCallTest("gpt-4.1", ["first"]);
+  it("executes tool calls with gpt-4.1 via CodexProvider + Agents (parallel)", async () => {
+    await runToolCallTest("gpt-4.1", ["first", "second"]);
   });
 
   it("executes tool calls with gpt-5-mini via CodexProvider + Agents (Responses)", async () => {

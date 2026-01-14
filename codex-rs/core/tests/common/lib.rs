@@ -248,6 +248,10 @@ pub fn stdio_server_bin() -> Result<String, CargoBinError> {
     codex_utils_cargo_bin::cargo_bin("test_stdio_server").map(|p| p.to_string_lossy().to_string())
 }
 
+pub async fn start_mock_server() -> wiremock::MockServer {
+    wiremock::MockServer::builder().start().await
+}
+
 pub mod fs_wait {
     use anyhow::Result;
     use anyhow::anyhow;

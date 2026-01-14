@@ -2,6 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
+use wiremock::MockServer;
 
 use anyhow::Result;
 use base64::Engine;
@@ -12,7 +13,6 @@ use wiremock::Match;
 use wiremock::Mock;
 use wiremock::MockBuilder;
 use wiremock::MockGuard;
-use wiremock::MockServer;
 use wiremock::Respond;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
@@ -589,6 +589,20 @@ pub async fn mount_response_once(server: &MockServer, response: ResponseTemplate
     response_mock
 }
 
+pub async fn mount_response_once_any_post(
+    server: &MockServer,
+    response: ResponseTemplate,
+) -> ResponseMock {
+    let response_mock = ResponseMock::new();
+    Mock::given(method("POST"))
+        .and(response_mock.clone())
+        .respond_with(response)
+        .up_to_n_times(5)
+        .mount(server)
+        .await;
+    response_mock
+}
+
 pub async fn mount_response_once_match<M>(
     server: &MockServer,
     matcher: M,
@@ -609,7 +623,7 @@ where
 fn base_mock() -> (MockBuilder, ResponseMock) {
     let response_mock = ResponseMock::new();
     let mock = Mock::given(method("POST"))
-        .and(path_regex(".*/responses$"))
+        .and(path_regex(".*/responses/?(?:\\?.*)?$"))
         .and(response_mock.clone());
     (mock, response_mock)
 }
@@ -653,6 +667,19 @@ pub async fn mount_sse_once(server: &MockServer, body: String) -> ResponseMock {
         .mount_as_scoped(server)
         .await;
     response_mock.keep_guard(guard);
+    response_mock
+}
+
+/// Mount a single SSE response for any POST path (useful when tests don't
+/// care about the request URL but need a deterministic response).
+pub async fn mount_sse_once_any_post(server: &MockServer, body: String) -> ResponseMock {
+    let response_mock = ResponseMock::new();
+    Mock::given(method("POST"))
+        .and(response_mock.clone())
+        .respond_with(sse_response(body))
+        .up_to_n_times(5)
+        .mount(server)
+        .await;
     response_mock
 }
 

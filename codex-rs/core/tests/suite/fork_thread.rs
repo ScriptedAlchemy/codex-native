@@ -15,7 +15,6 @@ use core_test_support::skip_if_no_network;
 use core_test_support::wait_for_event;
 use tempfile::TempDir;
 use wiremock::Mock;
-use wiremock::MockServer;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
@@ -30,7 +29,7 @@ async fn fork_thread_twice_drops_to_first_message() {
     skip_if_no_network!();
 
     // Start a mock server that completes three turns.
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     let sse = sse_completed("resp");
     let first = ResponseTemplate::new(200)
         .insert_header("content-type", "text/event-stream")

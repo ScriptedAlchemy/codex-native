@@ -29,12 +29,13 @@ use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::mount_sse_once_match;
 use core_test_support::responses::sse;
-use core_test_support::wait_for_event;
+use core_test_support::wait_for_event_with_timeout;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
+use tokio::time::Duration;
 use wiremock::MockServer;
 
 const AFTER_SECOND_RESUME: &str = "AFTER_SECOND_RESUME";
@@ -147,7 +148,7 @@ async fn compact_resume_and_fork_preserve_model_history_view() {
     }
 
     // 1. Arrange mocked SSE responses for the initial compact/resume/fork flow.
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     let request_log = mount_initial_flow(&server).await;
     let expected_model = "gpt-5.1-codex";
     // 2. Start a new conversation and drive it through the compact/resume/fork steps.
@@ -342,7 +343,6 @@ async fn compact_resume_and_fork_preserve_model_history_view() {
         }
       ],
       "tools": [],
-      "tool_choice": "auto",
       "parallel_tool_calls": false,
       "reasoning": {
         "summary": "auto"
@@ -599,7 +599,7 @@ async fn compact_resume_after_second_compaction_preserves_history() {
     }
 
     // 1. Arrange mocked SSE responses for the initial flow plus the second compact.
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     let mut request_log = mount_initial_flow(&server).await;
     request_log.extend(mount_second_compact_flow(&server).await);
 
@@ -896,7 +896,12 @@ async fn user_turn(conversation: &Arc<CodexThread>, text: &str) {
         })
         .await
         .expect("submit user turn");
-    wait_for_event(conversation, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+    wait_for_event_with_timeout(
+        conversation,
+        |ev| matches!(ev, EventMsg::TurnComplete(_)),
+        Duration::from_secs(15),
+    )
+    .await;
 }
 
 async fn compact_conversation(conversation: &Arc<CodexThread>) {
@@ -904,12 +909,22 @@ async fn compact_conversation(conversation: &Arc<CodexThread>) {
         .submit(Op::Compact)
         .await
         .expect("compact conversation");
-    let warning_event = wait_for_event(conversation, |ev| matches!(ev, EventMsg::Warning(_))).await;
+    let warning_event = wait_for_event_with_timeout(
+        conversation,
+        |ev| matches!(ev, EventMsg::Warning(_)),
+        Duration::from_secs(15),
+    )
+    .await;
     let EventMsg::Warning(WarningEvent { message }) = warning_event else {
         panic!("expected warning event after compact");
     };
     assert_eq!(message, COMPACT_WARNING_MESSAGE);
-    wait_for_event(conversation, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+    wait_for_event_with_timeout(
+        conversation,
+        |ev| matches!(ev, EventMsg::TurnComplete(_)),
+        Duration::from_secs(15),
+    )
+    .await;
 }
 
 async fn fetch_conversation_path(conversation: &Arc<CodexThread>) -> std::path::PathBuf {

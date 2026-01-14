@@ -21,7 +21,6 @@ use core_test_support::skip_if_no_network;
 use futures::StreamExt;
 use tempfile::TempDir;
 use wiremock::Mock;
-use wiremock::MockServer;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
@@ -31,7 +30,7 @@ async fn run_stream(sse_body: &str) -> Vec<ResponseEvent> {
 }
 
 async fn run_stream_with_bytes(sse_body: &[u8]) -> Vec<ResponseEvent> {
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
 
     let template = ResponseTemplate::new(200)
         .insert_header("content-type", "text/event-stream")

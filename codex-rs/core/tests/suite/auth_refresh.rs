@@ -35,7 +35,7 @@ const INITIAL_REFRESH_TOKEN: &str = "initial-refresh-token";
 async fn refresh_token_succeeds_updates_storage() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -97,7 +97,7 @@ async fn refresh_token_succeeds_updates_storage() -> Result<()> {
 async fn returns_fresh_tokens_as_is() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -141,7 +141,7 @@ async fn returns_fresh_tokens_as_is() -> Result<()> {
 async fn refreshes_token_when_last_refresh_is_stale() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -198,7 +198,7 @@ async fn refreshes_token_when_last_refresh_is_stale() -> Result<()> {
 async fn refresh_token_returns_permanent_error_for_expired_refresh_token() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
@@ -249,7 +249,7 @@ async fn refresh_token_returns_permanent_error_for_expired_refresh_token() -> Re
 async fn refresh_token_returns_transient_error_on_server_failure() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
         .respond_with(ResponseTemplate::new(500).set_body_json(json!({
@@ -299,7 +299,7 @@ async fn refresh_token_returns_transient_error_on_server_failure() -> Result<()>
 async fn unauthorized_recovery_reloads_then_refreshes_tokens() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -389,7 +389,7 @@ async fn unauthorized_recovery_reloads_then_refreshes_tokens() -> Result<()> {
 async fn unauthorized_recovery_skips_reload_on_account_mismatch() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -478,7 +478,7 @@ async fn unauthorized_recovery_skips_reload_on_account_mismatch() -> Result<()> 
 async fn unauthorized_recovery_requires_chatgpt_auth() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     let ctx = RefreshTokenTestContext::new(&server)?;
     let auth = AuthDotJson {
         openai_api_key: Some("sk-test".to_string()),

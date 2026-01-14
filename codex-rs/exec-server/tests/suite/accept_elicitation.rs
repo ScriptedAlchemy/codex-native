@@ -38,6 +38,10 @@ async fn accept_elicitation_for_prompt_rule() -> Result<()> {
     // $CODEX_HOME with an execpolicy that prompts for `git init` commands.
     let codex_home = TempDir::new()?;
     let dotslash_cache = TempDir::new()?;
+    if !exec_server_test_support::dotslash_available() {
+        eprintln!("skipping: dotslash not available in PATH");
+        return Ok(());
+    }
     write_default_execpolicy(
         r#"
 # Create a rule with `decision = "prompt"` to exercise the elicitation flow.

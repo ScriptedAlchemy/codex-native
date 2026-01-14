@@ -1,6 +1,7 @@
 #![cfg(not(target_os = "windows"))]
 // unified exec is not supported on Windows OS
 use std::sync::Arc;
+use wiremock::MockServer;
 
 use anyhow::Result;
 use codex_core::CodexAuth;
@@ -49,7 +50,6 @@ use tokio::time::Instant;
 use tokio::time::sleep;
 use tokio::time::timeout;
 use wiremock::BodyPrintLimit;
-use wiremock::MockServer;
 
 const REMOTE_MODEL_SLUG: &str = "codex-test";
 
@@ -398,7 +398,7 @@ async fn remote_models_preserve_builtin_presets() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     let remote_model = test_remote_model("remote-alpha", ModelVisibility::List, 0);
     let models_mock = mount_models_once(
         &server,
@@ -456,7 +456,7 @@ async fn remote_models_request_times_out_after_5s() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     let remote_model = test_remote_model("remote-timeout", ModelVisibility::List, 0);
     let models_mock = mount_models_once_with_delay(
         &server,
@@ -525,7 +525,7 @@ async fn remote_models_hide_picker_only_models() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
 
-    let server = MockServer::start().await;
+    let server = core_test_support::start_mock_server().await;
     let remote_model = test_remote_model("codex-auto-balanced", ModelVisibility::Hide, 0);
     mount_models_once(
         &server,
