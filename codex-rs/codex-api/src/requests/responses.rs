@@ -124,6 +124,7 @@ impl<'a> ResponsesRequestBuilder<'a> {
             .store_override
             .unwrap_or_else(|| provider.is_azure_responses_endpoint());
 
+        let text = self.text.clone();
         let req = ResponsesApiRequest {
             model,
             instructions,
@@ -136,11 +137,13 @@ impl<'a> ResponsesRequestBuilder<'a> {
             stream: true,
             include: self.include,
             prompt_cache_key: self.prompt_cache_key,
-            text: self.text,
+            text: text.clone(),
         };
 
         let mut body = serde_json::to_value(&req)
             .map_err(|e| ApiError::Stream(format!("failed to encode responses request: {e}")))?;
+
+        debug_responses_request(provider, &body);
 
         if store && provider.is_azure_responses_endpoint() {
             attach_item_ids(&mut body, input);
@@ -185,6 +188,52 @@ fn attach_item_ids(payload_json: &mut Value, original_items: &[ResponseItem]) {
             }
         }
     }
+}
+
+fn debug_responses_request(provider: &Provider, body: &Value) {
+    let debug = std::env::var("DEBUG")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !debug {
+        return;
+    }
+    let base = provider.base_url.to_ascii_lowercase();
+    let name = provider.name.to_ascii_lowercase();
+    if !base.contains("githubcopilot") && name != "github" && !name.contains("github") {
+        return;
+    }
+
+    let obj = match body.as_object() {
+        Some(obj) => obj,
+        None => return,
+    };
+
+    let has_messages = obj.get("messages").is_some();
+    let input_len = obj
+        .get("input")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let tools_len = obj
+        .get("tools")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    let first_tool_kind = obj
+        .get("tools")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|tool| tool.get("type"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("none");
+
+    let _ = std::panic::catch_unwind(|| {
+        eprintln!(
+            "[codex-api][responses] has_messages={} input_len={} tools_len={} first_tool_type={}",
+            has_messages, input_len, tools_len, first_tool_kind
+        );
+    });
 }
 
 #[cfg(test)]

@@ -64,7 +64,7 @@ impl<'a> ChatRequestBuilder<'a> {
         self
     }
 
-    pub fn build(self, _provider: &Provider) -> Result<ChatRequest, ApiError> {
+    pub fn build(self, provider: &Provider) -> Result<ChatRequest, ApiError> {
         let mut messages = Vec::<Value>::new();
         messages.push(json!({"role": "system", "content": self.instructions}));
 
@@ -307,6 +307,8 @@ impl<'a> ChatRequestBuilder<'a> {
             "tools": self.tools,
         });
 
+        debug_tool_call_wiring(&payload, provider);
+
         // If a schema was provided, request JSON Schema structured output.
         if let Some(schema) = self.output_schema {
             if let Some(obj) = payload.as_object_mut() {
@@ -334,6 +336,68 @@ impl<'a> ChatRequestBuilder<'a> {
             headers,
         })
     }
+}
+
+fn debug_tool_call_wiring(payload: &Value, provider: &Provider) {
+    let debug = std::env::var("DEBUG")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !debug {
+        return;
+    }
+
+    let base = provider.base_url.to_ascii_lowercase();
+    let name = provider.name.to_ascii_lowercase();
+    if !base.contains("githubcopilot") && name != "github" && !name.contains("github") {
+        return;
+    }
+
+    let Some(messages) = payload.get("messages").and_then(|v| v.as_array()) else {
+        return;
+    };
+
+    let mut tool_calls: Vec<String> = Vec::new();
+    let mut tool_outputs: Vec<String> = Vec::new();
+
+    for msg in messages {
+        if let Some(role) = msg.get("role").and_then(Value::as_str) {
+            if role == "tool" {
+                if let Some(call_id) = msg.get("tool_call_id").and_then(Value::as_str) {
+                    tool_outputs.push(call_id.to_string());
+                }
+                continue;
+            }
+        }
+        if let Some(calls) = msg.get("tool_calls").and_then(Value::as_array) {
+            for call in calls {
+                if let Some(id) = call.get("id").and_then(Value::as_str) {
+                    tool_calls.push(id.to_string());
+                }
+            }
+        }
+    }
+
+    if tool_calls.is_empty() {
+        return;
+    }
+
+    let missing: Vec<&String> = tool_calls
+        .iter()
+        .filter(|id| !tool_outputs.contains(id))
+        .collect();
+
+    let _ = std::panic::catch_unwind(|| {
+        eprintln!(
+            "[codex-api][chat] tool_calls={} tool_outputs={} missing={}",
+            tool_calls.join(","),
+            tool_outputs.join(","),
+            missing
+                .iter()
+                .map(|id| id.as_str())
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+    });
 }
 
 fn push_tool_call_message(messages: &mut Vec<Value>, tool_call: Value, reasoning: Option<&str>) {

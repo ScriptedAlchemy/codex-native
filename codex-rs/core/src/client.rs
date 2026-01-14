@@ -18,6 +18,7 @@ use codex_api::TransportError;
 use codex_api::common::Reasoning;
 use codex_api::create_text_param_for_request;
 use codex_api::error::ApiError;
+use codex_api::provider::WireApi as ApiWireApi;
 use codex_api::requests::responses::Compression;
 use codex_app_server_protocol::AuthMode;
 use codex_otel::OtelManager;
@@ -113,6 +114,15 @@ fn effective_wire_api(provider: &ModelProviderInfo, model_slug: &str) -> WireApi
     provider.wire_api
 }
 
+fn is_github_copilot_provider(provider: &ModelProviderInfo) -> bool {
+    if let Some(base) = provider.base_url.as_deref() {
+        if base.to_ascii_lowercase().contains("githubcopilot.com") {
+            return true;
+        }
+    }
+    provider.name.eq_ignore_ascii_case("github")
+}
+
 #[allow(clippy::too_many_arguments)]
 impl ModelClient {
     pub fn new(
@@ -174,7 +184,7 @@ impl ModelClient {
                     ))
                 } else {
                     Ok(map_response_stream(
-                        api_stream.aggregate(),
+                        api_stream.aggregate_streaming(),
                         self.otel_manager.clone(),
                     ))
                 }
@@ -252,12 +262,26 @@ impl ModelClient {
         let auth_manager = self.auth_manager.clone();
         let model_info = self.get_model_info();
         let instructions = prompt.get_full_instructions(&model_info).into_owned();
-        let tools_json: Vec<Value> = create_tools_json_for_responses_api(&prompt.tools)?;
+        let mut tools_json: Vec<Value> = create_tools_json_for_responses_api(&prompt.tools)?;
+        if is_github_copilot_provider(&self.provider) {
+            tools_json.retain(|tool| {
+                tool.get("type")
+                    .and_then(|v| v.as_str())
+                    .map(|t| t != "web_search")
+                    .unwrap_or(true)
+            });
+        }
 
         let default_reasoning_effort = model_info.default_reasoning_level;
+        let mut effort = self.effort.or(default_reasoning_effort);
+        if is_github_copilot_provider(&self.provider) {
+            if matches!(effort, Some(ReasoningEffortConfig::XHigh)) {
+                effort = Some(ReasoningEffortConfig::High);
+            }
+        }
         let reasoning = if model_info.supports_reasoning_summaries {
             Some(Reasoning {
-                effort: self.effort.or(default_reasoning_effort),
+                effort,
                 summary: if self.summary == ReasoningSummaryConfig::None {
                     None
                 } else {
@@ -299,9 +323,12 @@ impl ModelClient {
                 Some(manager) => manager.auth().await,
                 None => None,
             };
-            let api_provider = self
+            let mut api_provider = self
                 .provider
                 .to_api_provider(auth.as_ref().map(|a| a.mode))?;
+            // Force Responses wire when this path is selected, even if the
+            // provider default is Chat (e.g. GitHub Copilot for GPT-5).
+            api_provider.wire = ApiWireApi::Responses;
             let api_auth = auth_provider_from_auth(auth.clone(), &self.provider).await?;
             let transport = ReqwestTransport::new(build_reqwest_client());
             let (request_telemetry, sse_telemetry) = self.build_streaming_telemetry();

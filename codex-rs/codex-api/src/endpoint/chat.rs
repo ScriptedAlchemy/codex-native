@@ -251,12 +251,18 @@ impl Stream for AggregatedStream {
 pub trait AggregateStreamExt {
     fn aggregate(self) -> AggregatedStream;
 
+    fn aggregate_streaming(self) -> AggregatedStream;
+
     fn streaming_mode(self) -> ResponseStream;
 }
 
 impl AggregateStreamExt for ResponseStream {
     fn aggregate(self) -> AggregatedStream {
         AggregatedStream::new(self, AggregateMode::AggregatedOnly)
+    }
+
+    fn aggregate_streaming(self) -> AggregatedStream {
+        AggregatedStream::new(self, AggregateMode::Streaming)
     }
 
     fn streaming_mode(self) -> ResponseStream {
@@ -273,5 +279,52 @@ impl AggregatedStream {
             pending: VecDeque::new(),
             mode,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::ResponseEvent;
+    use codex_protocol::models::{ContentItem, ResponseItem};
+    use futures::StreamExt;
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn aggregate_streaming_emits_output_deltas() {
+        let (tx, rx) = mpsc::channel(8);
+        let stream = ResponseStream { rx_event: rx }.aggregate_streaming();
+
+        let assistant = ResponseItem::Message {
+            id: None,
+            role: "assistant".to_string(),
+            content: vec![ContentItem::OutputText {
+                text: "Hello".to_string(),
+            }],
+        };
+
+        tx.send(Ok(ResponseEvent::OutputItemAdded(assistant.clone())))
+            .await
+            .unwrap();
+        tx.send(Ok(ResponseEvent::OutputTextDelta("Hel".to_string())))
+            .await
+            .unwrap();
+        tx.send(Ok(ResponseEvent::OutputTextDelta("lo".to_string())))
+            .await
+            .unwrap();
+        tx.send(Ok(ResponseEvent::OutputItemDone(assistant)))
+            .await
+            .unwrap();
+        tx.send(Ok(ResponseEvent::Completed {
+            response_id: "resp_1".to_string(),
+            token_usage: None,
+        }))
+        .await
+        .unwrap();
+        drop(tx);
+
+        let events: Vec<ResponseEvent> = stream.map(|ev| ev.unwrap()).collect().await;
+        assert!(events.iter().any(|ev| matches!(ev, ResponseEvent::OutputTextDelta(delta) if delta == "Hel")));
+        assert!(events.iter().any(|ev| matches!(ev, ResponseEvent::OutputTextDelta(delta) if delta == "lo")));
     }
 }

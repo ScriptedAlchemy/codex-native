@@ -56,6 +56,15 @@ impl<T: HttpTransport, A: AuthProvider> StreamingClient<T, A> {
         compression: RequestCompression,
         spawner: fn(StreamResponse, Duration, Option<Arc<dyn SseTelemetry>>) -> ResponseStream,
     ) -> Result<ResponseStream, ApiError> {
+        if std::env::var("DEBUG")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            let url = self.provider.url_for_path(path);
+            let _ = std::panic::catch_unwind(|| {
+                eprintln!("[codex-api][stream] POST {url}");
+            });
+        }
         let builder = || {
             let mut req = self.provider.build_request(Method::POST, path);
             req.headers.extend(extra_headers.clone());

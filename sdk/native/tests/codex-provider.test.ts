@@ -4,11 +4,13 @@
 
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import { CodexProvider } from '../src/index';
+import type { AgentOutputItem, ModelRequest } from '../src/agents/types';
 
 interface MockUsage {
   input_tokens: number;
   output_tokens: number;
   reasoning_tokens: number;
+  cached_input_tokens?: number;
 }
 
 interface MockThread {
@@ -64,6 +66,28 @@ const createMockThread = (): MockThread => {
     }),
     sendBackgroundEvent: jest.fn(async () => {}),
   };
+};
+
+type OutputTextPart = { type: 'output_text'; text: string };
+
+const isOutputTextPart = (value: unknown): value is OutputTextPart => {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as { type?: unknown; text?: unknown };
+  return record.type === 'output_text' && typeof record.text === 'string';
+};
+
+const extractAssistantOutputText = (output: AgentOutputItem[]): string => {
+  for (const item of output) {
+    if (!('role' in item) || item.role !== 'assistant') continue;
+    const content = (item as { content?: unknown }).content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (isOutputTextPart(part)) {
+        return part.text;
+      }
+    }
+  }
+  return '';
 };
 
 describe('CodexProvider', () => {
@@ -432,6 +456,51 @@ describe('CodexProvider', () => {
       expect(events[events.length - 1]).toBe('response_done');
       expect(events.includes('output_text_delta')).toBe(true);
     }, 30000); // 30 second timeout for backend connection
+
+    it('should emit incremental output_text_delta values for multiple updates', async () => {
+      const usage = {
+        input_tokens: 8,
+        output_tokens: 2,
+        reasoning_tokens: 0,
+        cached_input_tokens: 0,
+      };
+
+      mockThread.runStreamed = jest.fn(async () => ({
+        events: (async function* () {
+          yield { type: 'thread.started', thread_id: 'mock-thread' };
+          yield { type: 'item.started', item: { type: 'agent_message', text: '' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Hello' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Hello world' } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: 'Hello world' } };
+          yield { type: 'turn.completed', usage };
+        })(),
+      }));
+
+      const model = provider.getModel();
+      const request: ModelRequest = {
+        input: 'Test',
+        modelSettings: {},
+        tools: [],
+        outputType: 'text',
+        handoffs: [],
+        tracing: false,
+      };
+
+      const deltas: string[] = [];
+      let finalText = '';
+
+      for await (const event of model.getStreamedResponse(request)) {
+        if (event.type === 'output_text_delta') {
+          deltas.push(event.delta);
+        }
+        if (event.type === 'response_done') {
+          finalText = extractAssistantOutputText(event.response.output);
+        }
+      }
+
+      expect(deltas).toEqual(['Hello', ' world']);
+      expect(finalText).toBe('Hello world');
+    });
 
     it('should surface background events as model notifications', async () => {
       const usage = {
