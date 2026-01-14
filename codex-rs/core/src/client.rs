@@ -488,11 +488,18 @@ impl ModelClient {
 
 /// Adapts the core `Prompt` type into the `codex-api` payload shape.
 fn build_api_prompt(prompt: &Prompt, instructions: String, tools_json: Vec<Value>) -> ApiPrompt {
+    let tool_choice = if let Some(choice) = prompt.tool_choice.clone() {
+        Some(choice)
+    } else if tools_json.is_empty() {
+        None
+    } else {
+        Some(json!("auto"))
+    };
     ApiPrompt {
         instructions,
         input: prompt.get_formatted_input(),
         tools: tools_json,
-        tool_choice: prompt.tool_choice.clone().unwrap_or_else(|| json!("auto")),
+        tool_choice,
         parallel_tool_calls: prompt.parallel_tool_calls,
         output_schema: prompt.output_schema.clone(),
     }

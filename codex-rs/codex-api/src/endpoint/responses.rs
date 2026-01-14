@@ -82,10 +82,8 @@ impl<T: HttpTransport, A: AuthProvider> ResponsesClient<T, A> {
             compression,
         } = options;
 
-        let request = ResponsesRequestBuilder::new(model, &prompt.instructions, &prompt.input)
+        let mut builder = ResponsesRequestBuilder::new(model, &prompt.instructions, &prompt.input)
             .tools(&prompt.tools)
-            .tool_choice(prompt.tool_choice.clone())
-            .parallel_tool_calls(prompt.parallel_tool_calls)
             .reasoning(reasoning)
             .include(include)
             .prompt_cache_key(prompt_cache_key)
@@ -94,8 +92,14 @@ impl<T: HttpTransport, A: AuthProvider> ResponsesClient<T, A> {
             .session_source(session_source)
             .store_override(store_override)
             .extra_headers(extra_headers)
-            .compression(compression)
-            .build(self.streaming.provider())?;
+            .compression(compression);
+        if !prompt.tools.is_empty() {
+            if let Some(choice) = prompt.tool_choice.clone() {
+                builder = builder.tool_choice(choice);
+            }
+            builder = builder.parallel_tool_calls(prompt.parallel_tool_calls);
+        }
+        let request = builder.build(self.streaming.provider())?;
 
         self.stream_request(request).await
     }

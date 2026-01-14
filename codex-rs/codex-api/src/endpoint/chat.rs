@@ -59,14 +59,19 @@ impl<T: HttpTransport, A: AuthProvider> ChatClient<T, A> {
     ) -> Result<ResponseStream, ApiError> {
         use crate::requests::ChatRequestBuilder;
 
-        let request =
+        let mut builder =
             ChatRequestBuilder::new(model, &prompt.instructions, &prompt.input, &prompt.tools)
-                .output_schema(prompt.output_schema.clone())
-                .tool_choice(prompt.tool_choice.clone())
-                .parallel_tool_calls(prompt.parallel_tool_calls)
-                .conversation_id(conversation_id)
-                .session_source(session_source)
-                .build(self.streaming.provider())?;
+                .output_schema(prompt.output_schema.clone());
+        if !prompt.tools.is_empty() {
+            if let Some(choice) = prompt.tool_choice.clone() {
+                builder = builder.tool_choice(choice);
+            }
+            builder = builder.parallel_tool_calls(prompt.parallel_tool_calls);
+        }
+        let request = builder
+            .conversation_id(conversation_id)
+            .session_source(session_source)
+            .build(self.streaming.provider())?;
 
         self.stream_request(request).await
     }

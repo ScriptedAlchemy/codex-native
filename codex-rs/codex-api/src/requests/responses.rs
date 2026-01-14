@@ -155,10 +155,14 @@ impl<'a> ResponsesRequestBuilder<'a> {
             .input
             .ok_or_else(|| ApiError::Stream("missing input for responses request".into()))?;
         let tools = self.tools.unwrap_or_default();
-        let tool_choice = normalize_tool_choice_for_responses(
-            self.tool_choice
-                .unwrap_or_else(|| serde_json::json!("auto")),
-        );
+        let tool_choice = if tools.is_empty() {
+            None
+        } else {
+            Some(normalize_tool_choice_for_responses(
+                self.tool_choice
+                    .unwrap_or_else(|| serde_json::json!("auto")),
+            ))
+        };
 
         let store = self
             .store_override
