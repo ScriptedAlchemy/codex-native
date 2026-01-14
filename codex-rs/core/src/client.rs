@@ -37,6 +37,7 @@ use http::HeaderValue;
 use http::StatusCode as HttpStatusCode;
 use reqwest::StatusCode;
 use serde_json::Value;
+use serde_json::json;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::warn;
@@ -491,6 +492,7 @@ fn build_api_prompt(prompt: &Prompt, instructions: String, tools_json: Vec<Value
         instructions,
         input: prompt.get_formatted_input(),
         tools: tools_json,
+        tool_choice: prompt.tool_choice.clone().unwrap_or_else(|| json!("auto")),
         parallel_tool_calls: prompt.parallel_tool_calls,
         output_schema: prompt.output_schema.clone(),
     }

@@ -97,8 +97,12 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
 pub(crate) fn reorder_tool_outputs(items: &mut Vec<ResponseItem>) {
     use std::collections::HashMap;
 
+    // Collect outputs indexed by call_id
     let mut outputs_by_call: HashMap<String, Vec<ResponseItem>> = HashMap::new();
-    let mut retained: Vec<ResponseItem> = Vec::with_capacity(items.len());
+    // Collect non-output items
+    let mut non_outputs: Vec<ResponseItem> = Vec::with_capacity(items.len());
+    // Track the order of call_ids as they appear
+    let mut call_id_order: Vec<String> = Vec::new();
 
     for item in items.drain(..) {
         match &item {
@@ -109,35 +113,41 @@ pub(crate) fn reorder_tool_outputs(items: &mut Vec<ResponseItem>) {
                     .or_default()
                     .push(item);
             }
-            _ => retained.push(item),
-        }
-    }
-
-    let mut reordered: Vec<ResponseItem> =
-        Vec::with_capacity(retained.len() + outputs_by_call.len());
-
-    for item in retained {
-        let call_id = match &item {
-            ResponseItem::FunctionCall { call_id, .. } => Some(call_id.clone()),
-            ResponseItem::CustomToolCall { call_id, .. } => Some(call_id.clone()),
+            ResponseItem::FunctionCall { call_id, .. } => {
+                call_id_order.push(call_id.clone());
+                non_outputs.push(item);
+            }
+            ResponseItem::CustomToolCall { call_id, .. } => {
+                call_id_order.push(call_id.clone());
+                non_outputs.push(item);
+            }
             ResponseItem::LocalShellCall {
                 call_id: Some(call_id),
                 ..
-            } => Some(call_id.clone()),
-            _ => None,
-        };
-
-        reordered.push(item);
-
-        if let Some(call_id) = call_id {
-            if let Some(outputs) = outputs_by_call.remove(&call_id) {
-                for output in outputs {
-                    reordered.push(output);
-                }
+            } => {
+                call_id_order.push(call_id.clone());
+                non_outputs.push(item);
             }
+            _ => non_outputs.push(item),
         }
     }
 
+    // Build result: all non-outputs first, then all outputs in call order
+    let mut reordered: Vec<ResponseItem> = Vec::with_capacity(
+        non_outputs.len() + outputs_by_call.values().map(|v| v.len()).sum::<usize>(),
+    );
+
+    // Add all non-output items first
+    reordered.extend(non_outputs);
+
+    // Add outputs in the order their calls appeared
+    for call_id in call_id_order {
+        if let Some(outputs) = outputs_by_call.remove(&call_id) {
+            reordered.extend(outputs);
+        }
+    }
+
+    // Any remaining outputs are orphans
     for (call_id, _outputs) in outputs_by_call {
         error_or_panic(format!("Orphan tool output for call id: {call_id}"));
     }

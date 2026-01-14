@@ -54,7 +54,13 @@ impl<T: HttpTransport, A: AuthProvider> StreamingClient<T, A> {
         body: Value,
         extra_headers: HeaderMap,
         compression: RequestCompression,
-        spawner: fn(StreamResponse, Duration, Option<Arc<dyn SseTelemetry>>) -> ResponseStream,
+        allow_incomplete: bool,
+        spawner: fn(
+            StreamResponse,
+            Duration,
+            Option<Arc<dyn SseTelemetry>>,
+            bool,
+        ) -> ResponseStream,
     ) -> Result<ResponseStream, ApiError> {
         if std::env::var("DEBUG")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -89,6 +95,7 @@ impl<T: HttpTransport, A: AuthProvider> StreamingClient<T, A> {
             stream_response,
             self.provider.stream_idle_timeout,
             self.sse_telemetry.clone(),
+            allow_incomplete,
         ))
     }
 }

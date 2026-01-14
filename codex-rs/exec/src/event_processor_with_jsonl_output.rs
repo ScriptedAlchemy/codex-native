@@ -33,13 +33,13 @@ use crate::exec_events::TurnFailedEvent;
 use crate::exec_events::TurnStartedEvent;
 use crate::exec_events::Usage;
 use crate::exec_events::WebSearchItem;
+use base64::Engine;
 use codex_core::config::Config;
 use codex_core::protocol;
 use codex_protocol::plan_tool::StepStatus;
 use codex_protocol::plan_tool::UpdatePlanArgs;
-use base64::Engine;
-use serde_json::json;
 use serde_json::Value as JsonValue;
+use serde_json::json;
 use tracing::error;
 use tracing::warn;
 

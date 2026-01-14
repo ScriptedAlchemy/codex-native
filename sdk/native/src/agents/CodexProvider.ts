@@ -16,6 +16,7 @@ import type {
   Model,
   ModelRequest,
   ModelResponse,
+  ModelSettingsToolChoice,
   StreamEvent,
   AgentInputItem,
   AgentOutputItem,
@@ -24,6 +25,25 @@ import type {
   SerializedTool,
 } from "./types";
 import { Usage } from "./types";
+
+function normalizeToolChoice(choice?: ModelSettingsToolChoice): unknown | undefined {
+  if (choice === undefined || choice === null) {
+    return undefined;
+  }
+  if (typeof choice === "string") {
+    if (choice === "auto" || choice === "required" || choice === "none") {
+      return choice;
+    }
+    return {
+      type: "function",
+      function: { name: choice },
+    };
+  }
+  if (typeof choice === "object") {
+    return choice;
+  }
+  return undefined;
+}
 
 /**
  * Options for creating a CodexProvider
@@ -258,14 +278,16 @@ class CodexModel implements Model {
       }
 
       const input = await this.convertRequestToInput(request);
+      const toolChoice = normalizeToolChoice(request.modelSettings?.toolChoice);
 
       // Note: ModelSettings like temperature, maxTokens, topP, etc. are not currently
-      // supported by the Codex native binding. The Rust layer handles model configuration.
+      // supported by the Codex native binding. Tool choice is forwarded when provided.
 
       // Run Codex (tools are now registered and will be available)
       const turn = await thread.run(input, {
         outputSchema: normalizeAgentsOutputType(request.outputType),
         oss: this.options.oss,
+        toolChoice,
       });
 
       const planItem = turn.items
@@ -307,10 +329,12 @@ class CodexModel implements Model {
       }
 
       const input = await this.convertRequestToInput(request);
+      const toolChoice = normalizeToolChoice(request.modelSettings?.toolChoice);
 
       const { events } = await thread.runStreamed(input, {
         outputSchema: normalizeAgentsOutputType(request.outputType),
         oss: this.options.oss,
+        toolChoice,
       });
 
       // Track text accumulation for delta calculation

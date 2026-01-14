@@ -84,6 +84,7 @@ impl<T: HttpTransport, A: AuthProvider> ResponsesClient<T, A> {
 
         let request = ResponsesRequestBuilder::new(model, &prompt.instructions, &prompt.input)
             .tools(&prompt.tools)
+            .tool_choice(prompt.tool_choice.clone())
             .parallel_tool_calls(prompt.parallel_tool_calls)
             .reasoning(reasoning)
             .include(include)
@@ -117,14 +118,22 @@ impl<T: HttpTransport, A: AuthProvider> ResponsesClient<T, A> {
             Compression::Zstd => RequestCompression::Zstd,
         };
 
+        let allow_incomplete = is_github_copilot_provider(self.streaming.provider());
         self.streaming
             .stream(
                 self.path(),
                 body,
                 extra_headers,
                 compression,
+                allow_incomplete,
                 spawn_response_stream,
             )
             .await
     }
+}
+
+fn is_github_copilot_provider(provider: &Provider) -> bool {
+    let base = provider.base_url.to_ascii_lowercase();
+    let name = provider.name.to_ascii_lowercase();
+    base.contains("githubcopilot") || name == "github" || name.contains("github")
 }

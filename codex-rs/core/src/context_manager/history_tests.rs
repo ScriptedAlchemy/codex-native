@@ -831,6 +831,8 @@ fn normalize_mixed_inserts_and_removals() {
 
 #[test]
 fn normalize_reorders_outputs_after_calls() {
+    // Outputs should be grouped after all calls, not interleaved.
+    // The API expects: [call-a, call-b, ..., output-a, output-b, ...]
     let items = vec![
         user_input_text_msg("hi"),
         ResponseItem::FunctionCallOutput {
@@ -864,6 +866,7 @@ fn normalize_reorders_outputs_after_calls() {
 
     h.normalize_history();
 
+    // All calls should come before all outputs, with outputs in call order
     assert_eq!(
         h.raw_items(),
         vec![
@@ -874,18 +877,18 @@ fn normalize_reorders_outputs_after_calls() {
                 arguments: "{}".to_string(),
                 call_id: "call-a".to_string(),
             },
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "read_file".to_string(),
+                arguments: "{}".to_string(),
+                call_id: "call-b".to_string(),
+            },
             ResponseItem::FunctionCallOutput {
                 call_id: "call-a".to_string(),
                 output: FunctionCallOutputPayload {
                     content: "A".to_string(),
                     ..Default::default()
                 },
-            },
-            ResponseItem::FunctionCall {
-                id: None,
-                name: "read_file".to_string(),
-                arguments: "{}".to_string(),
-                call_id: "call-b".to_string(),
             },
             ResponseItem::FunctionCallOutput {
                 call_id: "call-b".to_string(),

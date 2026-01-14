@@ -5,4 +5,6 @@ export type TurnOptions = {
   oss?: boolean;
   /** Override the model provider for this specific turn. */
   modelProvider?: string;
+  /** Optional tool choice override (passed through to the provider payload). */
+  toolChoice?: unknown;
 };

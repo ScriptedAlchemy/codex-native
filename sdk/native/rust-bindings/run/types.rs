@@ -27,6 +27,8 @@ pub struct RunRequest {
   pub skip_git_repo_check: Option<bool>,
   #[napi(js_name = "outputSchema")]
   pub output_schema: Option<JsonValue>,
+  #[napi(js_name = "toolChoice")]
+  pub tool_choice: Option<JsonValue>,
   #[napi(js_name = "baseUrl")]
   pub base_url: Option<String>,
   #[napi(js_name = "apiKey")]
@@ -199,6 +201,7 @@ pub struct InternalRunRequest {
   pub working_directory: Option<PathBuf>,
   pub skip_git_repo_check: bool,
   pub output_schema: Option<JsonValue>,
+  pub tool_choice: Option<JsonValue>,
   pub base_url: Option<String>,
   pub api_key: Option<String>,
   pub linux_sandbox_path: Option<PathBuf>,
@@ -206,4 +209,3 @@ pub struct InternalRunRequest {
   pub reasoning_summary: Option<ReasoningSummary>,
   pub full_auto: bool,
 }
-

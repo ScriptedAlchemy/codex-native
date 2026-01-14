@@ -37,6 +37,7 @@ export type CodexExecArgs = {
   skipGitRepoCheck?: boolean;
   outputSchemaFile?: string;
   outputSchema?: unknown;
+  toolChoice?: unknown;
   reasoningEffort?: ReasoningEffort;
   reasoningSummary?: ReasoningSummary;
   /** @deprecated Use sandboxMode and approvalMode instead */
@@ -103,6 +104,7 @@ export class CodexExec {
       workingDirectory: args.workingDirectory,
       skipGitRepoCheck: args.skipGitRepoCheck,
       outputSchema: args.outputSchema,
+      toolChoice: args.toolChoice,
       baseUrl: args.baseUrl,
       apiKey: args.apiKey,
       modelProvider: args.modelProvider,
@@ -171,6 +173,7 @@ export class CodexExec {
       workingDirectory: args.workingDirectory,
       skipGitRepoCheck: args.skipGitRepoCheck,
       outputSchema: args.outputSchema,
+      toolChoice: args.toolChoice,
       baseUrl: args.baseUrl,
       apiKey: args.apiKey,
       fullAuto: args.fullAuto,

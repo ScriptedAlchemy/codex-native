@@ -440,6 +440,7 @@ export class Thread {
       skipGitRepoCheck,
       outputSchemaFile: schemaFile.schemaPath,
       outputSchema: normalizedSchema,
+      toolChoice: turnOptions?.toolChoice,
       fullAuto: options?.fullAuto,
     });
     try {

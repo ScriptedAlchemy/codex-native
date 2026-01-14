@@ -31,6 +31,7 @@ pub struct ResponsesRequestBuilder<'a> {
     instructions: Option<&'a str>,
     input: Option<&'a [ResponseItem]>,
     tools: Option<&'a [Value]>,
+    tool_choice: Option<Value>,
     parallel_tool_calls: bool,
     reasoning: Option<Reasoning>,
     include: Vec<String>,
@@ -41,6 +42,36 @@ pub struct ResponsesRequestBuilder<'a> {
     store_override: Option<bool>,
     headers: HeaderMap,
     compression: Compression,
+}
+
+fn normalize_tool_choice_for_responses(tool_choice: Value) -> Value {
+    let Value::Object(obj) = tool_choice else {
+        return tool_choice;
+    };
+
+    let tool_type = obj
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if tool_type != "function" {
+        return Value::Object(obj);
+    }
+
+    if let Some(Value::String(_name)) = obj.get("name") {
+        return Value::Object(obj);
+    }
+
+    let Some(Value::Object(function_obj)) = obj.get("function") else {
+        return Value::Object(obj);
+    };
+    let Some(Value::String(name)) = function_obj.get("name") else {
+        return Value::Object(obj);
+    };
+
+    let mut normalized = serde_json::Map::new();
+    normalized.insert("type".to_string(), Value::String("function".to_string()));
+    normalized.insert("name".to_string(), Value::String(name.clone()));
+    Value::Object(normalized)
 }
 
 impl<'a> ResponsesRequestBuilder<'a> {
@@ -55,6 +86,11 @@ impl<'a> ResponsesRequestBuilder<'a> {
 
     pub fn tools(mut self, tools: &'a [Value]) -> Self {
         self.tools = Some(tools);
+        self
+    }
+
+    pub fn tool_choice(mut self, tool_choice: Value) -> Self {
+        self.tool_choice = Some(tool_choice);
         self
     }
 
@@ -119,6 +155,10 @@ impl<'a> ResponsesRequestBuilder<'a> {
             .input
             .ok_or_else(|| ApiError::Stream("missing input for responses request".into()))?;
         let tools = self.tools.unwrap_or_default();
+        let tool_choice = normalize_tool_choice_for_responses(
+            self.tool_choice
+                .unwrap_or_else(|| serde_json::json!("auto")),
+        );
 
         let store = self
             .store_override
@@ -130,7 +170,7 @@ impl<'a> ResponsesRequestBuilder<'a> {
             instructions,
             input,
             tools,
-            tool_choice: "auto",
+            tool_choice,
             parallel_tool_calls: self.parallel_tool_calls,
             reasoning: self.reasoning,
             store,
@@ -309,6 +349,19 @@ mod tests {
         assert_eq!(
             request.headers.get("x-openai-subagent"),
             Some(&HeaderValue::from_static("review"))
+        );
+    }
+
+    #[test]
+    fn normalize_tool_choice_for_responses_flattens_function_name() {
+        let input = serde_json::json!({
+            "type": "function",
+            "function": { "name": "add" }
+        });
+        let normalized = normalize_tool_choice_for_responses(input);
+        assert_eq!(
+            normalized,
+            serde_json::json!({ "type": "function", "name": "add" })
         );
     }
 }

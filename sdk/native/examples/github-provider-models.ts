@@ -4,6 +4,7 @@
  * This example mirrors the Hoodwink usage pattern:
  * - gpt-5-mini via Codex Thread API + structured output (Responses API)
  * - gpt-4.1 via CodexProvider + OpenAI Agents + tool calls (Chat API)
+ * - gpt-5-mini via CodexProvider + OpenAI Agents + tool calls (Responses API)
  *
  * Usage:
  *   pnpm -C sdk/native exec tsx examples/github-provider-models.ts
@@ -127,6 +128,9 @@ async function runGpt41Agents(tmpDir: string) {
       'Then respond with a short sentence that includes both results.',
     ].join(' '),
     tools: [addTool],
+    modelSettings: {
+      toolChoice: 'add',
+    },
   });
 
   const stream = await run(agent, 'Perform the two additions now.', { stream: true });
@@ -210,6 +214,127 @@ async function runGpt41Agents(tmpDir: string) {
   console.log(text || '(empty)');
 }
 
+async function runGpt5MiniAgents(tmpDir: string) {
+  console.log('\n' + '='.repeat(70));
+  console.log('Example 3: gpt-5-mini via CodexProvider + Agents (GitHub provider)');
+  console.log('='.repeat(70));
+
+  const provider = new CodexProvider({
+    defaultModel: 'gpt-5-mini',
+    modelProvider: 'github',
+    workingDirectory: tmpDir,
+    skipGitRepoCheck: true,
+    sandboxMode: 'workspace-write',
+    approvalMode: 'on-request',
+  });
+
+  const addTool = codexTool({
+    name: 'add',
+    description: 'Add two numbers',
+    parameters: z.object({
+      a: z.number(),
+      b: z.number(),
+    }),
+    execute: async ({ a, b }) => {
+      return `${a} + ${b} = ${a + b}`;
+    },
+  });
+
+  const agent = new Agent({
+    name: 'AdderAgentMini',
+    model: provider.getModel('gpt-5-mini'),
+    instructions: [
+      'Use the add tool twice.',
+      'Call add(7, 8) and add(9, 10).',
+      'Then respond with a short sentence that includes both results.',
+    ].join(' '),
+    tools: [addTool],
+    modelSettings: {
+      toolChoice: 'add',
+    },
+  });
+
+  const stream = await run(agent, 'Perform the two additions now.', { stream: true });
+
+  let text = '';
+  let rawLogged = false;
+
+  if (!stream || !(Symbol.asyncIterator in Object(stream))) {
+    throw new Error('Expected an async iterable stream from agents runner.');
+  }
+
+  for await (const ev of stream as AsyncIterable<{ type?: string; [key: string]: unknown }>) {
+    switch (ev.type) {
+      case 'response_started':
+        console.log('[gpt-5-mini] response started');
+        break;
+      case 'run_item_stream_event':
+        if (ev.name === 'tool_called') {
+          const name = ev.item?.name ?? ev.item?.rawItem?.name ?? 'unknown_tool';
+          console.log(`[gpt-5-mini] tool_called ${name}`);
+        }
+        if (ev.name === 'tool_output') {
+          const name = ev.item?.name ?? ev.item?.rawItem?.name ?? 'unknown_tool';
+          console.log(`[gpt-5-mini] tool_output ${name}`);
+        }
+        break;
+      case 'output_text_delta':
+        if (typeof ev.delta === 'string') {
+          process.stdout.write(ev.delta);
+          text += ev.delta;
+        }
+        break;
+      case 'response.completed':
+      case 'response_done':
+        if (!text) {
+          const outputText = (ev as { response?: { output_text?: string } }).response?.output_text;
+          if (outputText) {
+            text = outputText;
+          }
+        }
+        console.log('\n[gpt-5-mini] response completed');
+        break;
+      case 'error':
+        console.error(`[gpt-5-mini] error: ${ev.error?.message ?? ev.message ?? 'unknown error'}`);
+        break;
+      default:
+        if (ev.type === 'raw_model_stream_event') {
+          const data = (ev as { data?: unknown }).data as
+            | {
+                type?: string;
+                delta?: string;
+              }
+            | undefined;
+          if (data?.type === 'output_text_delta' && typeof data.delta === 'string') {
+            process.stdout.write(data.delta);
+            text += data.delta;
+          }
+          const debugEnabled =
+            process.env.DEBUG === '1' || process.env.DEBUG === 'true';
+          if (debugEnabled && !rawLogged) {
+            rawLogged = true;
+            try {
+              console.log('[gpt-5-mini] raw_model_stream_event keys:', Object.keys(ev));
+              const snippet = JSON.stringify(ev).slice(0, 400);
+              console.log(`[gpt-5-mini] raw_model_stream_event sample: ${snippet}`);
+            } catch {
+              // ignore
+            }
+          }
+        }
+        if (
+          (process.env.DEBUG === '1' || process.env.DEBUG === 'true') &&
+          ev.type !== 'raw_model_stream_event'
+        ) {
+          console.log(`[gpt-5-mini] event ${ev.type ?? 'unknown'}`);
+        }
+    }
+  }
+
+  console.log('\n[gpt-5-mini] final response:');
+  console.log(text || '(empty)');
+}
+
 async function main() {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-github-models-'));
   console.log(`Temp directory: ${tmpDir}`);
@@ -224,6 +349,11 @@ async function main() {
       await runGpt41Agents(tmpDir);
     } catch (error) {
       console.error(`[gpt-4.1] example failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      await runGpt5MiniAgents(tmpDir);
+    } catch (error) {
+      console.error(`[gpt-5-mini] example failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});

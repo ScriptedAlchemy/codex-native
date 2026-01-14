@@ -22,6 +22,7 @@ mod tests_run {
       working_directory: None,
       skip_git_repo_check: true,
       output_schema: None,
+      tool_choice: None,
       base_url: None,
       api_key: None,
       linux_sandbox_path: None,

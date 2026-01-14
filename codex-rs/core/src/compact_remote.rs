@@ -53,6 +53,7 @@ async fn run_remote_compact_task_inner_impl(
     let prompt = Prompt {
         input: history.for_prompt(),
         tools: vec![],
+        tool_choice: None,
         parallel_tool_calls: false,
         base_instructions_override: turn_context.base_instructions.clone(),
         output_schema: None,

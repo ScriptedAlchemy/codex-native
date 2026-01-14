@@ -62,6 +62,8 @@ impl<T: HttpTransport, A: AuthProvider> ChatClient<T, A> {
         let request =
             ChatRequestBuilder::new(model, &prompt.instructions, &prompt.input, &prompt.tools)
                 .output_schema(prompt.output_schema.clone())
+                .tool_choice(prompt.tool_choice.clone())
+                .parallel_tool_calls(prompt.parallel_tool_calls)
                 .conversation_id(conversation_id)
                 .session_source(session_source)
                 .build(self.streaming.provider())?;
@@ -87,6 +89,7 @@ impl<T: HttpTransport, A: AuthProvider> ChatClient<T, A> {
                 body,
                 extra_headers,
                 RequestCompression::None,
+                false,
                 spawn_chat_stream,
             )
             .await
@@ -286,7 +289,8 @@ impl AggregatedStream {
 mod tests {
     use super::*;
     use crate::common::ResponseEvent;
-    use codex_protocol::models::{ContentItem, ResponseItem};
+    use codex_protocol::models::ContentItem;
+    use codex_protocol::models::ResponseItem;
     use futures::StreamExt;
     use tokio::sync::mpsc;
 
@@ -299,17 +303,17 @@ mod tests {
             id: None,
             role: "assistant".to_string(),
             content: vec![ContentItem::OutputText {
-                text: "Hello".to_string(),
+                text: "Hi there".to_string(),
             }],
         };
 
         tx.send(Ok(ResponseEvent::OutputItemAdded(assistant.clone())))
             .await
             .unwrap();
-        tx.send(Ok(ResponseEvent::OutputTextDelta("Hel".to_string())))
+        tx.send(Ok(ResponseEvent::OutputTextDelta("Hi".to_string())))
             .await
             .unwrap();
-        tx.send(Ok(ResponseEvent::OutputTextDelta("lo".to_string())))
+        tx.send(Ok(ResponseEvent::OutputTextDelta(" there".to_string())))
             .await
             .unwrap();
         tx.send(Ok(ResponseEvent::OutputItemDone(assistant)))
@@ -324,7 +328,15 @@ mod tests {
         drop(tx);
 
         let events: Vec<ResponseEvent> = stream.map(|ev| ev.unwrap()).collect().await;
-        assert!(events.iter().any(|ev| matches!(ev, ResponseEvent::OutputTextDelta(delta) if delta == "Hel")));
-        assert!(events.iter().any(|ev| matches!(ev, ResponseEvent::OutputTextDelta(delta) if delta == "lo")));
+        assert!(
+            events
+                .iter()
+                .any(|ev| matches!(ev, ResponseEvent::OutputTextDelta(delta) if delta == "Hi"))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|ev| matches!(ev, ResponseEvent::OutputTextDelta(delta) if delta == " there"))
+        );
     }
 }

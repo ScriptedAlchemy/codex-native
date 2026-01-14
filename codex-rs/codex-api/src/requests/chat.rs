@@ -25,6 +25,8 @@ pub struct ChatRequestBuilder<'a> {
     input: &'a [ResponseItem],
     tools: &'a [Value],
     output_schema: Option<Value>,
+    tool_choice: Option<Value>,
+    parallel_tool_calls: Option<bool>,
     conversation_id: Option<String>,
     session_source: Option<SessionSource>,
 }
@@ -42,6 +44,8 @@ impl<'a> ChatRequestBuilder<'a> {
             input,
             tools,
             output_schema: None,
+            tool_choice: None,
+            parallel_tool_calls: None,
             conversation_id: None,
             session_source: None,
         }
@@ -51,6 +55,16 @@ impl<'a> ChatRequestBuilder<'a> {
     /// This is mapped to the OpenAI `response_format: { type: "json_schema", json_schema: ... }`.
     pub fn output_schema(mut self, schema: Option<Value>) -> Self {
         self.output_schema = schema;
+        self
+    }
+
+    pub fn tool_choice(mut self, tool_choice: Value) -> Self {
+        self.tool_choice = Some(tool_choice);
+        self
+    }
+
+    pub fn parallel_tool_calls(mut self, enabled: bool) -> Self {
+        self.parallel_tool_calls = Some(enabled);
         self
     }
 
@@ -306,6 +320,18 @@ impl<'a> ChatRequestBuilder<'a> {
             "stream": true,
             "tools": self.tools,
         });
+
+        if let Some(choice) = self.tool_choice {
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("tool_choice".to_string(), choice);
+            }
+        }
+
+        if let Some(enabled) = self.parallel_tool_calls {
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("parallel_tool_calls".to_string(), json!(enabled));
+            }
+        }
 
         debug_tool_call_wiring(&payload, provider);
 

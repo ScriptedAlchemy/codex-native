@@ -2494,6 +2494,35 @@ async fn run_auto_compact(sess: &Arc<Session>, turn_context: &Arc<TurnContext>) 
     }
 }
 
+fn tool_choice_from_env() -> Option<Value> {
+    let raw = std::env::var("CODEX_TOOL_CHOICE").ok()?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    match serde_json::from_str::<Value>(trimmed) {
+        Ok(value) => Some(normalize_tool_choice_value(value)),
+        Err(err) => {
+            warn!("invalid CODEX_TOOL_CHOICE (expected JSON): {err}");
+            None
+        }
+    }
+}
+
+fn normalize_tool_choice_value(value: Value) -> Value {
+    if let Value::String(name) = &value {
+        let lower = name.to_ascii_lowercase();
+        if lower == "auto" || lower == "required" || lower == "none" {
+            return value;
+        }
+        return serde_json::json!({
+            "type": "function",
+            "function": { "name": name },
+        });
+    }
+    value
+}
+
 #[instrument(level = "trace",
     skip_all,
     fields(
@@ -2535,6 +2564,7 @@ async fn run_model_turn(
     let prompt = Prompt {
         input,
         tools: router.specs(),
+        tool_choice: tool_choice_from_env(),
         parallel_tool_calls: model_supports_parallel,
         base_instructions_override: turn_context.base_instructions.clone(),
         output_schema: turn_context.final_output_json_schema.clone(),

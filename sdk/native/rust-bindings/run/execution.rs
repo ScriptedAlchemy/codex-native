@@ -91,6 +91,13 @@ where
   if let Some(api_key) = options.api_key.clone() {
     env_pairs.push(("CODEX_API_KEY", Some(api_key), true));
   }
+  if let Some(tool_choice) = options.tool_choice.clone() {
+    let encoded = serde_json::to_string(&tool_choice)
+      .map_err(|e| napi::Error::from_reason(format!("Failed to encode toolChoice: {e}")))?;
+    env_pairs.push(("CODEX_TOOL_CHOICE", Some(encoded), true));
+  } else {
+    env_pairs.push(("CODEX_TOOL_CHOICE", None, true));
+  }
 
   let linux_sandbox_path = if let Some(path) = options.linux_sandbox_path.clone() {
     Some(path)

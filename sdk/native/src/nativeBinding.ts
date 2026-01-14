@@ -26,6 +26,7 @@ export type NativeRunRequest = {
   workingDirectory?: string;
   skipGitRepoCheck?: boolean;
   outputSchema?: unknown;
+  toolChoice?: unknown;
   baseUrl?: string;
   apiKey?: string;
   linuxSandboxPath?: string;

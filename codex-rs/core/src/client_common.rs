@@ -31,6 +31,9 @@ pub struct Prompt {
     /// external MCP servers.
     pub tools: Vec<ToolSpec>,
 
+    /// Optional tool choice override for this prompt.
+    pub tool_choice: Option<Value>,
+
     /// Whether parallel tool calls are permitted for this prompt.
     pub(crate) parallel_tool_calls: bool,
 
@@ -244,6 +247,7 @@ mod tests {
     use codex_api::common::TextControls;
     use codex_api::create_text_param_for_request;
     use pretty_assertions::assert_eq;
+    use serde_json::json;
 
     use crate::config::test_config;
     use crate::models_manager::manager::ModelsManager;
@@ -324,7 +328,7 @@ mod tests {
             instructions: "i",
             input: &input,
             tools: &tools,
-            tool_choice: "auto",
+            tool_choice: json!("auto"),
             parallel_tool_calls: true,
             reasoning: None,
             store: false,
@@ -365,7 +369,7 @@ mod tests {
             instructions: "i",
             input: &input,
             tools: &tools,
-            tool_choice: "auto",
+            tool_choice: json!("auto"),
             parallel_tool_calls: true,
             reasoning: None,
             store: false,
@@ -401,7 +405,7 @@ mod tests {
             instructions: "i",
             input: &input,
             tools: &tools,
-            tool_choice: "auto",
+            tool_choice: json!("auto"),
             parallel_tool_calls: true,
             reasoning: None,
             store: false,

@@ -271,6 +271,18 @@ pub(crate) fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             context_window: Some(CONTEXT_WINDOW_272K),
             supported_reasoning_levels: supported_reasoning_level_low_medium_high_non_codex(),
         )
+    } else if slug.starts_with("gpt-5-mini") {
+        // gpt-5-mini via GitHub Copilot Responses API supports multiple tool calls per turn.
+        model_info!(
+            slug,
+            base_instructions: BASE_INSTRUCTIONS_WITH_APPLY_PATCH.to_string(),
+            shell_type: ConfigShellToolType::Default,
+            supports_reasoning_summaries: true,
+            support_verbosity: true,
+            supports_parallel_tool_calls: true,
+            truncation_policy: TruncationPolicyConfig::bytes(10_000),
+            context_window: Some(CONTEXT_WINDOW_272K),
+        )
     } else if slug.starts_with("gpt-5") {
         model_info!(
             slug,
@@ -302,6 +314,15 @@ mod tests {
         assert!(
             info.supports_parallel_tool_calls,
             "gpt-4.1 must allow parallel tool calls for Chat Completions"
+        );
+    }
+
+    #[test]
+    fn gpt_5_mini_supports_parallel_tool_calls() {
+        let info = find_model_info_for_slug("gpt-5-mini");
+        assert!(
+            info.supports_parallel_tool_calls,
+            "gpt-5-mini must allow parallel tool calls for Responses API"
         );
     }
 }

@@ -75,7 +75,7 @@ liveDescribe("GitHub Copilot provider (live)", () => {
     return parsed as Record<string, string>;
   };
 
-  const runToolCallTest = async (model: string) => {
+  const runToolCallTest = async (model: string, labels: string[]) => {
     ensureCopilotAuth();
 
     const [{ CodexProvider, codexTool }, { Agent, run }, { z }] = await Promise.all([
@@ -106,15 +106,27 @@ liveDescribe("GitHub Copilot provider (live)", () => {
       skipGitRepoCheck: true,
     });
 
+    const instructions =
+      labels.length === 1
+        ? [
+            `Use the ${toolName} tool once.`,
+            `Call with label "${labels[0]}".`,
+            `Respond with ONLY this JSON: {"${labels[0]}":"<token>"}.`,
+          ].join(" ")
+        : [
+            `Use the ${toolName} tool twice.`,
+            `First call with label "${labels[0]}", then with label "${labels[1]}".`,
+            `Respond with ONLY this JSON: {"${labels[0]}":"<token>","${labels[1]}":"<token>"}.`,
+          ].join(" ");
+
     const agent = new Agent({
       name: `TokenAgent-${model}`,
       model: provider.getModel(model),
-      instructions: [
-        `Use the ${toolName} tool twice.`,
-        `First call with label "first", then with label "second".`,
-        `Respond with ONLY this JSON: {"first":"<token>","second":"<token>"}.`,
-      ].join(" "),
+      instructions,
       tools: [tool],
+      modelSettings: {
+        toolChoice: toolName,
+      },
     });
 
     const result = await run(agent, "Begin.");
@@ -124,11 +136,11 @@ liveDescribe("GitHub Copilot provider (live)", () => {
     }
 
     const parsed = parseJsonObject(output);
-    expect(tokens.get("first")).toBeTruthy();
-    expect(tokens.get("second")).toBeTruthy();
-    expect(parsed.first).toBe(tokens.get("first"));
-    expect(parsed.second).toBe(tokens.get("second"));
-    expect(calls).toEqual(expect.arrayContaining(["first", "second"]));
+    for (const label of labels) {
+      expect(tokens.get(label)).toBeTruthy();
+      expect(parsed[label]).toBe(tokens.get(label));
+    }
+    expect(calls).toEqual(expect.arrayContaining(labels));
   };
 
   it("can run gpt-4.1 via modelProvider='github' using OpenCode auth.json", async () => {
@@ -188,10 +200,10 @@ liveDescribe("GitHub Copilot provider (live)", () => {
   });
 
   it("executes tool calls with gpt-4.1 via CodexProvider + Agents", async () => {
-    await runToolCallTest("gpt-4.1");
+    await runToolCallTest("gpt-4.1", ["first"]);
   });
 
   it("executes tool calls with gpt-5-mini via CodexProvider + Agents (Responses)", async () => {
-    await runToolCallTest("gpt-5-mini");
+    await runToolCallTest("gpt-5-mini", ["first", "second"]);
   });
 });
