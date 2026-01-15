@@ -3,8 +3,12 @@
  */
 
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import { setupNativeBinding } from './testHelpers';
 import { CodexProvider } from '../src/index';
+
 import type { AgentOutputItem, ModelRequest } from '../src/agents/types';
+
+setupNativeBinding();
 
 interface MockUsage {
   input_tokens: number;
@@ -500,6 +504,60 @@ describe('CodexProvider', () => {
 
       expect(deltas).toEqual(['Hello', ' world']);
       expect(finalText).toBe('Hello world');
+    });
+
+    it('should not emit duplicate delta events for the same text', async () => {
+      // This test verifies the fix for duplicate streaming output.
+      // Previously, both output_text_delta AND response.output_text.delta were emitted
+      // for each text update, causing consumers to see "HelloHello" instead of "Hello".
+      const usage = {
+        input_tokens: 8,
+        output_tokens: 2,
+        reasoning_tokens: 0,
+        cached_input_tokens: 0,
+      };
+
+      mockThread.runStreamed = jest.fn(async () => ({
+        events: (async function* () {
+          yield { type: 'thread.started', thread_id: 'mock-thread' };
+          yield { type: 'item.started', item: { type: 'agent_message', text: '' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Hello' } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: 'Hello' } };
+          yield { type: 'turn.completed', usage };
+        })(),
+      }));
+
+      const model = provider.getModel();
+      const request: ModelRequest = {
+        input: 'Test',
+        modelSettings: {},
+        tools: [],
+        outputType: 'text',
+        handoffs: [],
+        tracing: false,
+      };
+
+      const allDeltas: string[] = [];
+      const deltaEventTypes: string[] = [];
+
+      for await (const event of model.getStreamedResponse(request)) {
+        // Collect all events that contain text deltas
+        if (event.type === 'output_text_delta') {
+          allDeltas.push(event.delta);
+          deltaEventTypes.push('output_text_delta');
+        }
+        // Check for the old duplicate event type (should not exist anymore)
+        if ((event as { type: string }).type === 'response.output_text.delta') {
+          allDeltas.push((event as { delta: string }).delta);
+          deltaEventTypes.push('response.output_text.delta');
+        }
+      }
+
+      // Should only see one delta event per text update (no duplicates)
+      expect(allDeltas).toEqual(['Hello']);
+      expect(deltaEventTypes).toEqual(['output_text_delta']);
+      // Concatenating all deltas should give the correct output (not doubled)
+      expect(allDeltas.join('')).toBe('Hello');
     });
 
     it('should surface background events as model notifications', async () => {

@@ -16,6 +16,7 @@ import type {
   Model,
   ModelRequest,
   ModelResponse,
+  ModelSettingsToolChoice,
   StreamEvent,
   AgentInputItem,
   AgentOutputItem,
@@ -150,6 +151,24 @@ export class CodexProvider implements ModelProvider {
   }
 }
 
+const normalizeToolChoice = (toolChoice: ModelSettingsToolChoice | undefined): unknown => {
+  if (toolChoice === undefined) {
+    return undefined;
+  }
+  if (toolChoice === "auto" || toolChoice === "none" || toolChoice === "required") {
+    return toolChoice;
+  }
+  if (typeof toolChoice === "string") {
+    return {
+      type: "function",
+      function: {
+        name: toolChoice,
+      },
+    };
+  }
+  return toolChoice;
+};
+
 /**
  * Model implementation that wraps a Codex Thread
  */
@@ -258,7 +277,7 @@ class CodexModel implements Model {
       }
 
       const input = await this.convertRequestToInput(request);
-      const toolChoice = request.modelSettings?.toolChoice ?? undefined;
+      const toolChoice = normalizeToolChoice(request.modelSettings?.toolChoice);
 
       // Note: ModelSettings like temperature, maxTokens, topP, etc. are not currently
       // supported by the Codex native binding. Tool choice is forwarded when provided.
@@ -309,7 +328,7 @@ class CodexModel implements Model {
       }
 
       const input = await this.convertRequestToInput(request);
-      const toolChoice = request.modelSettings?.toolChoice ?? undefined;
+      const toolChoice = normalizeToolChoice(request.modelSettings?.toolChoice);
 
       const { events } = await thread.runStreamed(input, {
         outputSchema: normalizeAgentsOutputType(request.outputType),
@@ -1020,16 +1039,14 @@ class CodexModel implements Model {
             const delta = currentText.slice(previousText.length);
             textAccumulator.set(itemKey, currentText);
 
-            // Codex SDK delta
+            // Emit only one delta event type to avoid duplication.
+            // The @openai/agents-core runner wraps each event in RunRawModelStreamEvent,
+            // so emitting both output_text_delta AND response.output_text.delta would
+            // cause consumers to see the same delta twice.
             events.push({
               type: "output_text_delta",
               delta,
             });
-            // OpenAI Responses-style delta for Agents Runner
-            events.push({
-              type: "response.output_text.delta",
-              delta,
-            } as unknown as StreamEvent);
           }
         } else if (event.item.type === "reasoning") {
           const itemKey = "reasoning";
