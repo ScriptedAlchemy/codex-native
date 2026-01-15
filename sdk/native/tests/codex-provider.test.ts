@@ -764,4 +764,322 @@ describe('CodexProvider', () => {
       });
     });
   });
+
+  describe('Streaming Deduplication', () => {
+    it('should calculate deltas correctly across multiple item.updated events', async () => {
+      const usage = {
+        input_tokens: 10,
+        output_tokens: 10,
+        reasoning_tokens: 0,
+        cached_input_tokens: 0,
+      };
+
+      mockThread.runStreamed = jest.fn(async () => ({
+        events: (async function* () {
+          yield { type: 'thread.started', thread_id: 'mock-thread' };
+          yield { type: 'item.started', item: { type: 'agent_message', text: '' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'H' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'He' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Hel' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Hell' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Hello' } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: 'Hello' } };
+          yield { type: 'turn.completed', usage };
+        })(),
+      }));
+
+      const model = provider.getModel();
+      const request: ModelRequest = {
+        input: 'Test',
+        modelSettings: {},
+        tools: [],
+        outputType: 'text',
+        handoffs: [],
+        tracing: false,
+      };
+
+      const deltas: string[] = [];
+      for await (const event of model.getStreamedResponse(request)) {
+        if (event.type === 'output_text_delta') {
+          deltas.push(event.delta);
+        }
+      }
+
+      // Each delta should be exactly the new character
+      expect(deltas).toEqual(['H', 'e', 'l', 'l', 'o']);
+      expect(deltas.join('')).toBe('Hello');
+    });
+
+    it('should not emit raw_event for item.updated with agent_message', async () => {
+      const usage = {
+        input_tokens: 5,
+        output_tokens: 5,
+        reasoning_tokens: 0,
+        cached_input_tokens: 0,
+      };
+
+      mockThread.runStreamed = jest.fn(async () => ({
+        events: (async function* () {
+          yield { type: 'thread.started', thread_id: 'mock-thread' };
+          yield { type: 'item.started', item: { type: 'agent_message', text: '' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Test' } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: 'Test' } };
+          yield { type: 'turn.completed', usage };
+        })(),
+      }));
+
+      const model = provider.getModel();
+      const request: ModelRequest = {
+        input: 'Test',
+        modelSettings: {},
+        tools: [],
+        outputType: 'text',
+        handoffs: [],
+        tracing: false,
+      };
+
+      const allEvents: any[] = [];
+      for await (const event of model.getStreamedResponse(request)) {
+        allEvents.push(event);
+      }
+
+      // Find raw_events that contain item.updated with agent_message
+      const rawEventsWithAgentMessage = allEvents.filter(e =>
+        e.type === 'raw_event' &&
+        e.raw?.type === 'item.updated' &&
+        e.raw?.item?.type === 'agent_message'
+      );
+
+      expect(rawEventsWithAgentMessage).toHaveLength(0);
+    });
+
+    it('should not emit raw_event for item.completed with agent_message', async () => {
+      const usage = {
+        input_tokens: 5,
+        output_tokens: 5,
+        reasoning_tokens: 0,
+        cached_input_tokens: 0,
+      };
+
+      mockThread.runStreamed = jest.fn(async () => ({
+        events: (async function* () {
+          yield { type: 'thread.started', thread_id: 'mock-thread' };
+          yield { type: 'item.started', item: { type: 'agent_message', text: '' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Done' } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: 'Done' } };
+          yield { type: 'turn.completed', usage };
+        })(),
+      }));
+
+      const model = provider.getModel();
+      const request: ModelRequest = {
+        input: 'Test',
+        modelSettings: {},
+        tools: [],
+        outputType: 'text',
+        handoffs: [],
+        tracing: false,
+      };
+
+      const allEvents: any[] = [];
+      for await (const event of model.getStreamedResponse(request)) {
+        allEvents.push(event);
+      }
+
+      // Find raw_events that contain item.completed with agent_message
+      const rawEventsWithCompleted = allEvents.filter(e =>
+        e.type === 'raw_event' &&
+        e.raw?.type === 'item.completed' &&
+        e.raw?.item?.type === 'agent_message'
+      );
+
+      expect(rawEventsWithCompleted).toHaveLength(0);
+    });
+
+    it('should not emit raw_event for turn.completed', async () => {
+      const usage = {
+        input_tokens: 5,
+        output_tokens: 5,
+        reasoning_tokens: 0,
+        cached_input_tokens: 0,
+      };
+
+      mockThread.runStreamed = jest.fn(async () => ({
+        events: (async function* () {
+          yield { type: 'thread.started', thread_id: 'mock-thread' };
+          yield { type: 'item.started', item: { type: 'agent_message', text: '' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Response' } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: 'Response' } };
+          yield { type: 'turn.completed', usage };
+        })(),
+      }));
+
+      const model = provider.getModel();
+      const request: ModelRequest = {
+        input: 'Test',
+        modelSettings: {},
+        tools: [],
+        outputType: 'text',
+        handoffs: [],
+        tracing: false,
+      };
+
+      const allEvents: any[] = [];
+      for await (const event of model.getStreamedResponse(request)) {
+        allEvents.push(event);
+      }
+
+      // Find raw_events that contain turn.completed
+      const rawEventsWithTurnCompleted = allEvents.filter(e =>
+        e.type === 'raw_event' &&
+        e.raw?.type === 'turn.completed'
+      );
+
+      expect(rawEventsWithTurnCompleted).toHaveLength(0);
+    });
+
+    it('should handle agent_message and reasoning independently without cross-contamination', async () => {
+      const usage = {
+        input_tokens: 10,
+        output_tokens: 10,
+        reasoning_tokens: 5,
+        cached_input_tokens: 0,
+      };
+
+      mockThread.runStreamed = jest.fn(async () => ({
+        events: (async function* () {
+          yield { type: 'thread.started', thread_id: 'mock-thread' };
+          // Start reasoning
+          yield { type: 'item.started', item: { type: 'reasoning', text: '' } };
+          yield { type: 'item.updated', item: { type: 'reasoning', text: 'Thinking...' } };
+          yield { type: 'item.updated', item: { type: 'reasoning', text: 'Thinking... about this' } };
+          yield { type: 'item.completed', item: { type: 'reasoning', text: 'Thinking... about this' } };
+          // Start agent message
+          yield { type: 'item.started', item: { type: 'agent_message', text: '' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Here is ' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Here is my answer' } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: 'Here is my answer' } };
+          yield { type: 'turn.completed', usage };
+        })(),
+      }));
+
+      const model = provider.getModel();
+      const request: ModelRequest = {
+        input: 'Test',
+        modelSettings: {},
+        tools: [],
+        outputType: 'text',
+        handoffs: [],
+        tracing: false,
+      };
+
+      const textDeltas: string[] = [];
+      const reasoningDeltas: string[] = [];
+
+      for await (const event of model.getStreamedResponse(request)) {
+        if (event.type === 'output_text_delta') {
+          textDeltas.push(event.delta);
+        }
+        if (event.type === 'model' && (event as any).event?.type === 'reasoning_delta') {
+          reasoningDeltas.push((event as any).event.delta);
+        }
+      }
+
+      // Text deltas should be independent
+      expect(textDeltas).toEqual(['Here is ', 'my answer']);
+      expect(textDeltas.join('')).toBe('Here is my answer');
+
+      // Reasoning deltas should be independent
+      expect(reasoningDeltas).toEqual(['Thinking...', ' about this']);
+      expect(reasoningDeltas.join('')).toBe('Thinking... about this');
+    });
+
+    it('should handle empty and identical updates correctly', async () => {
+      const usage = {
+        input_tokens: 5,
+        output_tokens: 5,
+        reasoning_tokens: 0,
+        cached_input_tokens: 0,
+      };
+
+      mockThread.runStreamed = jest.fn(async () => ({
+        events: (async function* () {
+          yield { type: 'thread.started', thread_id: 'mock-thread' };
+          yield { type: 'item.started', item: { type: 'agent_message', text: '' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: '' } }; // Empty
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Same' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Same' } }; // Duplicate
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Same text' } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: 'Same text' } };
+          yield { type: 'turn.completed', usage };
+        })(),
+      }));
+
+      const model = provider.getModel();
+      const request: ModelRequest = {
+        input: 'Test',
+        modelSettings: {},
+        tools: [],
+        outputType: 'text',
+        handoffs: [],
+        tracing: false,
+      };
+
+      const deltas: string[] = [];
+      for await (const event of model.getStreamedResponse(request)) {
+        if (event.type === 'output_text_delta') {
+          deltas.push(event.delta);
+        }
+      }
+
+      // Should only emit deltas when there's actual new content
+      expect(deltas).toEqual(['Same', ' text']);
+      expect(deltas.every(d => d.length > 0)).toBe(true);
+    });
+
+    it('should still emit raw_event for non-text item types like command_execution', async () => {
+      const usage = {
+        input_tokens: 5,
+        output_tokens: 5,
+        reasoning_tokens: 0,
+        cached_input_tokens: 0,
+      };
+
+      mockThread.runStreamed = jest.fn(async () => ({
+        events: (async function* () {
+          yield { type: 'thread.started', thread_id: 'mock-thread' };
+          yield { type: 'item.started', item: { type: 'command_execution', command: 'ls' } };
+          yield { type: 'item.updated', item: { type: 'command_execution', command: 'ls', aggregated_output: 'file1.txt' } };
+          yield { type: 'item.completed', item: { type: 'command_execution', command: 'ls', aggregated_output: 'file1.txt', exit_code: 0 } };
+          yield { type: 'item.started', item: { type: 'agent_message', text: '' } };
+          yield { type: 'item.updated', item: { type: 'agent_message', text: 'Done' } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: 'Done' } };
+          yield { type: 'turn.completed', usage };
+        })(),
+      }));
+
+      const model = provider.getModel();
+      const request: ModelRequest = {
+        input: 'Test',
+        modelSettings: {},
+        tools: [],
+        outputType: 'text',
+        handoffs: [],
+        tracing: false,
+      };
+
+      const allEvents: any[] = [];
+      for await (const event of model.getStreamedResponse(request)) {
+        allEvents.push(event);
+      }
+
+      // command_execution updates SHOULD still be wrapped in raw_event
+      const commandRawEvents = allEvents.filter(e =>
+        e.type === 'raw_event' &&
+        e.raw?.item?.type === 'command_execution'
+      );
+
+      expect(commandRawEvents.length).toBeGreaterThan(0);
+    });
+  });
 });

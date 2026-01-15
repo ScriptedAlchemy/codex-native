@@ -1186,8 +1186,23 @@ class CodexModel implements Model {
         break;
     }
 
-    // Only include raw events for non-raw_event inputs
-    if ((event as Record<string, unknown>)?.type !== "raw_event") {
+    // Only include raw events for event types we haven't already transformed into
+    // proper StreamEvents. For item.updated with agent_message/reasoning, we've
+    // already emitted output_text_delta or reasoning_delta, so including the raw
+    // event would cause duplication.
+    const eventType = (event as Record<string, unknown>)?.type;
+    const itemType = ((event as Record<string, unknown>)?.item as Record<string, unknown>)?.type;
+
+    // Skip raw_event wrapping for events we've already transformed into deltas
+    // or for events that would cause duplication if wrapped.
+    const skipRawEvent =
+      eventType === "raw_event" ||
+      eventType === "turn.completed" ||  // Already emits response.completed + response_done
+      (eventType === "item.started" && (itemType === "agent_message" || itemType === "reasoning")) ||
+      (eventType === "item.updated" && (itemType === "agent_message" || itemType === "reasoning")) ||
+      (eventType === "item.completed" && (itemType === "agent_message" || itemType === "reasoning"));
+
+    if (!skipRawEvent) {
       const rawEvent = {
         type: "raw_event",
         raw: event,
