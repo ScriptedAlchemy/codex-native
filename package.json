@@ -24,7 +24,7 @@
     "ci:checks": "concurrently -n format,spell,mcp,shear \"pnpm run ci:format\" \"pnpm run ci:codespell\" \"pnpm run ci:mcp-types\" \"pnpm run ci:shear\"",
     "ci:verify": "concurrently -n clippy,test \"pnpm run ci:clippy\" \"pnpm run ci:test:fast\"",
     "ci": "pnpm run ci:prebuild && pnpm run ci:checks && pnpm run ci:verify",
-    "test:codex-rs": "cd codex-rs && cargo test --workspace --all-features",
+    "test:codex-rs": "cd codex-rs && cargo test --workspace --all-features -- --test-threads=8",
     "test": "pnpm run ci:codespell && pnpm run ci:shear && pnpm run ci:format && pnpm run test:codex-rs && pnpm run build"
   },
   "devDependencies": {

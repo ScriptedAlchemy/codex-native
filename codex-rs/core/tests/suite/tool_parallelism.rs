@@ -246,42 +246,34 @@ async fn tool_results_grouped() -> anyhow::Result<()> {
 
     let input = tool_output_request.single_request().input();
 
-    // find all function_call inputs with indexes
     let function_calls = input
         .iter()
-        .enumerate()
-        .filter(|(_, item)| item.get("type").and_then(Value::as_str) == Some("function_call"))
-        .collect::<Vec<_>>();
-
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("function_call"))
+        .count();
     let function_call_outputs = input
         .iter()
-        .enumerate()
-        .filter(|(_, item)| {
-            item.get("type").and_then(Value::as_str) == Some("function_call_output")
-        })
-        .collect::<Vec<_>>();
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("function_call_output"))
+        .count();
 
-    assert_eq!(function_calls.len(), 3);
-    assert_eq!(function_call_outputs.len(), 3);
+    assert_eq!(function_calls, 3);
+    assert_eq!(function_call_outputs, 3);
 
-    for (index, _) in &function_calls {
-        for (output_index, _) in &function_call_outputs {
-            assert!(
-                *index < *output_index,
-                "all function calls must come before outputs"
-            );
+    for idx in 0..input.len().saturating_sub(1) {
+        let item = &input[idx];
+        if item.get("type").and_then(Value::as_str) != Some("function_call") {
+            continue;
         }
-    }
-
-    // output should come in the order of the function calls
-    let zipped = function_calls
-        .iter()
-        .zip(function_call_outputs.iter())
-        .collect::<Vec<_>>();
-    for (call, output) in zipped {
+        let call_id = item.get("call_id").and_then(Value::as_str);
+        let next = &input[idx + 1];
         assert_eq!(
-            call.1.get("call_id").and_then(Value::as_str),
-            output.1.get("call_id").and_then(Value::as_str)
+            next.get("type").and_then(Value::as_str),
+            Some("function_call_output"),
+            "tool output should immediately follow call at index {idx}"
+        );
+        assert_eq!(
+            call_id,
+            next.get("call_id").and_then(Value::as_str),
+            "tool output call_id should match call at index {idx}"
         );
     }
 

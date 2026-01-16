@@ -830,9 +830,147 @@ fn normalize_mixed_inserts_and_removals() {
 }
 
 #[test]
+fn normalize_keeps_tool_output_between_call_and_later_messages() {
+    let items = vec![
+        ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content: vec![ContentItem::InputText {
+                text: "run tool".to_string(),
+            }],
+        },
+        ResponseItem::FunctionCall {
+            id: None,
+            name: "do_it".to_string(),
+            arguments: "{}".to_string(),
+            call_id: "call-1".to_string(),
+        },
+        ResponseItem::FunctionCallOutput {
+            call_id: "call-1".to_string(),
+            output: FunctionCallOutputPayload {
+                content: "ok".to_string(),
+                ..Default::default()
+            },
+        },
+        ResponseItem::Message {
+            id: None,
+            role: "assistant".to_string(),
+            content: vec![ContentItem::OutputText {
+                text: "done".to_string(),
+            }],
+        },
+    ];
+    let mut h = create_history_with_items(items);
+
+    h.normalize_history();
+
+    assert_eq!(
+        h.raw_items(),
+        vec![
+            ResponseItem::Message {
+                id: None,
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "run tool".to_string(),
+                }],
+            },
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "do_it".to_string(),
+                arguments: "{}".to_string(),
+                call_id: "call-1".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "call-1".to_string(),
+                output: FunctionCallOutputPayload {
+                    content: "ok".to_string(),
+                    ..Default::default()
+                },
+            },
+            ResponseItem::Message {
+                id: None,
+                role: "assistant".to_string(),
+                content: vec![ContentItem::OutputText {
+                    text: "done".to_string(),
+                }],
+            },
+        ]
+    );
+}
+
+#[test]
+fn normalize_moves_tool_output_immediately_after_call() {
+    let items = vec![
+        ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content: vec![ContentItem::InputText {
+                text: "run tool".to_string(),
+            }],
+        },
+        ResponseItem::FunctionCall {
+            id: None,
+            name: "do_it".to_string(),
+            arguments: "{}".to_string(),
+            call_id: "call-2".to_string(),
+        },
+        ResponseItem::Message {
+            id: None,
+            role: "assistant".to_string(),
+            content: vec![ContentItem::OutputText {
+                text: "waiting".to_string(),
+            }],
+        },
+        ResponseItem::FunctionCallOutput {
+            call_id: "call-2".to_string(),
+            output: FunctionCallOutputPayload {
+                content: "ok".to_string(),
+                ..Default::default()
+            },
+        },
+    ];
+    let mut h = create_history_with_items(items);
+
+    h.normalize_history();
+
+    assert_eq!(
+        h.raw_items(),
+        vec![
+            ResponseItem::Message {
+                id: None,
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "run tool".to_string(),
+                }],
+            },
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "do_it".to_string(),
+                arguments: "{}".to_string(),
+                call_id: "call-2".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "call-2".to_string(),
+                output: FunctionCallOutputPayload {
+                    content: "ok".to_string(),
+                    ..Default::default()
+                },
+            },
+            ResponseItem::Message {
+                id: None,
+                role: "assistant".to_string(),
+                content: vec![ContentItem::OutputText {
+                    text: "waiting".to_string(),
+                }],
+            },
+        ]
+    );
+}
+
+#[test]
 fn normalize_reorders_outputs_after_calls() {
-    // Outputs should be grouped after all calls, not interleaved.
-    // The API expects: [call-a, call-b, ..., output-a, output-b, ...]
+    // Outputs should immediately follow their calls.
+    // The API expects: [call-a, output-a, call-b, output-b, ...]
     let items = vec![
         user_input_text_msg("hi"),
         ResponseItem::FunctionCallOutput {
@@ -866,7 +1004,7 @@ fn normalize_reorders_outputs_after_calls() {
 
     h.normalize_history();
 
-    // All calls should come before all outputs, with outputs in call order
+    // Each output should immediately follow its call.
     assert_eq!(
         h.raw_items(),
         vec![
@@ -877,18 +1015,18 @@ fn normalize_reorders_outputs_after_calls() {
                 arguments: "{}".to_string(),
                 call_id: "call-a".to_string(),
             },
-            ResponseItem::FunctionCall {
-                id: None,
-                name: "read_file".to_string(),
-                arguments: "{}".to_string(),
-                call_id: "call-b".to_string(),
-            },
             ResponseItem::FunctionCallOutput {
                 call_id: "call-a".to_string(),
                 output: FunctionCallOutputPayload {
                     content: "A".to_string(),
                     ..Default::default()
                 },
+            },
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "read_file".to_string(),
+                arguments: "{}".to_string(),
+                call_id: "call-b".to_string(),
             },
             ResponseItem::FunctionCallOutput {
                 call_id: "call-b".to_string(),
