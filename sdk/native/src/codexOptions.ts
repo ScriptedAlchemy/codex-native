@@ -1,5 +1,6 @@
 import type { NativeToolInfo, NativeToolInvocation, NativeToolResult } from "./nativeBinding";
 import type { SkillDefinition, SkillMentionTrigger } from "./skills";
+import type { McpServerConfig } from "./threadOptions";
 
 export type NativeToolDefinition = NativeToolInfo & {
   handler: (call: NativeToolInvocation) => Promise<NativeToolResult> | NativeToolResult;
@@ -31,4 +32,25 @@ export type CodexOptions = {
    * Defaults to `["$"]` to match Codex CLI/TUI behavior.
    */
   skillMentionTriggers?: SkillMentionTrigger[];
+  /**
+   * Default MCP servers to register for all threads created by this Codex instance.
+   * Keys are server names, values are server configurations.
+   *
+   * Example:
+   * ```ts
+   * mcp: {
+   *   "github": { url: "https://api.github.com/mcp", bearerTokenEnvVar: "GITHUB_TOKEN" },
+   *   "local-tool": { command: "npx", args: ["-y", "my-mcp-server"] }
+   * }
+   * ```
+   */
+  mcp?: Record<string, McpServerConfig>;
+  /**
+   * When false, ignores globally registered MCP servers from config.toml
+   * and only uses the servers specified in the `mcp` option.
+   * When true (default), merges the `mcp` option with global config.
+   *
+   * @default true
+   */
+  inheritMcp?: boolean;
 };

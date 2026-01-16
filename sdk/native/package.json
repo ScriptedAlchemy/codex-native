@@ -1,6 +1,6 @@
 {
   "name": "@codex-native/sdk",
-  "version": "0.0.35",
+  "version": "0.0.38",
   "description": "Native NAPI-based Codex SDK - complete standalone implementation.",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
@@ -47,14 +47,14 @@
     ]
   },
   "optionalDependencies": {
-    "@codex-native/sdk-darwin-arm64": "0.0.35",
-    "@codex-native/sdk-darwin-x64": "0.0.35",
-    "@codex-native/sdk-linux-arm64-gnu": "0.0.35",
-    "@codex-native/sdk-linux-x64-gnu": "0.0.35",
-    "@codex-native/sdk-linux-arm64-musl": "0.0.35",
-    "@codex-native/sdk-linux-x64-musl": "0.0.35",
-    "@codex-native/sdk-win32-arm64-msvc": "0.0.35",
-    "@codex-native/sdk-win32-x64-msvc": "0.0.35"
+    "@codex-native/sdk-darwin-arm64": "0.0.38",
+    "@codex-native/sdk-darwin-x64": "0.0.38",
+    "@codex-native/sdk-linux-arm64-gnu": "0.0.38",
+    "@codex-native/sdk-linux-x64-gnu": "0.0.38",
+    "@codex-native/sdk-linux-arm64-musl": "0.0.38",
+    "@codex-native/sdk-linux-x64-musl": "0.0.38",
+    "@codex-native/sdk-win32-arm64-msvc": "0.0.38",
+    "@codex-native/sdk-win32-x64-msvc": "0.0.38"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.22.0",

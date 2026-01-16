@@ -27,6 +27,8 @@ impl ConversationConfigRequest {
       reasoning_effort,
       reasoning_summary,
       full_auto: self.full_auto.unwrap_or(true),
+      mcp: None,
+      inherit_mcp: true,
     })
   }
 }
@@ -98,6 +100,8 @@ impl RunRequest {
       reasoning_effort,
       reasoning_summary,
       full_auto: self.full_auto.unwrap_or(true),
+      mcp: self.mcp,
+      inherit_mcp: self.inherit_mcp.unwrap_or(true),
     })
   }
 }
@@ -139,6 +143,8 @@ impl ForkRequest {
       full_auto: self.full_auto,
       review_mode: None,
       review_hint: None,
+      mcp: None,
+      inherit_mcp: None,
     };
 
     let run_options = run_request.into_internal()?;

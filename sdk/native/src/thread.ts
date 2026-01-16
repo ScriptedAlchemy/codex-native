@@ -442,6 +442,8 @@ export class Thread {
       outputSchema: normalizedSchema,
       toolChoice: turnOptions?.toolChoice,
       fullAuto: options?.fullAuto,
+      mcp: options?.mcp,
+      inheritMcp: options?.inheritMcp,
     });
     try {
       for await (const item of generator) {

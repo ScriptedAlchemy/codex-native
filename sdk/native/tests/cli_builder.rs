@@ -20,12 +20,15 @@ fn base_internal_request() -> InternalRunRequest {
     working_directory: None,
     skip_git_repo_check: false,
     output_schema: None,
+    tool_choice: None,
     base_url: None,
     api_key: None,
     linux_sandbox_path: None,
     reasoning_effort: None,
     reasoning_summary: None,
     full_auto: true,
+    mcp: None,
+    inherit_mcp: true,
   }
 }
 

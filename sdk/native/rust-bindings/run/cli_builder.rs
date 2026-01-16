@@ -1,3 +1,40 @@
+/// Convert a camelCase string to snake_case
+fn camel_to_snake(s: &str) -> String {
+  let mut result = String::with_capacity(s.len() + 4);
+  for (i, ch) in s.chars().enumerate() {
+    if ch.is_uppercase() {
+      if i > 0 {
+        result.push('_');
+      }
+      result.push(ch.to_ascii_lowercase());
+    } else {
+      result.push(ch);
+    }
+  }
+  result
+}
+
+/// Convert a JSON value to TOML inline format string, converting camelCase keys to snake_case
+fn json_to_toml_inline(value: &JsonValue) -> String {
+  match value {
+    JsonValue::Null => "null".to_string(),
+    JsonValue::Bool(b) => b.to_string(),
+    JsonValue::Number(n) => n.to_string(),
+    JsonValue::String(s) => format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")),
+    JsonValue::Array(arr) => {
+      let items: Vec<String> = arr.iter().map(json_to_toml_inline).collect();
+      format!("[{}]", items.join(", "))
+    }
+    JsonValue::Object(obj) => {
+      let pairs: Vec<String> = obj
+        .iter()
+        .map(|(k, v)| format!("{} = {}", camel_to_snake(k), json_to_toml_inline(v)))
+        .collect();
+      format!("{{ {} }}", pairs.join(", "))
+    }
+  }
+}
+
 pub fn build_cli(
   options: &InternalRunRequest,
   schema_path: Option<PathBuf>,
@@ -74,6 +111,22 @@ pub fn build_cli(
       raw_overrides.push(format!(
         "sandbox_workspace_write.exclude_slash_tmp={exclude_slash_tmp}"
       ));
+    }
+  }
+
+  // Handle MCP server configuration
+  // If inherit_mcp is false, clear all globally registered MCP servers first
+  if !options.inherit_mcp {
+    raw_overrides.push("mcp_servers={}".to_string());
+  }
+
+  // Add each MCP server from the options
+  if let Some(mcp) = &options.mcp {
+    if let JsonValue::Object(servers) = mcp {
+      for (server_name, server_config) in servers {
+        let toml_value = json_to_toml_inline(server_config);
+        raw_overrides.push(format!("mcp_servers.{server_name}={toml_value}"));
+      }
     }
   }
 

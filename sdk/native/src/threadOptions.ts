@@ -31,6 +31,57 @@ export type WorkspaceWriteOptions = {
   excludeSlashTmp?: boolean;
 };
 
+// ============================================================================
+// MCP Server Configuration Types
+// ============================================================================
+
+/**
+ * Configuration for an MCP server using stdio transport.
+ * The server is spawned as a child process.
+ */
+export type McpStdioTransport = {
+  /** The command to run (e.g., "npx", "python") */
+  command: string;
+  /** Command arguments */
+  args?: string[];
+  /** Environment variables to set for the process */
+  env?: Record<string, string>;
+  /** Environment variable names to inherit from the parent process */
+  envVars?: string[];
+  /** Working directory for the process */
+  cwd?: string;
+};
+
+/**
+ * Configuration for an MCP server using HTTP transport.
+ */
+export type McpHttpTransport = {
+  /** The URL of the MCP server endpoint */
+  url: string;
+  /** Environment variable name containing a bearer token for authentication */
+  bearerTokenEnvVar?: string;
+  /** Static HTTP headers to include in requests */
+  httpHeaders?: Record<string, string>;
+  /** HTTP headers where the value is read from an environment variable */
+  envHttpHeaders?: Record<string, string>;
+};
+
+/**
+ * Configuration for a single MCP server.
+ */
+export type McpServerConfig = (McpStdioTransport | McpHttpTransport) & {
+  /** When false, skip initializing this MCP server. Default: true */
+  enabled?: boolean;
+  /** Startup timeout in seconds. Default: server-specific */
+  startupTimeoutSec?: number;
+  /** Default timeout for tool calls in seconds */
+  toolTimeoutSec?: number;
+  /** Allow-list of tools to expose from this server */
+  enabledTools?: string[];
+  /** Deny-list of tools to hide from this server */
+  disabledTools?: string[];
+};
+
 export type ThreadOptions = {
   model?: string;
   /** Override the model provider declared in config.toml */
@@ -61,4 +112,25 @@ export type ThreadOptions = {
    * Defaults to `["$"]` when omitted.
    */
   skillMentionTriggers?: SkillMentionTrigger[];
+  /**
+   * MCP servers to register for this thread.
+   * Keys are server names, values are server configurations.
+   *
+   * Example:
+   * ```ts
+   * mcp: {
+   *   "github": { url: "https://api.github.com/mcp", bearerTokenEnvVar: "GITHUB_TOKEN" },
+   *   "local-tool": { command: "npx", args: ["-y", "my-mcp-server"] }
+   * }
+   * ```
+   */
+  mcp?: Record<string, McpServerConfig>;
+  /**
+   * When false, ignores globally registered MCP servers from config.toml
+   * and only uses the servers specified in the `mcp` option.
+   * When true (default), merges the `mcp` option with global config.
+   *
+   * @default true
+   */
+  inheritMcp?: boolean;
 };

@@ -1,5 +1,6 @@
 import {
   ApprovalMode,
+  McpServerConfig,
   ReasoningEffort,
   ReasoningSummary,
   SandboxMode,
@@ -43,6 +44,13 @@ export type CodexExecArgs = {
   /** @deprecated Use sandboxMode and approvalMode instead */
   fullAuto?: boolean;
   review?: ReviewExecOptions | null;
+  /** MCP servers to register, keyed by server name */
+  mcp?: Record<string, McpServerConfig>;
+  /**
+   * When false, ignores globally registered MCP servers from config.toml.
+   * When true (default), merges the `mcp` option with global config.
+   */
+  inheritMcp?: boolean;
 };
 
 export type ReviewExecOptions = {
@@ -113,6 +121,8 @@ export class CodexExec {
       fullAuto: args.fullAuto,
       reviewMode: args.review ? true : undefined,
       reviewHint: args.review?.userFacingHint,
+      mcp: args.mcp,
+      inheritMcp: args.inheritMcp,
     };
 
     let runPromise: Promise<void> = Promise.resolve();

@@ -325,9 +325,19 @@ export class Codex {
    * @returns A new thread instance.
    */
   startThread(options: ThreadOptions = {}): Thread {
+    // Merge MCP configuration: thread options override Codex options
+    const mergedMcp = options.mcp !== undefined
+      ? options.mcp
+      : this.options.mcp;
+    const mergedInheritMcp = options.inheritMcp !== undefined
+      ? options.inheritMcp
+      : this.options.inheritMcp;
+
     const threadOptions: ThreadOptions = {
       ...options,
       model: options.model ?? this.options.defaultModel,
+      mcp: mergedMcp,
+      inheritMcp: mergedInheritMcp,
     };
     return new Thread(this.exec, this.options, threadOptions, null, {
       codexSkills: this.skills,
@@ -343,9 +353,19 @@ export class Codex {
    * @returns A new thread instance.
    */
   resumeThread(id: string, options: ThreadOptions = {}): Thread {
+    // Merge MCP configuration: thread options override Codex options
+    const mergedMcp = options.mcp !== undefined
+      ? options.mcp
+      : this.options.mcp;
+    const mergedInheritMcp = options.inheritMcp !== undefined
+      ? options.inheritMcp
+      : this.options.inheritMcp;
+
     const threadOptions: ThreadOptions = {
       ...options,
       model: options.model ?? this.options.defaultModel,
+      mcp: mergedMcp,
+      inheritMcp: mergedInheritMcp,
     };
     return new Thread(this.exec, this.options, threadOptions, id, {
       codexSkills: this.skills,

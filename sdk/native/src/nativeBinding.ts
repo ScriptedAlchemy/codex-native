@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { ApprovalMode, SandboxMode, WorkspaceWriteOptions, ReasoningEffort, ReasoningSummary } from "./threadOptions";
+import type { ApprovalMode, SandboxMode, WorkspaceWriteOptions, ReasoningEffort, ReasoningSummary, McpServerConfig } from "./threadOptions";
 
 const CLI_ENTRYPOINT_ENV = "CODEX_NODE_CLI_ENTRYPOINT";
 
@@ -36,6 +36,13 @@ export type NativeRunRequest = {
   fullAuto?: boolean;
   reviewMode?: boolean;
   reviewHint?: string;
+  /** MCP servers to register, keyed by server name */
+  mcp?: Record<string, McpServerConfig>;
+  /**
+   * When false, ignores globally registered MCP servers from config.toml.
+   * When true (default), merges the `mcp` option with global config.
+   */
+  inheritMcp?: boolean;
 };
 
 export type NativeForkRequest = {

@@ -41,6 +41,11 @@ pub struct RunRequest {
   pub reasoning_summary: Option<String>,
   #[napi(js_name = "fullAuto")]
   pub full_auto: Option<bool>,
+  /// MCP servers to register, keyed by server name. Passed as JSON value.
+  pub mcp: Option<JsonValue>,
+  /// When false, ignores globally registered MCP servers from config.toml.
+  #[napi(js_name = "inheritMcp")]
+  pub inherit_mcp: Option<bool>,
 }
 
 #[napi(object)]
@@ -208,4 +213,8 @@ pub struct InternalRunRequest {
   pub reasoning_effort: Option<ReasoningEffort>,
   pub reasoning_summary: Option<ReasoningSummary>,
   pub full_auto: bool,
+  /// MCP servers to register, keyed by server name. Serialized as JSON for config override.
+  pub mcp: Option<JsonValue>,
+  /// When false, ignores globally registered MCP servers from config.toml.
+  pub inherit_mcp: bool,
 }

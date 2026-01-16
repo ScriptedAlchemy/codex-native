@@ -19,12 +19,15 @@ fn base_run_request(prompt: &str) -> RunRequest {
     working_directory: None,
     skip_git_repo_check: None,
     output_schema: None,
+    tool_choice: None,
     base_url: None,
     api_key: None,
     linux_sandbox_path: None,
     reasoning_effort: None,
     reasoning_summary: None,
     full_auto: None,
+    mcp: None,
+    inherit_mcp: None,
   }
 }
 

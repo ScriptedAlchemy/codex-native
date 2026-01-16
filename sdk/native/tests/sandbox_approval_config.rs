@@ -16,6 +16,7 @@ fn base_run_request(prompt: &str) -> RunRequest {
     working_directory: None,
     skip_git_repo_check: None,
     output_schema: None,
+    tool_choice: None,
     base_url: None,
     api_key: None,
     linux_sandbox_path: None,
@@ -24,6 +25,8 @@ fn base_run_request(prompt: &str) -> RunRequest {
     full_auto: None,
     review_mode: None,
     review_hint: None,
+    mcp: None,
+    inherit_mcp: None,
   }
 }
 
