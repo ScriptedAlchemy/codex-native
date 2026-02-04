@@ -1,7 +1,4 @@
 packages:
-  - docs
-  - sdk/native
-  - sdk/native/npm/*
   - codex-cli
   - codex-rs/responses-api-proxy/npm
   - sdk/typescript

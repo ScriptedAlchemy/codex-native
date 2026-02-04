@@ -49,7 +49,5 @@ export type {
   SandboxMode,
   ModelReasoningEffort,
   WebSearchMode,
-  Personality,
-  DynamicToolSpec,
 } from "./threadOptions";
 export type { TurnOptions } from "./turnOptions";

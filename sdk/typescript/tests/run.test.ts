@@ -360,7 +360,69 @@ describe("Codex", () => {
 
       const commandArgs = spawnArgs[0];
       expect(commandArgs).toBeDefined();
+      expectPair(commandArgs, ["--config", 'web_search="live"']);
+    } finally {
+      restore();
+      await close();
+    }
+  });
+
+  it("passes webSearchMode to exec", async () => {
+    const { url, close } = await startResponsesTestProxy({
+      statusCode: 200,
+      responseBodies: [
+        sse(
+          responseStarted("response_1"),
+          assistantMessage("Web search cached", "item_1"),
+          responseCompleted("response_1"),
+        ),
+      ],
+    });
+
+    const { args: spawnArgs, restore } = codexExecSpy();
+
+    try {
+      const client = new Codex({ codexPathOverride: codexExecPath, baseUrl: url, apiKey: "test" });
+
+      const thread = client.startThread({
+        webSearchMode: "cached",
+      });
+      await thread.run("test web search mode");
+
+      const commandArgs = spawnArgs[0];
+      expect(commandArgs).toBeDefined();
       expectPair(commandArgs, ["--config", 'web_search="cached"']);
+    } finally {
+      restore();
+      await close();
+    }
+  });
+
+  it("passes webSearchEnabled false to exec", async () => {
+    const { url, close } = await startResponsesTestProxy({
+      statusCode: 200,
+      responseBodies: [
+        sse(
+          responseStarted("response_1"),
+          assistantMessage("Web search disabled", "item_1"),
+          responseCompleted("response_1"),
+        ),
+      ],
+    });
+
+    const { args: spawnArgs, restore } = codexExecSpy();
+
+    try {
+      const client = new Codex({ codexPathOverride: codexExecPath, baseUrl: url, apiKey: "test" });
+
+      const thread = client.startThread({
+        webSearchEnabled: false,
+      });
+      await thread.run("test web search disabled");
+
+      const commandArgs = spawnArgs[0];
+      expect(commandArgs).toBeDefined();
+      expectPair(commandArgs, ["--config", 'web_search="disabled"']);
     } finally {
       restore();
       await close();
@@ -442,6 +504,86 @@ describe("Codex", () => {
     } finally {
       restore();
       cleanup();
+      await close();
+    }
+  });
+
+  it("passes CodexOptions config overrides as TOML --config flags", async () => {
+    const { url, close } = await startResponsesTestProxy({
+      statusCode: 200,
+      responseBodies: [
+        sse(
+          responseStarted("response_1"),
+          assistantMessage("Config overrides applied", "item_1"),
+          responseCompleted("response_1"),
+        ),
+      ],
+    });
+
+    const { args: spawnArgs, restore } = codexExecSpy();
+
+    try {
+      const client = new Codex({
+        codexPathOverride: codexExecPath,
+        baseUrl: url,
+        apiKey: "test",
+        config: {
+          approval_policy: "never",
+          sandbox_workspace_write: { network_access: true },
+          retry_budget: 3,
+          tool_rules: { allow: ["git status", "git diff"] },
+        },
+      });
+
+      const thread = client.startThread();
+      await thread.run("apply config overrides");
+
+      const commandArgs = spawnArgs[0];
+      expect(commandArgs).toBeDefined();
+      expectPair(commandArgs, ["--config", 'approval_policy="never"']);
+      expectPair(commandArgs, ["--config", "sandbox_workspace_write.network_access=true"]);
+      expectPair(commandArgs, ["--config", "retry_budget=3"]);
+      expectPair(commandArgs, ["--config", 'tool_rules.allow=["git status", "git diff"]']);
+    } finally {
+      restore();
+      await close();
+    }
+  });
+
+  it("lets thread options override CodexOptions config overrides", async () => {
+    const { url, close } = await startResponsesTestProxy({
+      statusCode: 200,
+      responseBodies: [
+        sse(
+          responseStarted("response_1"),
+          assistantMessage("Thread overrides applied", "item_1"),
+          responseCompleted("response_1"),
+        ),
+      ],
+    });
+
+    const { args: spawnArgs, restore } = codexExecSpy();
+
+    try {
+      const client = new Codex({
+        codexPathOverride: codexExecPath,
+        baseUrl: url,
+        apiKey: "test",
+        config: { approval_policy: "never" },
+      });
+
+      const thread = client.startThread({ approvalPolicy: "on-request" });
+      await thread.run("override approval policy");
+
+      const commandArgs = spawnArgs[0];
+      const approvalPolicyOverrides = collectConfigValues(commandArgs, "approval_policy");
+      expect(approvalPolicyOverrides).toEqual([
+        'approval_policy="never"',
+        'approval_policy="on-request"',
+      ]);
+      expect(approvalPolicyOverrides.at(-1)).toBe('approval_policy="on-request"');
+    } finally {
+      restore();
       await close();
     }
   });

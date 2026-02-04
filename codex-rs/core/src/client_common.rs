@@ -241,7 +241,6 @@ mod tests {
     use codex_api::common::TextControls;
     use codex_api::create_text_param_for_request;
     use pretty_assertions::assert_eq;
-    use serde_json::json;
 
     use super::*;
 

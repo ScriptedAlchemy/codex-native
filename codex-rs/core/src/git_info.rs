@@ -303,29 +303,11 @@ pub async fn git_diff_to_remote(cwd: &Path) -> Option<GitDiffToRemote> {
     })
 }
 
-/// Collects a detailed summary of the diff between HEAD and the configured base branch.
-/// Returns textual summaries plus truncated per-file diffs for up to `max_files`.
-pub async fn collect_repo_diff_summary(
-    cwd: &Path,
-    base_branch_override: Option<&str>,
-    options: RepoDiffConfig,
-) -> Result<RepoDiffSummary> {
-    ensure_git_repository(cwd).await?;
-
-    let branch = capture_git_trimmed(&["rev-parse", "--abbrev-ref", "HEAD"], cwd)
-        .await
-        .unwrap_or_else(|| "unknown".to_string());
-
-    let upstream_ref = capture_git_trimmed(
-        &[
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            "@{upstream}",
-        ],
-        cwd,
-    )
-    .await;
+/// Run a git command with a timeout to prevent blocking on large repositories
+async fn run_git_command_with_timeout(args: &[&str], cwd: &Path) -> Option<std::process::Output> {
+    let mut command = Command::new("git");
+    command.args(args).current_dir(cwd).kill_on_drop(true);
+    let result = timeout(GIT_COMMAND_TIMEOUT, command.output()).await;
 
     let (base_branch, diff_target) =
         resolve_base_branch(base_branch_override, upstream_ref.as_deref());

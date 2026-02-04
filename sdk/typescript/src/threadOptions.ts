@@ -6,14 +6,6 @@ export type ModelReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhig
 
 export type WebSearchMode = "disabled" | "cached" | "live";
 
-export type Personality = "friendly" | "pragmatic";
-
-export type DynamicToolSpec = {
-  name: string;
-  description: string;
-  inputSchema: unknown;
-};
-
 export type ThreadOptions = {
   model?: string;
   sandboxMode?: SandboxMode;
@@ -22,6 +14,7 @@ export type ThreadOptions = {
   modelReasoningEffort?: ModelReasoningEffort;
   networkAccessEnabled?: boolean;
   webSearchMode?: WebSearchMode;
+  webSearchEnabled?: boolean;
   approvalPolicy?: ApprovalMode;
   additionalDirectories?: string[];
   personality?: Personality;

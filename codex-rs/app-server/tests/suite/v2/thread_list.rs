@@ -336,17 +336,9 @@ async fn thread_list_empty_source_kinds_defaults_to_interactive_only() -> Result
 
     assert_eq!(next_cursor, None);
     let ids: Vec<_> = data.iter().map(|thread| thread.id.as_str()).collect();
-    assert_eq!(ids.len(), 2);
-    assert!(ids.contains(&cli_id.as_str()));
-    assert!(ids.contains(&exec_id.as_str()));
-    assert!(
-        data.iter()
-            .any(|thread| thread.source == SessionSource::Cli)
-    );
-    assert!(
-        data.iter()
-            .any(|thread| thread.source == SessionSource::Exec)
-    );
+    assert_eq!(ids, vec![cli_id.as_str()]);
+    assert_ne!(cli_id, exec_id);
+    assert_eq!(data[0].source, SessionSource::Cli);
 
     Ok(())
 }

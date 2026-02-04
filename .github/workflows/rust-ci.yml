@@ -99,8 +99,9 @@ jobs:
       USE_SCCACHE: ${{ startsWith(matrix.runner, 'windows') && 'false' || 'true' }}
       CARGO_INCREMENTAL: "0"
       SCCACHE_CACHE_SIZE: 10G
-      # DotSlash can fall back to `gh release download` when direct URL fetches are flaky.
-      GH_TOKEN: ${{ github.token }}
+      # Keep cargo-based CI independent of system bwrap build deps.
+      # The bwrap FFI path is validated in Bazel workflows.
+      CODEX_BWRAP_ENABLE_FFI: "0"
 
     strategy:
       fail-fast: false
@@ -200,6 +201,17 @@ jobs:
           set -euxo pipefail
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet /opt/hostedtoolcache/CodeQL || true
           df -h
+
+      - if: ${{ matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'aarch64-unknown-linux-musl'}}
+        name: Use hermetic Cargo home (musl)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_home="${GITHUB_WORKSPACE}/.cargo-home"
+          mkdir -p "${cargo_home}/bin"
+          echo "CARGO_HOME=${cargo_home}" >> "$GITHUB_ENV"
+          echo "${cargo_home}/bin" >> "$GITHUB_PATH"
+          : > "${cargo_home}/config.toml"
 
       - if: ${{ matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'aarch64-unknown-linux-musl'}}
         name: Use hermetic Cargo home (musl)
@@ -479,8 +491,9 @@ jobs:
       USE_SCCACHE: ${{ startsWith(matrix.runner, 'windows') && 'false' || 'true' }}
       CARGO_INCREMENTAL: "0"
       SCCACHE_CACHE_SIZE: 10G
-      # DotSlash can fall back to `gh release download` when direct URL fetches are flaky.
-      GH_TOKEN: ${{ github.token }}
+      # Keep cargo-based CI independent of system bwrap build deps.
+      # The bwrap FFI path is validated in Bazel workflows.
+      CODEX_BWRAP_ENABLE_FFI: "0"
 
     strategy:
       fail-fast: false
@@ -516,7 +529,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-
       # Some integration tests rely on DotSlash being installed.
       # See https://github.com/openai/codex/pull/7617.
       - name: Install DotSlash

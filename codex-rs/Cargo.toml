@@ -49,7 +49,6 @@ members = [
     "utils/string",
     "codex-client",
     "codex-api",
-    "github",
     "state",
     "codex-experimental-api-macros",
 ]

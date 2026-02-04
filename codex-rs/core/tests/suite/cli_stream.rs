@@ -1,7 +1,6 @@
 use assert_cmd::Command as AssertCommand;
 use codex_core::RolloutRecorder;
 use codex_core::auth::CODEX_API_KEY_ENV_VAR;
-use codex_core::config::CONFIG_TOML_FILE;
 use codex_core::protocol::GitInfo;
 use codex_utils_cargo_bin::find_resource;
 use core_test_support::fs_wait;
@@ -138,6 +137,12 @@ wire_api = "responses"
     let mut cmd = AssertCommand::new(bin);
     cmd.arg("exec")
         .arg("--skip-git-repo-check")
+        .arg("-c")
+        .arg(&provider_override)
+        .arg("-c")
+        .arg("model_provider=\"mock\"")
+        .arg("-c")
+        .arg(format!("model_instructions_file=\"{custom_path_str}\""))
         .arg("-C")
         .arg(&repo_root)
         .arg("hello?\n");

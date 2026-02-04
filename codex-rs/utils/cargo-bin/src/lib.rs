@@ -83,8 +83,6 @@ fn cargo_bin_env_keys(name: &str) -> Vec<String> {
 
 pub fn runfiles_available() -> bool {
     std::env::var_os(RUNFILES_MANIFEST_ONLY_ENV).is_some()
-        || std::env::var_os("RUNFILES_DIR").is_some()
-        || std::env::var_os("RUNFILES_MANIFEST_FILE").is_some()
 }
 
 fn resolve_bin_from_env(key: &str, value: OsString) -> Result<PathBuf, CargoBinError> {

@@ -268,22 +268,6 @@ pub enum Color {
     Auto,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-#[value(rename_all = "kebab-case")]
-pub enum PersonalityCliArg {
-    Friendly,
-    Pragmatic,
-}
-
-impl From<PersonalityCliArg> for Personality {
-    fn from(value: PersonalityCliArg) -> Self {
-        match value {
-            PersonalityCliArg::Friendly => Self::Friendly,
-            PersonalityCliArg::Pragmatic => Self::Pragmatic,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

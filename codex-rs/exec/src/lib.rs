@@ -92,11 +92,6 @@ struct ThreadEventEnvelope {
     event: Event,
 }
 
-enum EventProcessorMode {
-    Default,
-    Callback(Box<dyn FnMut(exec_events::ThreadEvent) + Send>),
-}
-
 pub async fn run_main(cli: Cli, codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
     run_main_with_event_processor(cli, codex_linux_sandbox_exe, EventProcessorMode::Default).await
 }
@@ -453,9 +448,17 @@ async fn run_main_with_event_processor(
                     }
                 })
                 .or(root_prompt);
-            let images = imgs.into_iter().chain(args.images.into_iter()).collect();
-            let (items, prompt_text) =
-                build_user_turn_items_and_summary(input_items, prompt_arg, images);
+            let prompt_text = resolve_prompt(prompt_arg);
+            let mut items: Vec<UserInput> = imgs
+                .into_iter()
+                .chain(args.images.into_iter())
+                .map(|path| UserInput::LocalImage { path })
+                .collect();
+            items.push(UserInput::Text {
+                text: prompt_text.clone(),
+                // CLI input doesn't track UI element ranges, so none are available here.
+                text_elements: Vec::new(),
+            });
             let output_schema = load_output_schema(output_schema_path.clone());
             (
                 InitialOperation::UserTurn {
@@ -465,9 +468,17 @@ async fn run_main_with_event_processor(
                 prompt_text,
             )
         }
-        (None, root_prompt, imgs, input_items) => {
-            let (items, prompt_text) =
-                build_user_turn_items_and_summary(input_items, root_prompt, imgs);
+        (None, root_prompt, imgs) => {
+            let prompt_text = resolve_prompt(root_prompt);
+            let mut items: Vec<UserInput> = imgs
+                .into_iter()
+                .map(|path| UserInput::LocalImage { path })
+                .collect();
+            items.push(UserInput::Text {
+                text: prompt_text.clone(),
+                // CLI input doesn't track UI element ranges, so none are available here.
+                text_elements: Vec::new(),
+            });
             let output_schema = load_output_schema(output_schema_path);
             (
                 InitialOperation::UserTurn {
@@ -547,7 +558,7 @@ async fn run_main_with_event_processor(
                     summary: default_summary,
                     final_output_json_schema: output_schema,
                     collaboration_mode: None,
-                    personality: turn_personality,
+                    personality: None,
                 })
                 .await?;
             info!("Sent prompt with event ID: {task_id}");
@@ -605,138 +616,6 @@ async fn run_main_with_event_processor(
     }
 
     Ok(())
-}
-
-fn build_user_turn_items_and_summary(
-    input_items: Option<Vec<UserInput>>,
-    prompt_arg: Option<String>,
-    images: Vec<PathBuf>,
-) -> (Vec<UserInput>, String) {
-    if let Some(items) = input_items {
-        (items, prompt_arg.unwrap_or_default())
-    } else {
-        let prompt_text = resolve_prompt(prompt_arg);
-        let mut items: Vec<UserInput> = images
-            .into_iter()
-            .map(|path| UserInput::LocalImage { path })
-            .collect();
-        items.push(UserInput::Text {
-            text: prompt_text.clone(),
-            // CLI input doesn't track UI element ranges, so none are available here.
-            text_elements: Vec::new(),
-        });
-        (items, prompt_text)
-    }
-}
-
-#[cfg(test)]
-mod user_turn_items_tests {
-    use super::UserInput;
-    use super::build_user_turn_items_and_summary;
-    use pretty_assertions::assert_eq;
-    use std::path::PathBuf;
-
-    #[test]
-    fn build_items_uses_input_items_verbatim_and_ignores_images() {
-        let input_items = vec![UserInput::Text {
-            text: "hello".to_string(),
-            text_elements: Vec::new(),
-        }];
-        let images = vec![PathBuf::from("/tmp/should-not-be-used.png")];
-        let (items, summary) = build_user_turn_items_and_summary(
-            Some(input_items.clone()),
-            Some("prompt".to_string()),
-            images,
-        );
-        assert_eq!(items, input_items);
-        assert_eq!(summary, "prompt");
-    }
-
-    #[test]
-    fn build_items_falls_back_to_prompt_and_images() {
-        let images = vec![PathBuf::from("/tmp/example.png")];
-        let (items, summary) =
-            build_user_turn_items_and_summary(None, Some("hello".to_string()), images.clone());
-        assert_eq!(
-            items,
-            vec![
-                UserInput::LocalImage {
-                    path: images[0].clone()
-                },
-                UserInput::Text {
-                    text: "hello".to_string(),
-                    text_elements: Vec::new(),
-                },
-            ]
-        );
-        assert_eq!(summary, "hello");
-    }
-}
-
-#[cfg(test)]
-mod cli_input_tests {
-    use super::ensure_dynamic_tools_allowed_for_resume;
-    use super::load_json_from_file;
-    use super::resolve_turn_personality;
-    use crate::cli::PersonalityCliArg;
-    use codex_protocol::config_types::Personality;
-    use codex_protocol::dynamic_tools::DynamicToolSpec;
-    use codex_protocol::user_input::UserInput;
-    use pretty_assertions::assert_eq;
-    use std::fs;
-    use std::path::Path;
-    use tempfile::NamedTempFile;
-
-    #[test]
-    fn load_json_from_file_parses_input_items() {
-        let items = vec![UserInput::Text {
-            text: "hello".to_string(),
-            text_elements: Vec::new(),
-        }];
-        let file = NamedTempFile::new().expect("temp file");
-        let contents = serde_json::to_string(&items).expect("serialize input items");
-        fs::write(file.path(), contents).expect("write input items");
-
-        let parsed: Vec<UserInput> =
-            load_json_from_file(file.path(), "input items").expect("parse input items");
-        assert_eq!(parsed, items);
-    }
-
-    #[test]
-    fn load_json_from_file_parses_dynamic_tools() {
-        let tools = vec![DynamicToolSpec {
-            name: "test_tool".to_string(),
-            description: "test tool".to_string(),
-            input_schema: serde_json::json!({"type": "object"}),
-        }];
-        let file = NamedTempFile::new().expect("temp file");
-        let contents = serde_json::to_string(&tools).expect("serialize dynamic tools");
-        fs::write(file.path(), contents).expect("write dynamic tools");
-
-        let parsed: Vec<DynamicToolSpec> =
-            load_json_from_file(file.path(), "dynamic tools").expect("parse dynamic tools");
-        assert_eq!(parsed, tools);
-    }
-
-    #[test]
-    fn resolve_turn_personality_maps_values() {
-        assert_eq!(
-            resolve_turn_personality(Some(PersonalityCliArg::Friendly)),
-            Some(Personality::Friendly)
-        );
-        assert_eq!(resolve_turn_personality(None), None);
-    }
-
-    #[test]
-    fn dynamic_tools_disallowed_on_resume_path() {
-        let tools = vec![DynamicToolSpec {
-            name: "test_tool".to_string(),
-            description: "test tool".to_string(),
-            input_schema: serde_json::json!({"type": "object"}),
-        }];
-        let result = ensure_dynamic_tools_allowed_for_resume(Some(Path::new("resume")), &tools);
-        assert!(result.is_err());
-    }
 }
 
 fn spawn_thread_listener(
@@ -841,36 +720,6 @@ fn load_output_schema(path: Option<PathBuf>) -> Option<Value> {
             std::process::exit(1);
         }
     }
-}
-
-fn load_json_from_file<T>(path: &Path, label: &str) -> anyhow::Result<T>
-where
-    T: DeserializeOwned,
-{
-    let path_display = path.display();
-    let mut file = std::fs::File::open(path)
-        .map_err(|err| anyhow::anyhow!("Failed to open {label} file {path_display}: {err}"))?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)
-        .map_err(|err| anyhow::anyhow!("Failed to read {label} file {path_display}: {err}"))?;
-    serde_json::from_str(&contents)
-        .map_err(|err| anyhow::anyhow!("Failed to parse {label} file {path_display}: {err}"))
-}
-
-fn resolve_turn_personality(
-    turn_personality: Option<cli::PersonalityCliArg>,
-) -> Option<codex_protocol::config_types::Personality> {
-    turn_personality.map(Into::into)
-}
-
-fn ensure_dynamic_tools_allowed_for_resume(
-    resume_path: Option<&Path>,
-    dynamic_tools: &[codex_protocol::dynamic_tools::DynamicToolSpec],
-) -> anyhow::Result<()> {
-    if resume_path.is_some() && !dynamic_tools.is_empty() {
-        anyhow::bail!("dynamic tools are only supported when starting a new thread");
-    }
-    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -6,6 +6,7 @@ use std::io::Error as IoError;
 use std::path::Path;
 use std::path::PathBuf;
 
+use chrono::SecondsFormat;
 use codex_protocol::ThreadId;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::models::BaseInstructions;
@@ -23,12 +24,14 @@ use tracing::warn;
 use super::ARCHIVED_SESSIONS_SUBDIR;
 use super::SESSIONS_SUBDIR;
 use super::list::Cursor;
+use super::list::ThreadItem;
 use super::list::ThreadListConfig;
 use super::list::ThreadListLayout;
 use super::list::ThreadSortKey;
 use super::list::ThreadsPage;
 use super::list::get_threads;
 use super::list::get_threads_in_root;
+use super::list::read_head_for_summary;
 use super::metadata;
 use super::policy::is_persisted_response_item;
 use crate::config::Config;
@@ -120,8 +123,91 @@ impl RolloutRecorder {
         model_providers: Option<&[String]>,
         default_provider: &str,
     ) -> std::io::Result<ThreadsPage> {
-        let stage = "list_threads";
-        let page = get_threads(
+        Self::list_threads_with_db_fallback(
+            codex_home,
+            page_size,
+            cursor,
+            sort_key,
+            allowed_sources,
+            model_providers,
+            default_provider,
+            false,
+        )
+        .await
+    }
+
+    /// List archived threads (rollout files) under the archived sessions directory.
+    pub async fn list_archived_threads(
+        codex_home: &Path,
+        page_size: usize,
+        cursor: Option<&Cursor>,
+        sort_key: ThreadSortKey,
+        allowed_sources: &[SessionSource],
+        model_providers: Option<&[String]>,
+        default_provider: &str,
+    ) -> std::io::Result<ThreadsPage> {
+        Self::list_threads_with_db_fallback(
+            codex_home,
+            page_size,
+            cursor,
+            sort_key,
+            allowed_sources,
+            model_providers,
+            default_provider,
+            true,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn list_threads_with_db_fallback(
+        codex_home: &Path,
+        page_size: usize,
+        cursor: Option<&Cursor>,
+        sort_key: ThreadSortKey,
+        allowed_sources: &[SessionSource],
+        model_providers: Option<&[String]>,
+        default_provider: &str,
+        archived: bool,
+    ) -> std::io::Result<ThreadsPage> {
+        let state_db_ctx = state_db::open_if_present(codex_home, default_provider).await;
+        if let Some(db_page) = state_db::list_threads_db(
+            state_db_ctx.as_deref(),
+            codex_home,
+            page_size,
+            cursor,
+            sort_key,
+            allowed_sources,
+            model_providers,
+            archived,
+        )
+        .await
+        {
+            let mut page: ThreadsPage = db_page.into();
+            populate_thread_heads(page.items.as_mut_slice()).await;
+            return Ok(page);
+        }
+        tracing::error!("Falling back on rollout system");
+        state_db::record_discrepancy("list_threads_with_db_fallback", "falling_back");
+
+        if archived {
+            let root = codex_home.join(ARCHIVED_SESSIONS_SUBDIR);
+            return get_threads_in_root(
+                root,
+                page_size,
+                cursor,
+                sort_key,
+                ThreadListConfig {
+                    allowed_sources,
+                    model_providers,
+                    default_provider,
+                    layout: ThreadListLayout::Flat,
+                },
+            )
+            .await;
+        }
+
+        get_threads(
             codex_home,
             page_size,
             cursor,
@@ -212,6 +298,40 @@ impl RolloutRecorder {
             }
         }
         Ok(page)
+    }
+
+    /// Find the newest recorded thread path, optionally filtering to a matching cwd.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn find_latest_thread_path(
+        codex_home: &Path,
+        page_size: usize,
+        cursor: Option<&Cursor>,
+        sort_key: ThreadSortKey,
+        allowed_sources: &[SessionSource],
+        model_providers: Option<&[String]>,
+        default_provider: &str,
+        filter_cwd: Option<&Path>,
+    ) -> std::io::Result<Option<PathBuf>> {
+        let mut cursor = cursor.cloned();
+        loop {
+            let page = Self::list_threads(
+                codex_home,
+                page_size,
+                cursor.as_ref(),
+                sort_key,
+                allowed_sources,
+                model_providers,
+                default_provider,
+            )
+            .await?;
+            if let Some(path) = select_resume_path(&page, filter_cwd) {
+                return Ok(Some(path));
+            }
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                return Ok(None);
+            }
+        }
     }
 
     /// Find the newest recorded thread path, optionally filtering to a matching cwd.
@@ -642,6 +762,41 @@ impl JsonlWriter {
         self.file.write_all(json.as_bytes()).await?;
         self.file.flush().await?;
         Ok(())
+    }
+}
+
+impl From<codex_state::ThreadsPage> for ThreadsPage {
+    fn from(db_page: codex_state::ThreadsPage) -> Self {
+        let items = db_page
+            .items
+            .into_iter()
+            .map(|item| ThreadItem {
+                path: item.rollout_path,
+                head: Vec::new(),
+                created_at: Some(item.created_at.to_rfc3339_opts(SecondsFormat::Secs, true)),
+                updated_at: Some(item.updated_at.to_rfc3339_opts(SecondsFormat::Secs, true)),
+            })
+            .collect();
+        Self {
+            items,
+            next_cursor: db_page.next_anchor.map(Into::into),
+            num_scanned_files: db_page.num_scanned_rows,
+            reached_scan_cap: false,
+        }
+    }
+}
+
+async fn populate_thread_heads(items: &mut [ThreadItem]) {
+    for item in items {
+        item.head = read_head_for_summary(item.path.as_path())
+            .await
+            .unwrap_or_else(|err| {
+                warn!(
+                    "failed to read rollout head from state db path: {} ({err})",
+                    item.path.display()
+                );
+                Vec::new()
+            });
     }
 }
 
