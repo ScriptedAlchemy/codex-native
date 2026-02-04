@@ -33,6 +33,8 @@ struct ExecCommandArgs {
     shell: Option<String>,
     #[serde(default = "default_login")]
     login: bool,
+    #[serde(default = "default_tty")]
+    tty: bool,
     #[serde(default = "default_exec_yield_time_ms")]
     yield_time_ms: u64,
     #[serde(default)]
@@ -41,6 +43,8 @@ struct ExecCommandArgs {
     sandbox_permissions: SandboxPermissions,
     #[serde(default)]
     justification: Option<String>,
+    #[serde(default)]
+    prefix_rule: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,6 +69,10 @@ fn default_write_stdin_yield_time_ms() -> u64 {
 
 fn default_login() -> bool {
     true
+}
+
+fn default_tty() -> bool {
+    false
 }
 
 #[async_trait]
@@ -124,12 +132,22 @@ impl ToolHandler for UnifiedExecHandler {
 
                 let ExecCommandArgs {
                     workdir,
+                    tty,
                     yield_time_ms,
                     max_output_tokens,
                     sandbox_permissions,
                     justification,
+                    prefix_rule,
                     ..
                 } = args;
+
+                let features = session.features();
+                let request_rule_enabled = features.enabled(crate::features::Feature::RequestRule);
+                let prefix_rule = if request_rule_enabled {
+                    prefix_rule
+                } else {
+                    None
+                };
 
                 if sandbox_permissions.requires_escalated_permissions()
                     && !matches!(
@@ -137,10 +155,10 @@ impl ToolHandler for UnifiedExecHandler {
                         codex_protocol::protocol::AskForApproval::OnRequest
                     )
                 {
+                    let approval_policy = context.turn.approval_policy;
                     manager.release_process_id(&process_id).await;
                     return Err(FunctionCallError::RespondToModel(format!(
-                        "approval policy is {policy:?}; reject command — you cannot ask for escalated permissions if the approval policy is {policy:?}",
-                        policy = context.turn.approval_policy
+                        "approval policy is {approval_policy:?}; reject command — you cannot ask for escalated permissions if the approval policy is {approval_policy:?}"
                     )));
                 }
 
@@ -173,8 +191,10 @@ impl ToolHandler for UnifiedExecHandler {
                             yield_time_ms,
                             max_output_tokens,
                             workdir,
+                            tty,
                             sandbox_permissions,
                             justification,
+                            prefix_rule,
                         },
                         &context,
                     )
@@ -194,7 +214,7 @@ impl ToolHandler for UnifiedExecHandler {
                     })
                     .await
                     .map_err(|err| {
-                        FunctionCallError::RespondToModel(format!("write_stdin failed: {err:?}"))
+                        FunctionCallError::RespondToModel(format!("write_stdin failed: {err}"))
                     })?;
 
                 let interaction = TerminalInteractionEvent {
@@ -228,7 +248,7 @@ impl ToolHandler for UnifiedExecHandler {
 fn get_command(args: &ExecCommandArgs, session_shell: Arc<Shell>) -> Vec<String> {
     let model_shell = args.shell.as_ref().map(|shell_str| {
         let mut shell = get_shell_by_model_provided_path(&PathBuf::from(shell_str));
-        shell.shell_snapshot = None;
+        shell.shell_snapshot = crate::shell::empty_shell_snapshot_receiver();
         shell
     });
 

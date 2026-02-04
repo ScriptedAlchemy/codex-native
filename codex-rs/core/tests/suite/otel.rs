@@ -18,9 +18,8 @@ use core_test_support::responses::ev_reasoning_item;
 use core_test_support::responses::ev_reasoning_summary_text_delta;
 use core_test_support::responses::ev_reasoning_text_delta;
 use core_test_support::responses::ev_response_created;
-use core_test_support::responses::mount_response_once_any_post;
+use core_test_support::responses::mount_response_once;
 use core_test_support::responses::mount_sse_once;
-use core_test_support::responses::mount_sse_once_any_post;
 use core_test_support::responses::sse;
 use core_test_support::responses::sse_response;
 use core_test_support::responses::start_mock_server;
@@ -54,6 +53,7 @@ async fn responses_api_emits_api_request_event() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -96,6 +96,7 @@ async fn process_sse_emits_tracing_for_output_item() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -121,7 +122,7 @@ async fn process_sse_emits_tracing_for_output_item() {
 async fn process_sse_emits_failed_event_on_parse_error() {
     let server = start_mock_server().await;
 
-    let mock = mount_sse_once_any_post(&server, "data: not-json\n\n".to_string()).await;
+    let mock = mount_sse_once(&server, "data: not-json\n\n".to_string()).await;
 
     let TestCodex { codex, .. } = test_codex()
         .with_config(move |config| {
@@ -136,6 +137,7 @@ async fn process_sse_emits_failed_event_on_parse_error() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -163,7 +165,7 @@ async fn process_sse_emits_failed_event_on_parse_error() {
 async fn process_sse_records_failed_event_when_stream_closes_without_completed() {
     let server = start_mock_server().await;
 
-    let mock = mount_sse_once_any_post(&server, sse(vec![ev_assistant_message("id", "hi")])).await;
+    let mock = mount_sse_once(&server, sse(vec![ev_assistant_message("id", "hi")])).await;
 
     let TestCodex { codex, .. } = test_codex()
         .with_config(move |config| {
@@ -178,6 +180,7 @@ async fn process_sse_records_failed_event_when_stream_closes_without_completed()
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -240,6 +243,7 @@ async fn process_sse_failed_event_records_response_error_message() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -299,6 +303,7 @@ async fn process_sse_failed_event_logs_parse_error() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -323,7 +328,7 @@ async fn process_sse_failed_event_logs_parse_error() {
 async fn process_sse_failed_event_logs_missing_error() {
     let server = start_mock_server().await;
 
-    let _mock = mount_sse_once_any_post(
+    let _mock = mount_sse_once(
         &server,
         sse(vec![serde_json::json!({
             "type": "response.failed",
@@ -345,6 +350,7 @@ async fn process_sse_failed_event_logs_missing_error() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -399,6 +405,7 @@ async fn process_sse_failed_event_logs_response_completed_parse_error() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -450,6 +457,7 @@ async fn process_sse_emits_completed_telemetry() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -518,6 +526,7 @@ async fn handle_responses_span_records_response_kind_and_tool_name() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -569,8 +578,8 @@ async fn record_responses_sets_span_fields_for_response_events() {
         ev_completed("resp-1"),
     ]);
 
-    let _mock = mount_response_once_any_post(&server, sse_response(sse_body)).await;
-    let _followup_mock = mount_sse_once_any_post(
+    let _mock = mount_response_once(&server, sse_response(sse_body)).await;
+    let _followup_mock = mount_sse_once(
         &server,
         sse(vec![
             ev_assistant_message("msg-2", "done"),
@@ -592,6 +601,7 @@ async fn record_responses_sets_span_fields_for_response_events() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -672,6 +682,7 @@ async fn handle_response_item_records_tool_result_for_custom_tool_call() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -740,6 +751,7 @@ async fn handle_response_item_records_tool_result_for_function_call() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -818,6 +830,7 @@ async fn handle_response_item_records_tool_result_for_local_shell_missing_ids() 
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -880,6 +893,7 @@ async fn handle_response_item_records_tool_result_for_local_shell_call() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -985,6 +999,7 @@ async fn handle_container_exec_autoapprove_from_config_records_tool_decision() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "hello".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -1034,6 +1049,7 @@ async fn handle_container_exec_user_approved_records_tool_decision() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "approved".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -1093,6 +1109,7 @@ async fn handle_container_exec_user_approved_for_session_records_tool_decision()
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "persist".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -1152,6 +1169,7 @@ async fn handle_sandbox_error_user_approves_retry_records_tool_decision() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "retry".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -1211,6 +1229,7 @@ async fn handle_container_exec_user_denies_records_tool_decision() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "deny".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -1270,6 +1289,7 @@ async fn handle_sandbox_error_user_approves_for_session_records_tool_decision() 
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "persist".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -1330,6 +1350,7 @@ async fn handle_sandbox_error_user_denies_records_tool_decision() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "deny".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })

@@ -56,6 +56,7 @@ pub fn build_cli(
     Command::Resume(ResumeArgs {
       session_id: Some(id.clone()),
       last: false,
+      all: false,
       images: options.images.clone(),
       prompt: Some(options.prompt.clone()),
     })

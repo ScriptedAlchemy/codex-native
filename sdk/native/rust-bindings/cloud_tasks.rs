@@ -6,10 +6,14 @@ pub async fn cloud_tasks_list(
 ) -> napi::Result<String> {
   let client =
     build_cloud_client(base_url, api_key).map_err(|e| napi::Error::from_reason(e.to_string()))?;
-  let tasks = cloud::CloudBackend::list_tasks(&client, env_filter.as_deref())
+  let tasks = cloud::CloudBackend::list_tasks(&client, env_filter.as_deref(), None, None)
     .await
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-  serde_json::to_string(&tasks).map_err(|e| napi::Error::from_reason(e.to_string()))
+  let payload = serde_json_json!({
+    "tasks": tasks.tasks,
+    "cursor": tasks.cursor,
+  });
+  serde_json::to_string(&payload).map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
 #[napi(js_name = "cloudTasksGetDiff")]

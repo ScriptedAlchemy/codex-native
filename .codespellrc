@@ -1,6 +1,7 @@
 [codespell]
 # Ref: https://github.com/codespell-project/codespell#using-a-config-file
-skip = .git*,vendor,*-lock.yaml,*.lock,.codespellrc,.codespellignore,*test.ts,*.jsonl,frame*.txt,**/node_modules/**,**/dist/**,**/target/**,sdk/native/dist-examples_ignored/**,sdk/native/dist-examples/**,sdk/native/package-lock.json,**/.cache/**,**/.venv/**,**/.codex-ci/**,**/.fastembed_cache/**
+skip = .git*,vendor,*-lock.yaml,*.lock,.codespellrc,.codespellignore,*test.ts,*.jsonl,frame*.txt,*.snap,*.snap.new,*node_modules*,**/target/**,**/dist/**,sdk/native/npm/**,*.map
 check-hidden = true
 ignore-regex = ^\s*"image/\S+": ".*|\b(afterAll)\b
-ignore-words-list = ratatui,ser,iTerm,iterm2,iterm,trys,vEw,ANE,psuedo
+ignore-words-list = ratatui,ser,iTerm,iterm2,iterm,ANE
+ignore-words = .codespellignore

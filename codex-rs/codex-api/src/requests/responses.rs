@@ -178,7 +178,7 @@ impl<'a> ResponsesRequestBuilder<'a> {
             stream: true,
             include: self.include,
             prompt_cache_key: self.prompt_cache_key,
-            text: text.clone(),
+            text,
         };
 
         let mut body = serde_json::to_value(&req)
@@ -253,12 +253,12 @@ fn debug_responses_request(provider: &Provider, body: &Value) {
     let input_len = obj
         .get("input")
         .and_then(|v| v.as_array())
-        .map(|a| a.len())
+        .map(std::vec::Vec::len)
         .unwrap_or(0);
     let tools_len = obj
         .get("tools")
         .and_then(|v| v.as_array())
-        .map(|a| a.len())
+        .map(std::vec::Vec::len)
         .unwrap_or(0);
 
     let first_tool_kind = obj
@@ -271,8 +271,7 @@ fn debug_responses_request(provider: &Provider, body: &Value) {
 
     let _ = std::panic::catch_unwind(|| {
         eprintln!(
-            "[codex-api][responses] has_messages={} input_len={} tools_len={} first_tool_type={}",
-            has_messages, input_len, tools_len, first_tool_kind
+            "[codex-api][responses] has_messages={has_messages} input_len={input_len} tools_len={tools_len} first_tool_type={first_tool_kind}"
         );
     });
 }
@@ -281,7 +280,6 @@ fn debug_responses_request(provider: &Provider, body: &Value) {
 mod tests {
     use super::*;
     use crate::provider::RetryConfig;
-    use crate::provider::WireApi;
     use codex_protocol::protocol::SubAgentSource;
     use http::HeaderValue;
     use pretty_assertions::assert_eq;
@@ -292,7 +290,6 @@ mod tests {
             name: name.to_string(),
             base_url: base_url.to_string(),
             query_params: None,
-            wire: WireApi::Responses,
             headers: HeaderMap::new(),
             retry: RetryConfig {
                 max_attempts: 1,
@@ -313,11 +310,15 @@ mod tests {
                 id: Some("m1".into()),
                 role: "assistant".into(),
                 content: Vec::new(),
+                end_turn: None,
+                phase: None,
             },
             ResponseItem::Message {
                 id: None,
                 role: "assistant".into(),
                 content: Vec::new(),
+                end_turn: None,
+                phase: None,
             },
         ];
 
@@ -339,10 +340,6 @@ mod tests {
             .collect();
         assert_eq!(ids, vec![Some("m1".to_string()), None]);
 
-        assert_eq!(
-            request.headers.get("conversation_id"),
-            Some(&HeaderValue::from_static("conv-1"))
-        );
         assert_eq!(
             request.headers.get("session_id"),
             Some(&HeaderValue::from_static("conv-1"))

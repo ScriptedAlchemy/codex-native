@@ -14,6 +14,9 @@ use codex_app_server_protocol::AgentMessageDeltaNotification;
 use codex_app_server_protocol::ApplyPatchApprovalParams;
 use codex_app_server_protocol::ApplyPatchApprovalResponse;
 use codex_app_server_protocol::CodexErrorInfo as V2CodexErrorInfo;
+use codex_app_server_protocol::CollabAgentState as V2CollabAgentStatus;
+use codex_app_server_protocol::CollabAgentTool;
+use codex_app_server_protocol::CollabAgentToolCallStatus as V2CollabToolCallStatus;
 use codex_app_server_protocol::CommandAction as V2ParsedCommand;
 use codex_app_server_protocol::CommandExecutionApprovalDecision;
 use codex_app_server_protocol::CommandExecutionOutputDeltaNotification;
@@ -22,6 +25,7 @@ use codex_app_server_protocol::CommandExecutionRequestApprovalResponse;
 use codex_app_server_protocol::CommandExecutionStatus;
 use codex_app_server_protocol::ContextCompactedNotification;
 use codex_app_server_protocol::DeprecationNoticeNotification;
+use codex_app_server_protocol::DynamicToolCallParams;
 use codex_app_server_protocol::ErrorNotification;
 use codex_app_server_protocol::ExecCommandApprovalParams;
 use codex_app_server_protocol::ExecCommandApprovalResponse;
@@ -40,6 +44,7 @@ use codex_app_server_protocol::McpToolCallResult;
 use codex_app_server_protocol::McpToolCallStatus;
 use codex_app_server_protocol::PatchApplyStatus;
 use codex_app_server_protocol::PatchChangeKind as V2PatchChangeKind;
+use codex_app_server_protocol::PlanDeltaNotification;
 use codex_app_server_protocol::RawResponseItemCompletedNotification;
 use codex_app_server_protocol::ReasoningSummaryPartAddedNotification;
 use codex_app_server_protocol::ReasoningSummaryTextDeltaNotification;
@@ -48,9 +53,14 @@ use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequestPayload;
 use codex_app_server_protocol::TerminalInteractionNotification;
 use codex_app_server_protocol::ThreadItem;
+use codex_app_server_protocol::ThreadNameUpdatedNotification;
 use codex_app_server_protocol::ThreadRollbackResponse;
 use codex_app_server_protocol::ThreadTokenUsage;
 use codex_app_server_protocol::ThreadTokenUsageUpdatedNotification;
+use codex_app_server_protocol::ToolRequestUserInputOption;
+use codex_app_server_protocol::ToolRequestUserInputParams;
+use codex_app_server_protocol::ToolRequestUserInputQuestion;
+use codex_app_server_protocol::ToolRequestUserInputResponse;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnCompletedNotification;
 use codex_app_server_protocol::TurnDiffUpdatedNotification;
@@ -78,8 +88,11 @@ use codex_core::protocol::TurnDiffEvent;
 use codex_core::review_format::format_review_findings_block;
 use codex_core::review_prompts;
 use codex_protocol::ThreadId;
+use codex_protocol::dynamic_tools::DynamicToolResponse as CoreDynamicToolResponse;
 use codex_protocol::plan_tool::UpdatePlanArgs;
 use codex_protocol::protocol::ReviewOutputEvent;
+use codex_protocol::request_user_input::RequestUserInputAnswer as CoreRequestUserInputAnswer;
+use codex_protocol::request_user_input::RequestUserInputResponse as CoreRequestUserInputResponse;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::PathBuf;
@@ -106,6 +119,7 @@ pub(crate) async fn apply_bespoke_event_handling(
         msg,
     } = event;
     match msg {
+        EventMsg::TurnStarted(_) => {}
         EventMsg::TurnComplete(_ev) => {
             handle_turn_complete(
                 conversation_id,
@@ -232,6 +246,9 @@ pub(crate) async fn apply_bespoke_event_handling(
                     // and emit the corresponding EventMsg, we repurpose the call_id as the item_id.
                     item_id: item_id.clone(),
                     reason,
+                    command: Some(command_string.clone()),
+                    cwd: Some(cwd.clone()),
+                    command_actions: Some(command_actions.clone()),
                     proposed_execpolicy_amendment: proposed_execpolicy_amendment_v2,
                 };
                 let rx = outgoing
@@ -255,6 +272,93 @@ pub(crate) async fn apply_bespoke_event_handling(
                 });
             }
         },
+        EventMsg::RequestUserInput(request) => {
+            if matches!(api_version, ApiVersion::V2) {
+                let questions = request
+                    .questions
+                    .into_iter()
+                    .map(|question| ToolRequestUserInputQuestion {
+                        id: question.id,
+                        header: question.header,
+                        question: question.question,
+                        is_other: question.is_other,
+                        is_secret: question.is_secret,
+                        options: question.options.map(|options| {
+                            options
+                                .into_iter()
+                                .map(|option| ToolRequestUserInputOption {
+                                    label: option.label,
+                                    description: option.description,
+                                })
+                                .collect()
+                        }),
+                    })
+                    .collect();
+                let params = ToolRequestUserInputParams {
+                    thread_id: conversation_id.to_string(),
+                    turn_id: request.turn_id,
+                    item_id: request.call_id,
+                    questions,
+                };
+                let rx = outgoing
+                    .send_request(ServerRequestPayload::ToolRequestUserInput(params))
+                    .await;
+                tokio::spawn(async move {
+                    on_request_user_input_response(event_turn_id, rx, conversation).await;
+                });
+            } else {
+                error!(
+                    "request_user_input is only supported on api v2 (call_id: {})",
+                    request.call_id
+                );
+                let empty = CoreRequestUserInputResponse {
+                    answers: HashMap::new(),
+                };
+                if let Err(err) = conversation
+                    .submit(Op::UserInputAnswer {
+                        id: event_turn_id,
+                        response: empty,
+                    })
+                    .await
+                {
+                    error!("failed to submit UserInputAnswer: {err}");
+                }
+            }
+        }
+        EventMsg::DynamicToolCallRequest(request) => {
+            if matches!(api_version, ApiVersion::V2) {
+                let call_id = request.call_id;
+                let params = DynamicToolCallParams {
+                    thread_id: conversation_id.to_string(),
+                    turn_id: request.turn_id,
+                    call_id: call_id.clone(),
+                    tool: request.tool,
+                    arguments: request.arguments,
+                };
+                let rx = outgoing
+                    .send_request(ServerRequestPayload::DynamicToolCall(params))
+                    .await;
+                tokio::spawn(async move {
+                    crate::dynamic_tools::on_call_response(call_id, rx, conversation).await;
+                });
+            } else {
+                error!(
+                    "dynamic tool calls are only supported on api v2 (call_id: {})",
+                    request.call_id
+                );
+                let call_id = request.call_id;
+                let _ = conversation
+                    .submit(Op::DynamicToolResponse {
+                        id: call_id.clone(),
+                        response: CoreDynamicToolResponse {
+                            call_id,
+                            output: "dynamic tool calls require api v2".to_string(),
+                            success: false,
+                        },
+                    })
+                    .await;
+            }
+        }
         // TODO(celia): properly construct McpToolCall TurnItem in core.
         EventMsg::McpToolCallBegin(begin_event) => {
             let notification = construct_mcp_tool_call_notification(
@@ -278,15 +382,240 @@ pub(crate) async fn apply_bespoke_event_handling(
                 .send_server_notification(ServerNotification::ItemCompleted(notification))
                 .await;
         }
+        EventMsg::CollabAgentSpawnBegin(begin_event) => {
+            let item = ThreadItem::CollabAgentToolCall {
+                id: begin_event.call_id,
+                tool: CollabAgentTool::SpawnAgent,
+                status: V2CollabToolCallStatus::InProgress,
+                sender_thread_id: begin_event.sender_thread_id.to_string(),
+                receiver_thread_ids: Vec::new(),
+                prompt: Some(begin_event.prompt),
+                agents_states: HashMap::new(),
+            };
+            let notification = ItemStartedNotification {
+                thread_id: conversation_id.to_string(),
+                turn_id: event_turn_id.clone(),
+                item,
+            };
+            outgoing
+                .send_server_notification(ServerNotification::ItemStarted(notification))
+                .await;
+        }
+        EventMsg::CollabAgentSpawnEnd(end_event) => {
+            let has_receiver = end_event.new_thread_id.is_some();
+            let status = match &end_event.status {
+                codex_protocol::protocol::AgentStatus::Errored(_)
+                | codex_protocol::protocol::AgentStatus::NotFound => V2CollabToolCallStatus::Failed,
+                _ if has_receiver => V2CollabToolCallStatus::Completed,
+                _ => V2CollabToolCallStatus::Failed,
+            };
+            let (receiver_thread_ids, agents_states) = match end_event.new_thread_id {
+                Some(id) => {
+                    let receiver_id = id.to_string();
+                    let received_status = V2CollabAgentStatus::from(end_event.status.clone());
+                    (
+                        vec![receiver_id.clone()],
+                        [(receiver_id, received_status)].into_iter().collect(),
+                    )
+                }
+                None => (Vec::new(), HashMap::new()),
+            };
+            let item = ThreadItem::CollabAgentToolCall {
+                id: end_event.call_id,
+                tool: CollabAgentTool::SpawnAgent,
+                status,
+                sender_thread_id: end_event.sender_thread_id.to_string(),
+                receiver_thread_ids,
+                prompt: Some(end_event.prompt),
+                agents_states,
+            };
+            let notification = ItemCompletedNotification {
+                thread_id: conversation_id.to_string(),
+                turn_id: event_turn_id.clone(),
+                item,
+            };
+            outgoing
+                .send_server_notification(ServerNotification::ItemCompleted(notification))
+                .await;
+        }
+        EventMsg::CollabAgentInteractionBegin(begin_event) => {
+            let receiver_thread_ids = vec![begin_event.receiver_thread_id.to_string()];
+            let item = ThreadItem::CollabAgentToolCall {
+                id: begin_event.call_id,
+                tool: CollabAgentTool::SendInput,
+                status: V2CollabToolCallStatus::InProgress,
+                sender_thread_id: begin_event.sender_thread_id.to_string(),
+                receiver_thread_ids,
+                prompt: Some(begin_event.prompt),
+                agents_states: HashMap::new(),
+            };
+            let notification = ItemStartedNotification {
+                thread_id: conversation_id.to_string(),
+                turn_id: event_turn_id.clone(),
+                item,
+            };
+            outgoing
+                .send_server_notification(ServerNotification::ItemStarted(notification))
+                .await;
+        }
+        EventMsg::CollabAgentInteractionEnd(end_event) => {
+            let status = match &end_event.status {
+                codex_protocol::protocol::AgentStatus::Errored(_)
+                | codex_protocol::protocol::AgentStatus::NotFound => V2CollabToolCallStatus::Failed,
+                _ => V2CollabToolCallStatus::Completed,
+            };
+            let receiver_id = end_event.receiver_thread_id.to_string();
+            let received_status = V2CollabAgentStatus::from(end_event.status);
+            let item = ThreadItem::CollabAgentToolCall {
+                id: end_event.call_id,
+                tool: CollabAgentTool::SendInput,
+                status,
+                sender_thread_id: end_event.sender_thread_id.to_string(),
+                receiver_thread_ids: vec![receiver_id.clone()],
+                prompt: Some(end_event.prompt),
+                agents_states: [(receiver_id, received_status)].into_iter().collect(),
+            };
+            let notification = ItemCompletedNotification {
+                thread_id: conversation_id.to_string(),
+                turn_id: event_turn_id.clone(),
+                item,
+            };
+            outgoing
+                .send_server_notification(ServerNotification::ItemCompleted(notification))
+                .await;
+        }
+        EventMsg::CollabWaitingBegin(begin_event) => {
+            let receiver_thread_ids = begin_event
+                .receiver_thread_ids
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            let item = ThreadItem::CollabAgentToolCall {
+                id: begin_event.call_id,
+                tool: CollabAgentTool::Wait,
+                status: V2CollabToolCallStatus::InProgress,
+                sender_thread_id: begin_event.sender_thread_id.to_string(),
+                receiver_thread_ids,
+                prompt: None,
+                agents_states: HashMap::new(),
+            };
+            let notification = ItemStartedNotification {
+                thread_id: conversation_id.to_string(),
+                turn_id: event_turn_id.clone(),
+                item,
+            };
+            outgoing
+                .send_server_notification(ServerNotification::ItemStarted(notification))
+                .await;
+        }
+        EventMsg::CollabWaitingEnd(end_event) => {
+            let status = if end_event.statuses.values().any(|status| {
+                matches!(
+                    status,
+                    codex_protocol::protocol::AgentStatus::Errored(_)
+                        | codex_protocol::protocol::AgentStatus::NotFound
+                )
+            }) {
+                V2CollabToolCallStatus::Failed
+            } else {
+                V2CollabToolCallStatus::Completed
+            };
+            let receiver_thread_ids = end_event.statuses.keys().map(ToString::to_string).collect();
+            let agents_states = end_event
+                .statuses
+                .iter()
+                .map(|(id, status)| (id.to_string(), V2CollabAgentStatus::from(status.clone())))
+                .collect();
+            let item = ThreadItem::CollabAgentToolCall {
+                id: end_event.call_id,
+                tool: CollabAgentTool::Wait,
+                status,
+                sender_thread_id: end_event.sender_thread_id.to_string(),
+                receiver_thread_ids,
+                prompt: None,
+                agents_states,
+            };
+            let notification = ItemCompletedNotification {
+                thread_id: conversation_id.to_string(),
+                turn_id: event_turn_id.clone(),
+                item,
+            };
+            outgoing
+                .send_server_notification(ServerNotification::ItemCompleted(notification))
+                .await;
+        }
+        EventMsg::CollabCloseBegin(begin_event) => {
+            let item = ThreadItem::CollabAgentToolCall {
+                id: begin_event.call_id,
+                tool: CollabAgentTool::CloseAgent,
+                status: V2CollabToolCallStatus::InProgress,
+                sender_thread_id: begin_event.sender_thread_id.to_string(),
+                receiver_thread_ids: vec![begin_event.receiver_thread_id.to_string()],
+                prompt: None,
+                agents_states: HashMap::new(),
+            };
+            let notification = ItemStartedNotification {
+                thread_id: conversation_id.to_string(),
+                turn_id: event_turn_id.clone(),
+                item,
+            };
+            outgoing
+                .send_server_notification(ServerNotification::ItemStarted(notification))
+                .await;
+        }
+        EventMsg::CollabCloseEnd(end_event) => {
+            let status = match &end_event.status {
+                codex_protocol::protocol::AgentStatus::Errored(_)
+                | codex_protocol::protocol::AgentStatus::NotFound => V2CollabToolCallStatus::Failed,
+                _ => V2CollabToolCallStatus::Completed,
+            };
+            let receiver_id = end_event.receiver_thread_id.to_string();
+            let agents_states = [(
+                receiver_id.clone(),
+                V2CollabAgentStatus::from(end_event.status),
+            )]
+            .into_iter()
+            .collect();
+            let item = ThreadItem::CollabAgentToolCall {
+                id: end_event.call_id,
+                tool: CollabAgentTool::CloseAgent,
+                status,
+                sender_thread_id: end_event.sender_thread_id.to_string(),
+                receiver_thread_ids: vec![receiver_id],
+                prompt: None,
+                agents_states,
+            };
+            let notification = ItemCompletedNotification {
+                thread_id: conversation_id.to_string(),
+                turn_id: event_turn_id.clone(),
+                item,
+            };
+            outgoing
+                .send_server_notification(ServerNotification::ItemCompleted(notification))
+                .await;
+        }
         EventMsg::AgentMessageContentDelta(event) => {
+            let codex_protocol::protocol::AgentMessageContentDeltaEvent { item_id, delta, .. } =
+                event;
             let notification = AgentMessageDeltaNotification {
+                thread_id: conversation_id.to_string(),
+                turn_id: event_turn_id.clone(),
+                item_id,
+                delta,
+            };
+            outgoing
+                .send_server_notification(ServerNotification::AgentMessageDelta(notification))
+                .await;
+        }
+        EventMsg::PlanDelta(event) => {
+            let notification = PlanDeltaNotification {
                 thread_id: conversation_id.to_string(),
                 turn_id: event_turn_id.clone(),
                 item_id: event.item_id,
                 delta: event.delta,
             };
             outgoing
-                .send_server_notification(ServerNotification::AgentMessageDelta(notification))
+                .send_server_notification(ServerNotification::PlanDelta(notification))
                 .await;
         }
         EventMsg::ContextCompacted(..) => {
@@ -731,7 +1060,15 @@ pub(crate) async fn apply_bespoke_event_handling(
             };
 
             if let Some(request_id) = pending {
-                let rollout_path = conversation.rollout_path();
+                let Some(rollout_path) = conversation.rollout_path() else {
+                    let error = JSONRPCErrorError {
+                        code: INVALID_REQUEST_ERROR_CODE,
+                        message: "thread has no persisted rollout".to_string(),
+                        data: None,
+                    };
+                    outgoing.send_error(request_id, error).await;
+                    return;
+                };
                 let response = match read_summary_from_rollout(
                     rollout_path.as_path(),
                     fallback_model_provider.as_str(),
@@ -774,6 +1111,17 @@ pub(crate) async fn apply_bespoke_event_handling(
                 };
 
                 outgoing.send_response(request_id, response).await;
+            }
+        }
+        EventMsg::ThreadNameUpdated(thread_name_event) => {
+            if let ApiVersion::V2 = api_version {
+                let notification = ThreadNameUpdatedNotification {
+                    thread_id: thread_name_event.thread_id.to_string(),
+                    thread_name: thread_name_event.thread_name,
+                };
+                outgoing
+                    .send_server_notification(ServerNotification::ThreadNameUpdated(notification))
+                    .await;
             }
         }
         EventMsg::TurnDiff(turn_diff_event) => {
@@ -827,6 +1175,7 @@ async fn handle_turn_plan_update(
     api_version: ApiVersion,
     outgoing: &OutgoingMessageSender,
 ) {
+    // `update_plan` is a todo/checklist tool; it is not related to plan-mode updates
     if let ApiVersion::V2 = api_version {
         let notification = TurnPlanUpdatedNotification {
             thread_id: conversation_id.to_string(),
@@ -1132,6 +1481,65 @@ async fn on_exec_approval_response(
     }
 }
 
+async fn on_request_user_input_response(
+    event_turn_id: String,
+    receiver: oneshot::Receiver<JsonValue>,
+    conversation: Arc<CodexThread>,
+) {
+    let response = receiver.await;
+    let value = match response {
+        Ok(value) => value,
+        Err(err) => {
+            error!("request failed: {err:?}");
+            let empty = CoreRequestUserInputResponse {
+                answers: HashMap::new(),
+            };
+            if let Err(err) = conversation
+                .submit(Op::UserInputAnswer {
+                    id: event_turn_id,
+                    response: empty,
+                })
+                .await
+            {
+                error!("failed to submit UserInputAnswer: {err}");
+            }
+            return;
+        }
+    };
+
+    let response =
+        serde_json::from_value::<ToolRequestUserInputResponse>(value).unwrap_or_else(|err| {
+            error!("failed to deserialize ToolRequestUserInputResponse: {err}");
+            ToolRequestUserInputResponse {
+                answers: HashMap::new(),
+            }
+        });
+    let response = CoreRequestUserInputResponse {
+        answers: response
+            .answers
+            .into_iter()
+            .map(|(id, answer)| {
+                (
+                    id,
+                    CoreRequestUserInputAnswer {
+                        answers: answer.answers,
+                    },
+                )
+            })
+            .collect(),
+    };
+
+    if let Err(err) = conversation
+        .submit(Op::UserInputAnswer {
+            id: event_turn_id,
+            response,
+        })
+        .await
+    {
+        error!("failed to submit UserInputAnswer: {err}");
+    }
+}
+
 const REVIEW_FALLBACK_MESSAGE: &str = "Reviewer failed to output a response.";
 
 fn render_review_output_text(output: &ReviewOutputEvent) -> String {
@@ -1433,12 +1841,11 @@ mod tests {
     use codex_core::protocol::RateLimitWindow;
     use codex_core::protocol::TokenUsage;
     use codex_core::protocol::TokenUsageInfo;
+    use codex_protocol::mcp::CallToolResult;
     use codex_protocol::plan_tool::PlanItemArg;
     use codex_protocol::plan_tool::StepStatus;
-    use mcp_types::CallToolResult;
-    use mcp_types::ContentBlock;
-    use mcp_types::TextContent;
     use pretty_assertions::assert_eq;
+    use rmcp::model::Content;
     use serde_json::Value as JsonValue;
     use std::collections::HashMap;
     use std::time::Duration;
@@ -1966,15 +2373,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_construct_mcp_tool_call_end_notification_success() {
-        let content = vec![ContentBlock::TextContent(TextContent {
-            annotations: None,
-            text: "{\"resources\":[]}".to_string(),
-            r#type: "text".to_string(),
-        })];
+        let content = vec![
+            serde_json::to_value(Content::text("{\"resources\":[]}"))
+                .expect("content should serialize"),
+        ];
         let result = CallToolResult {
             content: content.clone(),
             is_error: Some(false),
             structured_content: None,
+            meta: None,
         };
 
         let end_event = McpToolCallEndEvent {

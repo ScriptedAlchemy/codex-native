@@ -23,6 +23,7 @@ use std::thread::JoinHandle;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use codex_arg0::Arg0PathEntryGuard;
 use codex_arg0::prepend_path_entry_for_codex_aliases;
 use fastembed::EmbeddingModel;
 use fastembed::RerankInitOptions;
@@ -94,7 +95,6 @@ use std::fmt;
 use std::io::Write;
 use std::io::{self};
 use tempfile::NamedTempFile;
-use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 use toml::Value as TomlValue;
 use uuid::Uuid;
@@ -158,7 +158,7 @@ const EMBEDDED_LINUX_SANDBOX_BYTES: &[u8] = include_bytes!(env!("CODEX_LINUX_SAN
 const ORIGINATOR_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 const NATIVE_ORIGINATOR: &str = "codex_sdk_native";
 
-static APPLY_PATCH_TEMP_DIR: OnceLock<Mutex<TempDir>> = OnceLock::new();
+static APPLY_PATCH_TEMP_DIR: OnceLock<Mutex<Arg0PathEntryGuard>> = OnceLock::new();
 
 #[napi]
 pub fn ensure_tokio_runtime() {

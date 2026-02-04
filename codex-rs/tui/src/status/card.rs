@@ -5,7 +5,8 @@ use crate::history_cell::with_border_with_inner_width;
 use crate::version::CODEX_CLI_VERSION;
 use chrono::DateTime;
 use chrono::Local;
-use codex_common::create_config_summary_entries;
+use codex_common::summarize_sandbox_policy;
+use codex_core::WireApi;
 use codex_core::config::Config;
 use codex_core::protocol::NetworkAccess;
 use codex_core::protocol::SandboxPolicy;
@@ -13,6 +14,7 @@ use codex_core::protocol::TokenUsage;
 use codex_core::protocol::TokenUsageInfo;
 use codex_protocol::ThreadId;
 use codex_protocol::account::PlanType;
+use codex_protocol::openai_models::ReasoningEffort;
 use ratatui::prelude::*;
 use ratatui::style::Stylize;
 use std::collections::BTreeSet;
@@ -63,9 +65,12 @@ struct StatusHistoryCell {
     approval: String,
     sandbox: String,
     agents_summary: String,
+    collaboration_mode: Option<String>,
     model_provider: Option<String>,
     account: Option<StatusAccountDisplay>,
+    thread_name: Option<String>,
     session_id: Option<String>,
+    forked_from: Option<String>,
     token_usage: StatusTokenUsageData,
     rate_limits: StatusRateLimitData,
 }
@@ -77,10 +82,14 @@ pub(crate) fn new_status_output(
     token_info: Option<&TokenUsageInfo>,
     total_usage: &TokenUsage,
     session_id: &Option<ThreadId>,
+    thread_name: Option<String>,
+    forked_from: Option<ThreadId>,
     rate_limits: Option<&RateLimitSnapshotDisplay>,
     plan_type: Option<PlanType>,
     now: DateTime<Local>,
     model_name: &str,
+    collaboration_mode: Option<&str>,
+    reasoning_effort_override: Option<Option<ReasoningEffort>>,
 ) -> CompositeHistoryCell {
     let command = PlainHistoryCell::new(vec!["/status".magenta().into()]);
     let card = StatusHistoryCell::new(
@@ -89,10 +98,14 @@ pub(crate) fn new_status_output(
         token_info,
         total_usage,
         session_id,
+        thread_name,
+        forked_from,
         rate_limits,
         plan_type,
         now,
         model_name,
+        collaboration_mode,
+        reasoning_effort_override,
     );
 
     CompositeHistoryCell::new(vec![Box::new(command), Box::new(card)])
@@ -106,12 +119,36 @@ impl StatusHistoryCell {
         token_info: Option<&TokenUsageInfo>,
         total_usage: &TokenUsage,
         session_id: &Option<ThreadId>,
+        thread_name: Option<String>,
+        forked_from: Option<ThreadId>,
         rate_limits: Option<&RateLimitSnapshotDisplay>,
         plan_type: Option<PlanType>,
         now: DateTime<Local>,
         model_name: &str,
+        collaboration_mode: Option<&str>,
+        reasoning_effort_override: Option<Option<ReasoningEffort>>,
     ) -> Self {
-        let config_entries = create_config_summary_entries(config, model_name);
+        let mut config_entries = vec![
+            ("workdir", config.cwd.display().to_string()),
+            ("model", model_name.to_string()),
+            ("provider", config.model_provider_id.clone()),
+            ("approval", config.approval_policy.value().to_string()),
+            (
+                "sandbox",
+                summarize_sandbox_policy(config.sandbox_policy.get()),
+            ),
+        ];
+        if config.model_provider.wire_api == WireApi::Responses {
+            let effort_value = reasoning_effort_override
+                .unwrap_or(None)
+                .map(|effort| effort.to_string())
+                .unwrap_or_else(|| "none".to_string());
+            config_entries.push(("reasoning effort", effort_value));
+            config_entries.push((
+                "reasoning summaries",
+                config.model_reasoning_summary.to_string(),
+            ));
+        }
         let (model_name, model_details) = compose_model_display(model_name, &config_entries);
         let approval = config_entries
             .iter()
@@ -134,6 +171,7 @@ impl StatusHistoryCell {
         let model_provider = format_model_provider(config);
         let account = compose_account_display(auth_manager, plan_type);
         let session_id = session_id.as_ref().map(std::string::ToString::to_string);
+        let forked_from = forked_from.map(|id| id.to_string());
         let default_usage = TokenUsage::default();
         let (context_usage, context_window) = match token_info {
             Some(info) => (&info.last_token_usage, info.model_context_window),
@@ -160,9 +198,12 @@ impl StatusHistoryCell {
             approval,
             sandbox,
             agents_summary,
+            collaboration_mode: collaboration_mode.map(ToString::to_string),
             model_provider,
             account,
+            thread_name,
             session_id,
+            forked_from,
             token_usage,
             rate_limits,
         }
@@ -341,6 +382,7 @@ impl HistoryCell for StatusHistoryCell {
                 .map(str::to_string)
                 .collect();
         let mut seen: BTreeSet<String> = labels.iter().cloned().collect();
+        let thread_name = self.thread_name.as_deref().filter(|name| !name.is_empty());
 
         if self.model_provider.is_some() {
             push_label(&mut labels, &mut seen, "Model provider");
@@ -348,8 +390,17 @@ impl HistoryCell for StatusHistoryCell {
         if account_value.is_some() {
             push_label(&mut labels, &mut seen, "Account");
         }
+        if thread_name.is_some() {
+            push_label(&mut labels, &mut seen, "Thread name");
+        }
         if self.session_id.is_some() {
             push_label(&mut labels, &mut seen, "Session");
+        }
+        if self.session_id.is_some() && self.forked_from.is_some() {
+            push_label(&mut labels, &mut seen, "Forked from");
+        }
+        if self.collaboration_mode.is_some() {
+            push_label(&mut labels, &mut seen, "Collaboration mode");
         }
         push_label(&mut labels, &mut seen, "Token usage");
         if self.token_usage.context_window.is_some() {
@@ -400,8 +451,19 @@ impl HistoryCell for StatusHistoryCell {
             lines.push(formatter.line("Account", vec![Span::from(account_value)]));
         }
 
+        if let Some(thread_name) = thread_name {
+            lines.push(formatter.line("Thread name", vec![Span::from(thread_name.to_string())]));
+        }
+        if let Some(collab_mode) = self.collaboration_mode.as_ref() {
+            lines.push(formatter.line("Collaboration mode", vec![Span::from(collab_mode.clone())]));
+        }
         if let Some(session) = self.session_id.as_ref() {
             lines.push(formatter.line("Session", vec![Span::from(session.clone())]));
+        }
+        if self.session_id.is_some()
+            && let Some(forked_from) = self.forked_from.as_ref()
+        {
+            lines.push(formatter.line("Forked from", vec![Span::from(forked_from.clone())]));
         }
 
         lines.push(Line::from(Vec::<Span<'static>>::new()));

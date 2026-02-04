@@ -22,7 +22,7 @@ fn sse_completed(id: &str) -> String {
 async fn continue_after_stream_error() {
     skip_if_no_network!();
 
-    let server = core_test_support::start_mock_server().await;
+    let server = core_test_support::responses::start_mock_server().await;
 
     let fail = ResponseTemplate::new(500)
         .insert_header("content-type", "application/json")
@@ -72,6 +72,7 @@ async fn continue_after_stream_error() {
         stream_max_retries: Some(1),
         stream_idle_timeout_ms: Some(2_000),
         requires_openai_auth: false,
+        supports_websockets: false,
     };
 
     let TestCodex { codex, .. } = test_codex()
@@ -87,6 +88,7 @@ async fn continue_after_stream_error() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "first message".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })
@@ -105,6 +107,7 @@ async fn continue_after_stream_error() {
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
                 text: "follow up".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
         })

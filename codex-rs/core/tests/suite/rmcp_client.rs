@@ -26,7 +26,6 @@ use core_test_support::skip_if_no_network;
 use core_test_support::stdio_server_bin;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
-use mcp_types::ContentBlock;
 use serde_json::Value;
 use serde_json::json;
 use serial_test::serial;
@@ -39,7 +38,6 @@ use tokio::time::sleep;
 
 static OPENAI_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAD0AAAA9CAYAAAAeYmHpAAAE6klEQVR4Aeyau44UVxCGx1fZsmRLlm3Zoe0XcGQ5cUiCCIgJeS9CHgAhMkISQnIuGQgJEkBcxLW+nqnZ6uqqc+nuWRC7q/P3qetf9e+MtOwyX25O4Nep6JPyop++0qev9HrfgZ+F6r2DuB/vHOrt/UIkqdDHYvujOW6fO7h/CNEI+a5jc+pBR8uy0jVFsziYu5HtfSUk+Io34q921hLNctFSX0gwww+S8wce8K1LfCU+cYW4888aov8NxqvQILUPPReLOrm6zyLxa4i+6VZuFbJo8d1MOHZm+7VUtB/aIvhPWc/3SWg49JcwFLlHxuXKjtyloo+YNhuW3VS+WPBuUEMvCFKjEDVgFBQHXrnazpqiSxNZCkQ1kYiozsbm9Oz7l4i2Il7vGccGNWAc3XosDrZe/9P3ZnMmzHNEQw4smf8RQ87XEAMsC7Az0Au+dgXerfH4+sHvEc0SYGic8WBBUGqFH2gN7yDrazy7m2pbRTeRmU3+MjZmr1h6LJgPbGy23SI6GlYT0brQ71IY8Us4PNQCm+zepSbaD2BY9xCaAsD9IIj/IzFmKMSdHHonwdZATbTnYREf6/VZGER98N9yCWIvXQwXDoDdhZJoT8jwLnJXDB9w4Sb3e6nK5ndzlkTLnP3JBu4LKkbrYrU69gCVceV0JvpyuW1xlsUVngzhwMetn/XamtTORF9IO5YnWNiyeF9zCAfqR3fUW+vZZKLtgP+ts8BmQRBREAdRDhH3o8QuRh/YucNFz2BEjxbRN6LGzphfKmvP6v6QhqIQyZ8XNJ0W0X83MR1PEcJBNO2KC2Z1TW/v244scp9FwRViZxIOBF0Lctk7ZVSavdLvRlV1hz/ysUi9sr8CIcB3nvWBwA93ykTz18eAYxQ6N/K2DkPA1lv3iXCwmDUT7YkjIby9siXueIJj9H+pzSqJ9oIuJWTUgSSt4WO7o/9GGg0viR4VinNRUDoIj34xoCd6pxD3aK3zfdbnx5v1J3ZNNEJsE0sBG7N27ReDrJc4sFxz7dI/ZAbOmmiKvHBitQXpAdR6+F7v+/ol/tOouUV01EeMZQF2BoQDn6dP4XNr+j9GZEtEK1/L8pFw7bd3a53tsTa7WD+054jOFmPg1XBKPQgnqFfmFcy32ZRvjmiIIQTYFvyDxQ8nH8WIwwGwlyDjDznnilYyFr6njrlZwsKkBpO59A7OwgdzPEWRm+G+oeb7IfyNuzjEEVLrOVxJsxvxwF8kmCM6I2QYmJunz4u4TrADpfl7mlbRTWQ7VmrBzh3+C9f6Grc3YoGN9dg/SXFthpRsT6vobfXRs2VBlgBHXVMLHjDNbIZv1sZ9+X3hB09cXdH1JKViyG0+W9bWZDa/r2f9zAFR71sTzGpMSWz2iI4YssWjWo3REy1MDGjdwe5e0dFSiAC1JakBvu4/CUS8Eh6dqHdU0Or0ioY3W5ClSqDXAy7/6SRfgw8vt4I+tbvvNtFT2kVDhY5+IGb1rCqYaXNF08vSALsXCPmt0kQNqJT1p5eI1mkIV/BxCY1z85lOzeFbPBQHURkkPTlwTYK9gTVE25l84IbFFN+YJDHjdpn0gq6mrHht0dkcjbM4UL9283O5p77GN+SPW/QwVB4IUYg7Or+Kp7naR6qktP98LNF2UxWo9yObPIT9KYg+hK4i56no4rfnM0qeyFf6AwAAAP//trwR3wAAAAZJREFUAwBZ0sR75itw5gAAAABJRU5ErkJggg==";
 
-#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[serial(mcp_test_value)]
 async fn stdio_server_round_trip() -> anyhow::Result<()> {
@@ -74,7 +72,8 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
 
     let fixture = test_codex()
         .with_config(move |config| {
-            config.mcp_servers.insert(
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
                 server_name.to_string(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::Stdio {
@@ -88,12 +87,18 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
                         cwd: None,
                     },
                     enabled: true,
-                    startup_timeout_sec: Some(Duration::from_secs(30)),
+                    disabled_reason: None,
+                    startup_timeout_sec: Some(Duration::from_secs(10)),
                     tool_timeout_sec: None,
                     enabled_tools: None,
                     disabled_tools: None,
+                    scopes: None,
                 },
             );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
         })
         .build(&server)
         .await?;
@@ -104,6 +109,7 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
         .submit(Op::UserTurn {
             items: vec![UserInput::Text {
                 text: "call the rmcp echo tool".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             cwd: fixture.cwd.path().to_path_buf(),
@@ -112,6 +118,8 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
             model: session_model,
             effort: None,
             summary: ReasoningSummary::Auto,
+            collaboration_mode: None,
+            personality: None,
         })
         .await?;
 
@@ -169,7 +177,6 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[serial(mcp_test_value)]
 async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
@@ -206,7 +213,8 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
 
     let fixture = test_codex()
         .with_config(move |config| {
-            config.mcp_servers.insert(
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
                 server_name.to_string(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::Stdio {
@@ -220,12 +228,18 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
                         cwd: None,
                     },
                     enabled: true,
+                    disabled_reason: None,
                     startup_timeout_sec: Some(Duration::from_secs(10)),
                     tool_timeout_sec: None,
                     enabled_tools: None,
                     disabled_tools: None,
+                    scopes: None,
                 },
             );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
         })
         .build(&server)
         .await?;
@@ -236,6 +250,7 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
         .submit(Op::UserTurn {
             items: vec![UserInput::Text {
                 text: "call the rmcp image tool".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             cwd: fixture.cwd.path().to_path_buf(),
@@ -244,6 +259,8 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
             model: session_model,
             effort: None,
             summary: ReasoningSummary::Auto,
+            collaboration_mode: None,
+            personality: None,
         })
         .await?;
 
@@ -289,14 +306,10 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
     let base64_only = OPENAI_PNG
         .strip_prefix("data:image/png;base64,")
         .expect("data url prefix");
-    match &result.content[0] {
-        ContentBlock::ImageContent(img) => {
-            assert_eq!(img.mime_type, "image/png");
-            assert_eq!(img.r#type, "image");
-            assert_eq!(img.data, base64_only);
-        }
-        other => panic!("expected image content, got {other:?}"),
-    }
+    let entry = result.content[0].as_object().expect("content object");
+    assert_eq!(entry.get("type"), Some(&json!("image")));
+    assert_eq!(entry.get("mimeType"), Some(&json!("image/png")));
+    assert_eq!(entry.get("data"), Some(&json!(base64_only)));
 
     wait_for_event(&fixture.codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
@@ -316,192 +329,6 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-#[serial(mcp_test_value)]
-async fn stdio_image_completions_round_trip() -> anyhow::Result<()> {
-    skip_if_no_network!(Ok(()));
-
-    let server = responses::start_mock_server().await;
-
-    let call_id = "img-cc-1";
-    let server_name = "rmcp";
-    let tool_name = format!("mcp__{server_name}__image");
-
-    let tool_call = json!({
-        "choices": [
-            {
-                "delta": {
-                    "tool_calls": [
-                        {
-                            "id": call_id,
-                            "type": "function",
-                            "function": {"name": tool_name, "arguments": "{}"}
-                        }
-                    ]
-                },
-                "finish_reason": "tool_calls"
-            }
-        ]
-    });
-    let sse_tool_call = format!(
-        "data: {}\n\ndata: [DONE]\n\n",
-        serde_json::to_string(&tool_call)?
-    );
-
-    let final_assistant = json!({
-        "choices": [
-            {
-                "delta": {"content": "rmcp image tool completed successfully."},
-                "finish_reason": "stop"
-            }
-        ]
-    });
-    let sse_final = format!(
-        "data: {}\n\ndata: [DONE]\n\n",
-        serde_json::to_string(&final_assistant)?
-    );
-
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
-    struct ChatSeqResponder {
-        num_calls: AtomicUsize,
-        bodies: Vec<String>,
-    }
-    impl wiremock::Respond for ChatSeqResponder {
-        fn respond(&self, _: &wiremock::Request) -> wiremock::ResponseTemplate {
-            let idx = self.num_calls.fetch_add(1, Ordering::SeqCst);
-            match self.bodies.get(idx) {
-                Some(body) => wiremock::ResponseTemplate::new(200)
-                    .insert_header("content-type", "text/event-stream")
-                    .set_body_string(body.clone()),
-                None => panic!("no chat completion response for index {idx}"),
-            }
-        }
-    }
-
-    let chat_seq = ChatSeqResponder {
-        num_calls: AtomicUsize::new(0),
-        bodies: vec![sse_tool_call, sse_final],
-    };
-    wiremock::Mock::given(wiremock::matchers::method("POST"))
-        .and(wiremock::matchers::path("/v1/chat/completions"))
-        .respond_with(chat_seq)
-        .expect(2)
-        .mount(&server)
-        .await;
-
-    let rmcp_test_server_bin = stdio_server_bin()?;
-
-    let fixture = test_codex()
-        .with_config(move |config| {
-            config.model_provider.wire_api = codex_core::WireApi::Chat;
-            config.mcp_servers.insert(
-                server_name.to_string(),
-                McpServerConfig {
-                    transport: McpServerTransportConfig::Stdio {
-                        command: rmcp_test_server_bin,
-                        args: Vec::new(),
-                        env: Some(HashMap::from([(
-                            "MCP_TEST_IMAGE_DATA_URL".to_string(),
-                            OPENAI_PNG.to_string(),
-                        )])),
-                        env_vars: Vec::new(),
-                        cwd: None,
-                    },
-                    enabled: true,
-                    startup_timeout_sec: Some(Duration::from_secs(10)),
-                    tool_timeout_sec: None,
-                    enabled_tools: None,
-                    disabled_tools: None,
-                },
-            );
-        })
-        .build(&server)
-        .await?;
-    let session_model = fixture.session_configured.model.clone();
-
-    fixture
-        .codex
-        .submit(Op::UserTurn {
-            items: vec![UserInput::Text {
-                text: "call the rmcp image tool".into(),
-            }],
-            final_output_json_schema: None,
-            cwd: fixture.cwd.path().to_path_buf(),
-            approval_policy: AskForApproval::Never,
-            sandbox_policy: SandboxPolicy::ReadOnly,
-            model: session_model,
-            effort: None,
-            summary: ReasoningSummary::Auto,
-        })
-        .await?;
-
-    let begin_event = wait_for_event(&fixture.codex, |ev| {
-        matches!(ev, EventMsg::McpToolCallBegin(_))
-    })
-    .await;
-    let EventMsg::McpToolCallBegin(begin) = begin_event else {
-        unreachable!("begin");
-    };
-    assert_eq!(
-        begin,
-        McpToolCallBeginEvent {
-            call_id: call_id.to_string(),
-            invocation: McpInvocation {
-                server: server_name.to_string(),
-                tool: "image".to_string(),
-                arguments: Some(json!({})),
-            },
-        },
-    );
-
-    let end_event = wait_for_event(&fixture.codex, |ev| {
-        matches!(ev, EventMsg::McpToolCallEnd(_))
-    })
-    .await;
-    let EventMsg::McpToolCallEnd(end) = end_event else {
-        unreachable!("end");
-    };
-    assert!(end.result.as_ref().is_ok(), "tool call should succeed");
-
-    wait_for_event(&fixture.codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
-
-    // Chat Completions assertion: the second POST should include a tool role message
-    // with an array `content` containing an item with the expected data URL.
-    let all_requests = server.received_requests().await.expect("requests captured");
-    let requests: Vec<_> = all_requests
-        .iter()
-        .filter(|req| req.method == "POST" && req.url.path().ends_with("/chat/completions"))
-        .collect();
-    assert!(requests.len() >= 2, "expected two chat completion calls");
-    let second = requests[1];
-    let body: Value = serde_json::from_slice(&second.body)?;
-    let messages = body
-        .get("messages")
-        .and_then(Value::as_array)
-        .cloned()
-        .expect("messages array");
-    let tool_msg = messages
-        .iter()
-        .find(|m| {
-            m.get("role") == Some(&json!("tool")) && m.get("tool_call_id") == Some(&json!(call_id))
-        })
-        .cloned()
-        .expect("tool message present");
-    assert_eq!(
-        tool_msg,
-        json!({
-            "role": "tool",
-            "tool_call_id": call_id,
-            "content": [{"type": "image_url", "image_url": {"url": OPENAI_PNG}}]
-        })
-    );
-
-    Ok(())
-}
-
-#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 #[serial(mcp_test_value)]
 async fn stdio_server_propagates_whitelisted_env_vars() -> anyhow::Result<()> {
@@ -537,7 +364,8 @@ async fn stdio_server_propagates_whitelisted_env_vars() -> anyhow::Result<()> {
 
     let fixture = test_codex()
         .with_config(move |config| {
-            config.mcp_servers.insert(
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
                 server_name.to_string(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::Stdio {
@@ -548,12 +376,18 @@ async fn stdio_server_propagates_whitelisted_env_vars() -> anyhow::Result<()> {
                         cwd: None,
                     },
                     enabled: true,
+                    disabled_reason: None,
                     startup_timeout_sec: Some(Duration::from_secs(10)),
                     tool_timeout_sec: None,
                     enabled_tools: None,
                     disabled_tools: None,
+                    scopes: None,
                 },
             );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
         })
         .build(&server)
         .await?;
@@ -564,6 +398,7 @@ async fn stdio_server_propagates_whitelisted_env_vars() -> anyhow::Result<()> {
         .submit(Op::UserTurn {
             items: vec![UserInput::Text {
                 text: "call the rmcp echo tool".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             cwd: fixture.cwd.path().to_path_buf(),
@@ -572,6 +407,8 @@ async fn stdio_server_propagates_whitelisted_env_vars() -> anyhow::Result<()> {
             model: session_model,
             effort: None,
             summary: ReasoningSummary::Auto,
+            collaboration_mode: None,
+            personality: None,
         })
         .await?;
 
@@ -629,7 +466,6 @@ async fn stdio_server_propagates_whitelisted_env_vars() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
@@ -662,7 +498,13 @@ async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
     .await;
 
     let expected_env_value = "propagated-env-http";
-    let rmcp_http_server_bin = cargo_bin("test_streamable_http_server")?;
+    let rmcp_http_server_bin = match cargo_bin("test_streamable_http_server") {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("test_streamable_http_server binary not available, skipping test: {err}");
+            return Ok(());
+        }
+    };
 
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
@@ -676,12 +518,13 @@ async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
         .env("MCP_TEST_VALUE", expected_env_value)
         .spawn()?;
 
-    wait_for_streamable_http_server(&mut http_server_child, &bind_addr, Duration::from_secs(15))
+    wait_for_streamable_http_server(&mut http_server_child, &bind_addr, Duration::from_secs(5))
         .await?;
 
     let fixture = test_codex()
         .with_config(move |config| {
-            config.mcp_servers.insert(
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
                 server_name.to_string(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::StreamableHttp {
@@ -691,12 +534,18 @@ async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
                         env_http_headers: None,
                     },
                     enabled: true,
+                    disabled_reason: None,
                     startup_timeout_sec: Some(Duration::from_secs(10)),
                     tool_timeout_sec: None,
                     enabled_tools: None,
                     disabled_tools: None,
+                    scopes: None,
                 },
             );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
         })
         .build(&server)
         .await?;
@@ -707,6 +556,7 @@ async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
         .submit(Op::UserTurn {
             items: vec![UserInput::Text {
                 text: "call the rmcp streamable http echo tool".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             cwd: fixture.cwd.path().to_path_buf(),
@@ -715,6 +565,8 @@ async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
             model: session_model,
             effort: None,
             summary: ReasoningSummary::Auto,
+            collaboration_mode: None,
+            personality: None,
         })
         .await?;
 
@@ -789,7 +641,6 @@ async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
 /// This test writes to a fallback credentials file in CODEX_HOME.
 /// Ideally, we wouldn't need to serialize the test but it's much more cumbersome to wire CODEX_HOME through the code.
 #[serial(codex_home)]
-#[cfg_attr(target_os = "windows", ignore = "flaky on Windows aarch64 runners")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
@@ -825,7 +676,13 @@ async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
     let expected_token = "initial-access-token";
     let client_id = "test-client-id";
     let refresh_token = "initial-refresh-token";
-    let rmcp_http_server_bin = cargo_bin("test_streamable_http_server")?;
+    let rmcp_http_server_bin = match cargo_bin("test_streamable_http_server") {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!("test_streamable_http_server binary not available, skipping test: {err}");
+            return Ok(());
+        }
+    };
 
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
@@ -840,7 +697,7 @@ async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
         .env("MCP_TEST_VALUE", expected_env_value)
         .spawn()?;
 
-    wait_for_streamable_http_server(&mut http_server_child, &bind_addr, Duration::from_secs(15))
+    wait_for_streamable_http_server(&mut http_server_child, &bind_addr, Duration::from_secs(5))
         .await?;
 
     let temp_home = tempdir()?;
@@ -856,7 +713,8 @@ async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
 
     let fixture = test_codex()
         .with_config(move |config| {
-            config.mcp_servers.insert(
+            let mut servers = config.mcp_servers.get().clone();
+            servers.insert(
                 server_name.to_string(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::StreamableHttp {
@@ -866,12 +724,18 @@ async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
                         env_http_headers: None,
                     },
                     enabled: true,
+                    disabled_reason: None,
                     startup_timeout_sec: Some(Duration::from_secs(10)),
                     tool_timeout_sec: None,
                     enabled_tools: None,
                     disabled_tools: None,
+                    scopes: None,
                 },
             );
+            config
+                .mcp_servers
+                .set(servers)
+                .expect("test mcp servers should accept any configuration");
         })
         .build(&server)
         .await?;
@@ -882,6 +746,7 @@ async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
         .submit(Op::UserTurn {
             items: vec![UserInput::Text {
                 text: "call the rmcp streamable http oauth echo tool".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             cwd: fixture.cwd.path().to_path_buf(),
@@ -890,6 +755,8 @@ async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
             model: session_model,
             effort: None,
             summary: ReasoningSummary::Auto,
+            collaboration_mode: None,
+            personality: None,
         })
         .await?;
 

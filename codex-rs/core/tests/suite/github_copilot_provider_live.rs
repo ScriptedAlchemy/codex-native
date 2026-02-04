@@ -38,7 +38,7 @@ async fn github_copilot_provider_is_available_and_uses_opencode_auth() {
     .expect("load config");
 
     assert_eq!(cfg.model_provider_id, "github");
-    assert_eq!(cfg.model_provider.wire_api, WireApi::Chat);
+    assert_eq!(cfg.model_provider.wire_api, WireApi::Responses);
 
     // Basic sanity: auth helper can produce a token.
     let now_ms = std::time::SystemTime::now()

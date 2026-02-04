@@ -186,7 +186,7 @@ where
     F: FnMut(&codex_core::protocol::EventMsg) -> bool,
 {
     use tokio::time::Duration;
-    wait_for_event_with_timeout(codex, predicate, Duration::from_secs(2)).await
+    wait_for_event_with_timeout(codex, predicate, Duration::from_secs(1)).await
 }
 
 pub async fn wait_for_event_match<T, F>(codex: &CodexThread, matcher: F) -> T
@@ -205,9 +205,11 @@ pub async fn wait_for_event_with_timeout<F>(
 where
     F: FnMut(&codex_core::protocol::EventMsg) -> bool,
 {
+    use tokio::time::Duration;
     use tokio::time::timeout;
     loop {
-        let ev = timeout(wait_time, codex.next_event())
+        // Allow a bit more time to accommodate async startup work (e.g. config IO, tool discovery)
+        let ev = timeout(wait_time.max(Duration::from_secs(10)), codex.next_event())
             .await
             .expect("timeout waiting for event")
             .expect("stream ended unexpectedly");
@@ -246,10 +248,6 @@ pub fn format_with_current_shell_display_non_login(command: &str) -> String {
 
 pub fn stdio_server_bin() -> Result<String, CargoBinError> {
     codex_utils_cargo_bin::cargo_bin("test_stdio_server").map(|p| p.to_string_lossy().to_string())
-}
-
-pub async fn start_mock_server() -> wiremock::MockServer {
-    wiremock::MockServer::builder().start().await
 }
 
 pub mod fs_wait {

@@ -6,6 +6,11 @@ use crate::event_processor::CodexStatus;
 use crate::event_processor::EventProcessor;
 use crate::event_processor::handle_last_message;
 use crate::exec_events::AgentMessageItem;
+use crate::exec_events::CollabAgentState;
+use crate::exec_events::CollabAgentStatus;
+use crate::exec_events::CollabTool;
+use crate::exec_events::CollabToolCallItem;
+use crate::exec_events::CollabToolCallStatus;
 use crate::exec_events::CommandExecutionItem;
 use crate::exec_events::CommandExecutionStatus;
 use crate::exec_events::ErrorItem;
@@ -33,18 +38,27 @@ use crate::exec_events::TurnFailedEvent;
 use crate::exec_events::TurnStartedEvent;
 use crate::exec_events::Usage;
 use crate::exec_events::WebSearchItem;
-use base64::Engine;
 use codex_core::config::Config;
 use codex_core::protocol;
+use codex_core::protocol::AgentStatus as CoreAgentStatus;
+use codex_core::protocol::CollabAgentInteractionBeginEvent;
+use codex_core::protocol::CollabAgentInteractionEndEvent;
+use codex_core::protocol::CollabAgentSpawnBeginEvent;
+use codex_core::protocol::CollabAgentSpawnEndEvent;
+use codex_core::protocol::CollabCloseBeginEvent;
+use codex_core::protocol::CollabCloseEndEvent;
+use codex_core::protocol::CollabWaitingBeginEvent;
+use codex_core::protocol::CollabWaitingEndEvent;
+use codex_protocol::models::WebSearchAction;
 use codex_protocol::plan_tool::StepStatus;
 use codex_protocol::plan_tool::UpdatePlanArgs;
 use serde_json::Value as JsonValue;
-use serde_json::json;
 use tracing::error;
 use tracing::warn;
 
 pub struct EventProcessorWithJsonOutput {
     last_message_path: Option<PathBuf>,
+    last_proposed_plan: Option<String>,
     next_event_id: AtomicU64,
     // Tracks running commands by call_id, including the associated item id.
     running_commands: HashMap<String, RunningCommand>,
@@ -53,12 +67,9 @@ pub struct EventProcessorWithJsonOutput {
     running_todo_list: Option<RunningTodoList>,
     last_total_token_usage: Option<codex_core::protocol::TokenUsage>,
     running_mcp_tool_calls: HashMap<String, RunningMcpToolCall>,
+    running_collab_tool_calls: HashMap<String, RunningCollabToolCall>,
+    running_web_search_calls: HashMap<String, String>,
     last_critical_error: Option<ThreadErrorEvent>,
-    // Aggregated streaming text for delta events. We synthesize `item.updated` events
-    // with the full accumulated text so JS clients can diff and print the delta.
-    running_agent_message: Option<RunningTextItem>,
-    running_reasoning_summary: Option<RunningTextItem>,
-    running_reasoning_raw: Option<RunningTextItem>,
 }
 
 #[derive(Debug, Clone)]
@@ -83,38 +94,41 @@ struct RunningMcpToolCall {
 }
 
 #[derive(Debug, Clone)]
-struct RunningTextItem {
+struct RunningCollabToolCall {
+    tool: CollabTool,
     item_id: String,
-    text: String,
 }
 
 impl EventProcessorWithJsonOutput {
     pub fn new(last_message_path: Option<PathBuf>) -> Self {
         Self {
             last_message_path,
+            last_proposed_plan: None,
             next_event_id: AtomicU64::new(0),
             running_commands: HashMap::new(),
             running_patch_applies: HashMap::new(),
             running_todo_list: None,
             last_total_token_usage: None,
             running_mcp_tool_calls: HashMap::new(),
+            running_collab_tool_calls: HashMap::new(),
+            running_web_search_calls: HashMap::new(),
             last_critical_error: None,
-            running_agent_message: None,
-            running_reasoning_summary: None,
-            running_reasoning_raw: None,
         }
     }
 
     pub fn collect_thread_events(&mut self, event: &protocol::Event) -> Vec<ThreadEvent> {
         match &event.msg {
             protocol::EventMsg::SessionConfigured(ev) => self.handle_session_configured(ev),
+            protocol::EventMsg::ThreadNameUpdated(_) => Vec::new(),
             protocol::EventMsg::AgentMessage(ev) => self.handle_agent_message(ev),
+            protocol::EventMsg::ItemCompleted(protocol::ItemCompletedEvent {
+                item: codex_protocol::items::TurnItem::Plan(item),
+                ..
+            }) => {
+                self.last_proposed_plan = Some(item.text.clone());
+                Vec::new()
+            }
             protocol::EventMsg::AgentReasoning(ev) => self.handle_reasoning_event(ev),
-            // Forward streaming deltas so JS consumers (Thread.runStreamed / CodexProvider)
-            // can show incremental output as it is generated.
-            protocol::EventMsg::AgentMessageContentDelta(ev) => self.handle_agent_message_delta(ev),
-            protocol::EventMsg::ReasoningContentDelta(ev) => self.handle_reasoning_delta(ev),
-            protocol::EventMsg::ReasoningRawContentDelta(ev) => self.handle_reasoning_raw_delta(ev),
             protocol::EventMsg::ExecCommandBegin(ev) => self.handle_exec_command_begin(ev),
             protocol::EventMsg::ExecCommandEnd(ev) => self.handle_exec_command_end(ev),
             protocol::EventMsg::TerminalInteraction(ev) => self.handle_terminal_interaction(ev),
@@ -123,29 +137,30 @@ impl EventProcessorWithJsonOutput {
             }
             protocol::EventMsg::McpToolCallBegin(ev) => self.handle_mcp_tool_call_begin(ev),
             protocol::EventMsg::McpToolCallEnd(ev) => self.handle_mcp_tool_call_end(ev),
+            protocol::EventMsg::CollabAgentSpawnBegin(ev) => self.handle_collab_spawn_begin(ev),
+            protocol::EventMsg::CollabAgentSpawnEnd(ev) => self.handle_collab_spawn_end(ev),
+            protocol::EventMsg::CollabAgentInteractionBegin(ev) => {
+                self.handle_collab_interaction_begin(ev)
+            }
+            protocol::EventMsg::CollabAgentInteractionEnd(ev) => {
+                self.handle_collab_interaction_end(ev)
+            }
+            protocol::EventMsg::CollabWaitingBegin(ev) => self.handle_collab_wait_begin(ev),
+            protocol::EventMsg::CollabWaitingEnd(ev) => self.handle_collab_wait_end(ev),
+            protocol::EventMsg::CollabCloseBegin(ev) => self.handle_collab_close_begin(ev),
+            protocol::EventMsg::CollabCloseEnd(ev) => self.handle_collab_close_end(ev),
             protocol::EventMsg::PatchApplyBegin(ev) => self.handle_patch_apply_begin(ev),
             protocol::EventMsg::PatchApplyEnd(ev) => self.handle_patch_apply_end(ev),
-            protocol::EventMsg::WebSearchBegin(_) => Vec::new(),
+            protocol::EventMsg::WebSearchBegin(ev) => self.handle_web_search_begin(ev),
             protocol::EventMsg::WebSearchEnd(ev) => self.handle_web_search_end(ev),
             protocol::EventMsg::TokenCount(ev) => {
                 if let Some(info) = &ev.info {
                     self.last_total_token_usage = Some(info.total_token_usage.clone());
                 }
-                vec![ThreadEvent::Raw(crate::exec_events::RawEvent {
-                    raw: json!({
-                        "type": "token_count",
-                        "info": ev.info,
-                        "rate_limits": ev.rate_limits,
-                    }),
-                })]
+                Vec::new()
             }
             protocol::EventMsg::TurnStarted(ev) => self.handle_task_started(ev),
             protocol::EventMsg::TurnComplete(_) => self.handle_task_complete(),
-            protocol::EventMsg::BackgroundEvent(ev) => vec![ThreadEvent::BackgroundEvent(
-                crate::exec_events::BackgroundEventEvent {
-                    message: ev.message.clone(),
-                },
-            )],
             protocol::EventMsg::Error(ev) => {
                 let error = ThreadErrorEvent {
                     message: ev.message.clone(),
@@ -193,28 +208,45 @@ impl EventProcessorWithJsonOutput {
         })]
     }
 
-    fn handle_web_search_end(&self, ev: &protocol::WebSearchEndEvent) -> Vec<ThreadEvent> {
+    fn handle_web_search_begin(&mut self, ev: &protocol::WebSearchBeginEvent) -> Vec<ThreadEvent> {
+        if self.running_web_search_calls.contains_key(&ev.call_id) {
+            return Vec::new();
+        }
+        let item_id = self.get_next_item_id();
+        self.running_web_search_calls
+            .insert(ev.call_id.clone(), item_id.clone());
         let item = ThreadItem {
-            id: self.get_next_item_id(),
+            id: item_id,
             details: ThreadItemDetails::WebSearch(WebSearchItem {
+                id: ev.call_id.clone(),
+                query: String::new(),
+                action: WebSearchAction::Other,
+            }),
+        };
+
+        vec![ThreadEvent::ItemStarted(ItemStartedEvent { item })]
+    }
+
+    fn handle_web_search_end(&mut self, ev: &protocol::WebSearchEndEvent) -> Vec<ThreadEvent> {
+        let item_id = self
+            .running_web_search_calls
+            .remove(&ev.call_id)
+            .unwrap_or_else(|| self.get_next_item_id());
+        let item = ThreadItem {
+            id: item_id,
+            details: ThreadItemDetails::WebSearch(WebSearchItem {
+                id: ev.call_id.clone(),
                 query: ev.query.clone(),
+                action: ev.action.clone(),
             }),
         };
 
         vec![ThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
     }
 
-    fn handle_output_chunk(&mut self, call_id: &str, chunk: &[u8]) -> Vec<ThreadEvent> {
-        // Forward raw output deltas so JS consumers can stream command output.
-        // Use base64 encoding so the payload is JSON-safe.
-        vec![ThreadEvent::Raw(crate::exec_events::RawEvent {
-            raw: json!({
-                "type": "exec_command_output_delta",
-                "call_id": call_id,
-                "stream": "stdout",
-                "chunk": base64::engine::general_purpose::STANDARD.encode(chunk),
-            }),
-        })]
+    fn handle_output_chunk(&mut self, _call_id: &str, _chunk: &[u8]) -> Vec<ThreadEvent> {
+        //TODO see how we want to process them
+        vec![]
     }
 
     fn handle_terminal_interaction(
@@ -247,78 +279,6 @@ impl EventProcessorWithJsonOutput {
         };
 
         vec![ThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
-    }
-
-    fn handle_agent_message_delta(
-        &mut self,
-        ev: &protocol::AgentMessageContentDeltaEvent,
-    ) -> Vec<ThreadEvent> {
-        if self.running_agent_message.is_none() {
-            self.running_agent_message = Some(RunningTextItem {
-                item_id: self.get_next_item_id(),
-                text: String::new(),
-            });
-        }
-        let entry = self
-            .running_agent_message
-            .as_mut()
-            .expect("running_agent_message initialized above");
-        entry.text.push_str(&ev.delta);
-        let item = ThreadItem {
-            id: entry.item_id.clone(),
-            details: ThreadItemDetails::AgentMessage(AgentMessageItem {
-                text: entry.text.clone(),
-            }),
-        };
-        vec![ThreadEvent::ItemUpdated(ItemUpdatedEvent { item })]
-    }
-
-    fn handle_reasoning_delta(
-        &mut self,
-        ev: &protocol::ReasoningContentDeltaEvent,
-    ) -> Vec<ThreadEvent> {
-        if self.running_reasoning_summary.is_none() {
-            self.running_reasoning_summary = Some(RunningTextItem {
-                item_id: self.get_next_item_id(),
-                text: String::new(),
-            });
-        }
-        let entry = self
-            .running_reasoning_summary
-            .as_mut()
-            .expect("running_reasoning_summary initialized above");
-        entry.text.push_str(&ev.delta);
-        let item = ThreadItem {
-            id: entry.item_id.clone(),
-            details: ThreadItemDetails::Reasoning(ReasoningItem {
-                text: entry.text.clone(),
-            }),
-        };
-        vec![ThreadEvent::ItemUpdated(ItemUpdatedEvent { item })]
-    }
-
-    fn handle_reasoning_raw_delta(
-        &mut self,
-        ev: &protocol::ReasoningRawContentDeltaEvent,
-    ) -> Vec<ThreadEvent> {
-        if self.running_reasoning_raw.is_none() {
-            self.running_reasoning_raw = Some(RunningTextItem {
-                item_id: self.get_next_item_id(),
-                text: String::new(),
-            });
-        }
-        let entry = self
-            .running_reasoning_raw
-            .as_mut()
-            .expect("running_reasoning_raw initialized above");
-        entry.text.push_str(&ev.delta);
-        let item = ThreadItem {
-            id: entry.item_id.clone(),
-            details: ThreadItemDetails::Reasoning(ReasoningItem {
-                text: entry.text.clone(),
-            }),
-        };
-        vec![ThreadEvent::ItemUpdated(ItemUpdatedEvent { item })]
     }
     fn handle_exec_command_begin(
         &mut self,
@@ -453,6 +413,219 @@ impl EventProcessorWithJsonOutput {
         vec![ThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
     }
 
+    fn handle_collab_spawn_begin(&mut self, ev: &CollabAgentSpawnBeginEvent) -> Vec<ThreadEvent> {
+        self.start_collab_tool_call(
+            &ev.call_id,
+            CollabTool::SpawnAgent,
+            ev.sender_thread_id.to_string(),
+            Vec::new(),
+            Some(ev.prompt.clone()),
+        )
+    }
+
+    fn handle_collab_spawn_end(&mut self, ev: &CollabAgentSpawnEndEvent) -> Vec<ThreadEvent> {
+        let (receiver_thread_ids, agents_states) = match ev.new_thread_id {
+            Some(id) => {
+                let receiver_id = id.to_string();
+                let agent_state = CollabAgentState::from(ev.status.clone());
+                (
+                    vec![receiver_id.clone()],
+                    [(receiver_id, agent_state)].into_iter().collect(),
+                )
+            }
+            None => (Vec::new(), HashMap::new()),
+        };
+        let status = if ev.new_thread_id.is_some() && !is_collab_failure(&ev.status) {
+            CollabToolCallStatus::Completed
+        } else {
+            CollabToolCallStatus::Failed
+        };
+        self.finish_collab_tool_call(
+            &ev.call_id,
+            CollabTool::SpawnAgent,
+            ev.sender_thread_id.to_string(),
+            receiver_thread_ids,
+            Some(ev.prompt.clone()),
+            agents_states,
+            status,
+        )
+    }
+
+    fn handle_collab_interaction_begin(
+        &mut self,
+        ev: &CollabAgentInteractionBeginEvent,
+    ) -> Vec<ThreadEvent> {
+        self.start_collab_tool_call(
+            &ev.call_id,
+            CollabTool::SendInput,
+            ev.sender_thread_id.to_string(),
+            vec![ev.receiver_thread_id.to_string()],
+            Some(ev.prompt.clone()),
+        )
+    }
+
+    fn handle_collab_interaction_end(
+        &mut self,
+        ev: &CollabAgentInteractionEndEvent,
+    ) -> Vec<ThreadEvent> {
+        let receiver_id = ev.receiver_thread_id.to_string();
+        let agent_state = CollabAgentState::from(ev.status.clone());
+        let status = if is_collab_failure(&ev.status) {
+            CollabToolCallStatus::Failed
+        } else {
+            CollabToolCallStatus::Completed
+        };
+        self.finish_collab_tool_call(
+            &ev.call_id,
+            CollabTool::SendInput,
+            ev.sender_thread_id.to_string(),
+            vec![receiver_id.clone()],
+            Some(ev.prompt.clone()),
+            [(receiver_id, agent_state)].into_iter().collect(),
+            status,
+        )
+    }
+
+    fn handle_collab_wait_begin(&mut self, ev: &CollabWaitingBeginEvent) -> Vec<ThreadEvent> {
+        self.start_collab_tool_call(
+            &ev.call_id,
+            CollabTool::Wait,
+            ev.sender_thread_id.to_string(),
+            ev.receiver_thread_ids
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            None,
+        )
+    }
+
+    fn handle_collab_wait_end(&mut self, ev: &CollabWaitingEndEvent) -> Vec<ThreadEvent> {
+        let status = if ev.statuses.values().any(is_collab_failure) {
+            CollabToolCallStatus::Failed
+        } else {
+            CollabToolCallStatus::Completed
+        };
+        let mut receiver_thread_ids = ev
+            .statuses
+            .keys()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        receiver_thread_ids.sort();
+        let agents_states = ev
+            .statuses
+            .iter()
+            .map(|(thread_id, status)| {
+                (
+                    thread_id.to_string(),
+                    CollabAgentState::from(status.clone()),
+                )
+            })
+            .collect();
+        self.finish_collab_tool_call(
+            &ev.call_id,
+            CollabTool::Wait,
+            ev.sender_thread_id.to_string(),
+            receiver_thread_ids,
+            None,
+            agents_states,
+            status,
+        )
+    }
+
+    fn handle_collab_close_begin(&mut self, ev: &CollabCloseBeginEvent) -> Vec<ThreadEvent> {
+        self.start_collab_tool_call(
+            &ev.call_id,
+            CollabTool::CloseAgent,
+            ev.sender_thread_id.to_string(),
+            vec![ev.receiver_thread_id.to_string()],
+            None,
+        )
+    }
+
+    fn handle_collab_close_end(&mut self, ev: &CollabCloseEndEvent) -> Vec<ThreadEvent> {
+        let receiver_id = ev.receiver_thread_id.to_string();
+        let agent_state = CollabAgentState::from(ev.status.clone());
+        let status = if is_collab_failure(&ev.status) {
+            CollabToolCallStatus::Failed
+        } else {
+            CollabToolCallStatus::Completed
+        };
+        self.finish_collab_tool_call(
+            &ev.call_id,
+            CollabTool::CloseAgent,
+            ev.sender_thread_id.to_string(),
+            vec![receiver_id.clone()],
+            None,
+            [(receiver_id, agent_state)].into_iter().collect(),
+            status,
+        )
+    }
+
+    fn start_collab_tool_call(
+        &mut self,
+        call_id: &str,
+        tool: CollabTool,
+        sender_thread_id: String,
+        receiver_thread_ids: Vec<String>,
+        prompt: Option<String>,
+    ) -> Vec<ThreadEvent> {
+        let item_id = self.get_next_item_id();
+        self.running_collab_tool_calls.insert(
+            call_id.to_string(),
+            RunningCollabToolCall {
+                tool: tool.clone(),
+                item_id: item_id.clone(),
+            },
+        );
+        let item = ThreadItem {
+            id: item_id,
+            details: ThreadItemDetails::CollabToolCall(CollabToolCallItem {
+                tool,
+                sender_thread_id,
+                receiver_thread_ids,
+                prompt,
+                agents_states: HashMap::new(),
+                status: CollabToolCallStatus::InProgress,
+            }),
+        };
+        vec![ThreadEvent::ItemStarted(ItemStartedEvent { item })]
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_collab_tool_call(
+        &mut self,
+        call_id: &str,
+        tool: CollabTool,
+        sender_thread_id: String,
+        receiver_thread_ids: Vec<String>,
+        prompt: Option<String>,
+        agents_states: HashMap<String, CollabAgentState>,
+        status: CollabToolCallStatus,
+    ) -> Vec<ThreadEvent> {
+        let (tool, item_id) = match self.running_collab_tool_calls.remove(call_id) {
+            Some(running) => (running.tool, running.item_id),
+            None => {
+                warn!(
+                    call_id,
+                    "Received collab tool end without begin; synthesizing new item"
+                );
+                (tool, self.get_next_item_id())
+            }
+        };
+        let item = ThreadItem {
+            id: item_id,
+            details: ThreadItemDetails::CollabToolCall(CollabToolCallItem {
+                tool,
+                sender_thread_id,
+                receiver_thread_ids,
+                prompt,
+                agents_states,
+                status,
+            }),
+        };
+        vec![ThreadEvent::ItemCompleted(ItemCompletedEvent { item })]
+    }
+
     fn handle_patch_apply_begin(
         &mut self,
         ev: &protocol::PatchApplyBeginEvent,
@@ -460,13 +633,7 @@ impl EventProcessorWithJsonOutput {
         self.running_patch_applies
             .insert(ev.call_id.clone(), ev.clone());
 
-        vec![ThreadEvent::Raw(crate::exec_events::RawEvent {
-            raw: json!({
-                "type": "patch_apply_begin",
-                "call_id": ev.call_id,
-                "changes": ev.changes,
-            }),
-        })]
+        Vec::new()
     }
 
     fn map_change_kind(&self, kind: &protocol::FileChange) -> PatchChangeKind {
@@ -513,16 +680,11 @@ impl EventProcessorWithJsonOutput {
             aggregated_output,
         }) = self.running_commands.remove(&ev.call_id)
         else {
-            // Preserve fidelity for JS clients and tests: forward a raw end event even if we
-            // didn't observe the begin event (can happen with dropped events).
-            return vec![ThreadEvent::Raw(crate::exec_events::RawEvent {
-                raw: json!({
-                    "type": "exec_command_end",
-                    "call_id": ev.call_id,
-                    "exit_code": ev.exit_code,
-                    "duration_ms": ev.duration.as_millis(),
-                }),
-            })];
+            warn!(
+                call_id = ev.call_id,
+                "ExecCommandEnd without matching ExecCommandBegin; skipping item.completed"
+            );
+            return Vec::new();
         };
         let status = if ev.exit_code == 0 {
             CommandExecutionStatus::Completed
@@ -584,10 +746,6 @@ impl EventProcessorWithJsonOutput {
 
     fn handle_task_started(&mut self, _: &protocol::TurnStartedEvent) -> Vec<ThreadEvent> {
         self.last_critical_error = None;
-        // New turn: reset streaming text accumulation.
-        self.running_agent_message = None;
-        self.running_reasoning_summary = None;
-        self.running_reasoning_raw = None;
         vec![ThreadEvent::TurnStarted(TurnStartedEvent {})]
     }
 
@@ -639,6 +797,44 @@ impl EventProcessorWithJsonOutput {
     }
 }
 
+fn is_collab_failure(status: &CoreAgentStatus) -> bool {
+    matches!(
+        status,
+        CoreAgentStatus::Errored(_) | CoreAgentStatus::NotFound
+    )
+}
+
+impl From<CoreAgentStatus> for CollabAgentState {
+    fn from(value: CoreAgentStatus) -> Self {
+        match value {
+            CoreAgentStatus::PendingInit => Self {
+                status: CollabAgentStatus::PendingInit,
+                message: None,
+            },
+            CoreAgentStatus::Running => Self {
+                status: CollabAgentStatus::Running,
+                message: None,
+            },
+            CoreAgentStatus::Completed(message) => Self {
+                status: CollabAgentStatus::Completed,
+                message,
+            },
+            CoreAgentStatus::Errored(message) => Self {
+                status: CollabAgentStatus::Errored,
+                message: Some(message),
+            },
+            CoreAgentStatus::Shutdown => Self {
+                status: CollabAgentStatus::Shutdown,
+                message: None,
+            },
+            CoreAgentStatus::NotFound => Self {
+                status: CollabAgentStatus::NotFound,
+                message: None,
+            },
+        }
+    }
+}
+
 impl EventProcessor for EventProcessorWithJsonOutput {
     fn print_config_summary(&mut self, _: &Config, _: &str, ev: &protocol::SessionConfiguredEvent) {
         self.process_event(protocol::Event {
@@ -663,16 +859,21 @@ impl EventProcessor for EventProcessorWithJsonOutput {
 
         let protocol::Event { msg, .. } = event;
 
-        if let protocol::EventMsg::TurnComplete(protocol::TurnCompleteEvent {
-            last_agent_message,
-        }) = msg
-        {
-            if let Some(output_file) = self.last_message_path.as_deref() {
-                handle_last_message(last_agent_message.as_deref(), output_file);
+        match msg {
+            protocol::EventMsg::TurnComplete(protocol::TurnCompleteEvent {
+                last_agent_message,
+            }) => {
+                if let Some(output_file) = self.last_message_path.as_deref() {
+                    let last_message = last_agent_message
+                        .as_deref()
+                        .or(self.last_proposed_plan.as_deref());
+                    handle_last_message(last_message, output_file);
+                }
+                CodexStatus::InitiateShutdown
             }
-            CodexStatus::InitiateShutdown
-        } else {
-            CodexStatus::Running
+            protocol::EventMsg::TurnAborted(_) => CodexStatus::InitiateShutdown,
+            protocol::EventMsg::ShutdownComplete => CodexStatus::Shutdown,
+            _ => CodexStatus::Running,
         }
     }
 }

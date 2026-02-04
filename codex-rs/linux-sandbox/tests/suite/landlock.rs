@@ -1,4 +1,5 @@
 #![cfg(target_os = "linux")]
+#![allow(clippy::unwrap_used)]
 use codex_core::config::types::ShellEnvironmentPolicy;
 use codex_core::error::CodexErr;
 use codex_core::error::SandboxErr;
@@ -6,8 +7,10 @@ use codex_core::exec::ExecParams;
 use codex_core::exec::process_exec_tool_call;
 use codex_core::exec_env::create_env;
 use codex_core::protocol::SandboxPolicy;
+use codex_core::protocol_config_types::WindowsSandboxLevel;
 use codex_core::sandboxing::SandboxPermissions;
 use codex_utils_absolute_path::AbsolutePathBuf;
+use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
@@ -31,11 +34,25 @@ const NETWORK_TIMEOUT_MS: u64 = 10_000;
 
 fn create_env_from_core_vars() -> HashMap<String, String> {
     let policy = ShellEnvironmentPolicy::default();
-    create_env(&policy)
+    create_env(&policy, None)
 }
 
-#[expect(clippy::print_stdout, clippy::expect_used, clippy::unwrap_used)]
+#[expect(clippy::print_stdout)]
 async fn run_cmd(cmd: &[&str], writable_roots: &[PathBuf], timeout_ms: u64) {
+    let output = run_cmd_output(cmd, writable_roots, timeout_ms).await;
+    if output.exit_code != 0 {
+        println!("stdout:\n{}", output.stdout.text);
+        println!("stderr:\n{}", output.stderr.text);
+        panic!("exit code: {}", output.exit_code);
+    }
+}
+
+#[expect(clippy::expect_used, clippy::unwrap_used)]
+async fn run_cmd_output(
+    cmd: &[&str],
+    writable_roots: &[PathBuf],
+    timeout_ms: u64,
+) -> codex_core::exec::ExecToolCallOutput {
     let cwd = std::env::current_dir().expect("cwd should exist");
     let sandbox_cwd = cwd.clone();
     let params = ExecParams {
@@ -44,6 +61,7 @@ async fn run_cmd(cmd: &[&str], writable_roots: &[PathBuf], timeout_ms: u64) {
         expiration: timeout_ms.into(),
         env: create_env_from_core_vars(),
         sandbox_permissions: SandboxPermissions::UseDefault,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
         justification: None,
         arg0: None,
     };
@@ -62,7 +80,8 @@ async fn run_cmd(cmd: &[&str], writable_roots: &[PathBuf], timeout_ms: u64) {
     };
     let sandbox_program = env!("CARGO_BIN_EXE_codex-linux-sandbox");
     let codex_linux_sandbox_exe = Some(PathBuf::from(sandbox_program));
-    let res = process_exec_tool_call(
+
+    process_exec_tool_call(
         params,
         &sandbox_policy,
         sandbox_cwd.as_path(),
@@ -70,13 +89,7 @@ async fn run_cmd(cmd: &[&str], writable_roots: &[PathBuf], timeout_ms: u64) {
         None,
     )
     .await
-    .unwrap();
-
-    if res.exit_code != 0 {
-        println!("stdout:\n{}", res.stdout.text);
-        println!("stderr:\n{}", res.stderr.text);
-        panic!("exit code: {}", res.exit_code);
-    }
+    .unwrap()
 }
 
 #[tokio::test]
@@ -128,6 +141,23 @@ async fn test_writable_root() {
 }
 
 #[tokio::test]
+async fn test_no_new_privs_is_enabled() {
+    let output = run_cmd_output(
+        &["bash", "-lc", "grep '^NoNewPrivs:' /proc/self/status"],
+        &[],
+        SHORT_TIMEOUT_MS,
+    )
+    .await;
+    let line = output
+        .stdout
+        .text
+        .lines()
+        .find(|line| line.starts_with("NoNewPrivs:"))
+        .unwrap_or("");
+    assert_eq!(line.trim(), "NoNewPrivs:\t1");
+}
+
+#[tokio::test]
 #[should_panic(expected = "Sandbox(Timeout")]
 async fn test_timeout() {
     run_cmd(&["sleep", "2"], &[], 50).await;
@@ -149,6 +179,7 @@ async fn assert_network_blocked(cmd: &[&str]) {
         expiration: NETWORK_TIMEOUT_MS.into(),
         env: create_env_from_core_vars(),
         sandbox_permissions: SandboxPermissions::UseDefault,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
         justification: None,
         arg0: None,
     };

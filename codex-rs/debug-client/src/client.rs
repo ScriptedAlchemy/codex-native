@@ -20,6 +20,7 @@ use codex_app_server_protocol::ClientNotification;
 use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::CommandExecutionApprovalDecision;
 use codex_app_server_protocol::FileChangeApprovalDecision;
+use codex_app_server_protocol::InitializeCapabilities;
 use codex_app_server_protocol::JSONRPCMessage;
 use codex_app_server_protocol::JSONRPCRequest;
 use codex_app_server_protocol::JSONRPCResponse;
@@ -99,6 +100,9 @@ impl AppServerClient {
                     title: Some("Debug Client".to_string()),
                     version: env!("CARGO_PKG_VERSION").to_string(),
                 },
+                capabilities: Some(InitializeCapabilities {
+                    experimental_api: true,
+                }),
             },
         };
 
@@ -171,7 +175,10 @@ impl AppServerClient {
             params: ThreadListParams {
                 cursor,
                 limit: None,
+                sort_key: None,
                 model_providers: None,
+                source_kinds: None,
+                archived: None,
             },
         };
         self.send(&request)?;
@@ -184,7 +191,11 @@ impl AppServerClient {
             request_id: request_id.clone(),
             params: TurnStartParams {
                 thread_id: thread_id.to_string(),
-                input: vec![UserInput::Text { text }],
+                input: vec![UserInput::Text {
+                    text,
+                    // Debug client sends plain text with no UI markup spans.
+                    text_elements: Vec::new(),
+                }],
                 ..Default::default()
             },
         };

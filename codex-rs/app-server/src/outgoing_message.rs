@@ -39,6 +39,14 @@ impl OutgoingMessageSender {
         &self,
         request: ServerRequestPayload,
     ) -> oneshot::Receiver<Result> {
+        let (_id, rx) = self.send_request_with_id(request).await;
+        rx
+    }
+
+    pub(crate) async fn send_request_with_id(
+        &self,
+        request: ServerRequestPayload,
+    ) -> (RequestId, oneshot::Receiver<Result>) {
         let id = RequestId::Integer(self.next_request_id.fetch_add(1, Ordering::Relaxed));
         let outgoing_message_id = id.clone();
         let (tx_approve, rx_approve) = oneshot::channel();
@@ -54,7 +62,7 @@ impl OutgoingMessageSender {
             let mut request_id_to_callback = self.request_id_to_callback.lock().await;
             request_id_to_callback.remove(&outgoing_message_id);
         }
-        rx_approve
+        (outgoing_message_id, rx_approve)
     }
 
     pub(crate) async fn notify_client_response(&self, id: RequestId, result: Result) {
@@ -73,6 +81,30 @@ impl OutgoingMessageSender {
                 warn!("could not find callback for {id:?}");
             }
         }
+    }
+
+    pub(crate) async fn notify_client_error(&self, id: RequestId, error: JSONRPCErrorError) {
+        let entry = {
+            let mut request_id_to_callback = self.request_id_to_callback.lock().await;
+            request_id_to_callback.remove_entry(&id)
+        };
+
+        match entry {
+            Some((id, _sender)) => {
+                warn!("client responded with error for {id:?}: {error:?}");
+            }
+            None => {
+                warn!("could not find callback for {id:?}");
+            }
+        }
+    }
+
+    pub(crate) async fn cancel_request(&self, id: &RequestId) -> bool {
+        let entry = {
+            let mut request_id_to_callback = self.request_id_to_callback.lock().await;
+            request_id_to_callback.remove_entry(id)
+        };
+        entry.is_some()
     }
 
     pub(crate) async fn send_response<T: Serialize>(&self, id: RequestId, response: T) {
@@ -162,6 +194,7 @@ mod tests {
     use codex_app_server_protocol::AccountRateLimitsUpdatedNotification;
     use codex_app_server_protocol::AccountUpdatedNotification;
     use codex_app_server_protocol::AuthMode;
+    use codex_app_server_protocol::ConfigWarningNotification;
     use codex_app_server_protocol::LoginChatGptCompleteNotification;
     use codex_app_server_protocol::RateLimitSnapshot;
     use codex_app_server_protocol::RateLimitWindow;
@@ -272,6 +305,30 @@ mod tests {
                 "method": "account/updated",
                 "params": {
                     "authMode": "apikey"
+                },
+            }),
+            serde_json::to_value(jsonrpc_notification)
+                .expect("ensure the notification serializes correctly"),
+            "ensure the notification serializes correctly"
+        );
+    }
+
+    #[test]
+    fn verify_config_warning_notification_serialization() {
+        let notification = ServerNotification::ConfigWarning(ConfigWarningNotification {
+            summary: "Config error: using defaults".to_string(),
+            details: Some("error loading config: bad config".to_string()),
+            path: None,
+            range: None,
+        });
+
+        let jsonrpc_notification = OutgoingMessage::AppServerNotification(notification);
+        assert_eq!(
+            json!( {
+                "method": "configWarning",
+                "params": {
+                    "summary": "Config error: using defaults",
+                    "details": "error loading config: bad config",
                 },
             }),
             serde_json::to_value(jsonrpc_notification)

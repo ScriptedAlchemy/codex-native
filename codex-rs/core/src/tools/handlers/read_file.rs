@@ -40,9 +40,8 @@ struct ReadFileArgs {
     indentation: Option<IndentationArgs>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-#[derive(Default)]
 enum ReadMode {
     #[default]
     Slice,

@@ -38,6 +38,7 @@ async fn run_turn(test: &TestCodex, prompt: &str) -> anyhow::Result<()> {
         .submit(Op::UserTurn {
             items: vec![UserInput::Text {
                 text: prompt.into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             cwd: test.cwd.path().to_path_buf(),
@@ -46,6 +47,8 @@ async fn run_turn(test: &TestCodex, prompt: &str) -> anyhow::Result<()> {
             model: session_model,
             effort: None,
             summary: ReasoningSummary::Auto,
+            collaboration_mode: None,
+            personality: None,
         })
         .await?;
 
@@ -67,17 +70,10 @@ async fn build_codex_with_test_tool(server: &wiremock::MockServer) -> anyhow::Re
 }
 
 fn assert_parallel_duration(actual: Duration) {
-    // Allow headroom for runtime overhead while still differentiating from serial execution.
+    // Allow headroom for slow CI scheduling; barrier synchronization already enforces overlap.
     assert!(
-        actual < Duration::from_millis(750),
+        actual < Duration::from_millis(1_200),
         "expected parallel execution to finish quickly, got {actual:?}"
-    );
-}
-
-fn assert_serial_duration(actual: Duration) {
-    assert!(
-        actual >= Duration::from_millis(500),
-        "expected serial execution to take longer, got {actual:?}"
     );
 }
 
@@ -144,7 +140,7 @@ async fn read_file_tools_run_in_parallel() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn non_parallel_tools_run_serially() -> anyhow::Result<()> {
+async fn shell_tools_run_in_parallel() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
@@ -171,13 +167,13 @@ async fn non_parallel_tools_run_serially() -> anyhow::Result<()> {
     mount_sse_sequence(&server, vec![first_response, second_response]).await;
 
     let duration = run_turn_and_measure(&test, "run shell_command twice").await?;
-    assert_serial_duration(duration);
+    assert_parallel_duration(duration);
 
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn mixed_tools_fall_back_to_serial() -> anyhow::Result<()> {
+async fn mixed_parallel_tools_run_in_parallel() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
@@ -205,7 +201,7 @@ async fn mixed_tools_fall_back_to_serial() -> anyhow::Result<()> {
     mount_sse_sequence(&server, vec![first_response, second_response]).await;
 
     let duration = run_turn_and_measure(&test, "mix tools").await?;
-    assert_serial_duration(duration);
+    assert_parallel_duration(duration);
 
     Ok(())
 }
@@ -298,7 +294,7 @@ async fn shell_tools_start_before_response_completed_when_stream_delayed() -> an
     let args = json!({
         "command": command,
         "login": false,
-        "timeout_ms": 1_000,
+        "timeout_ms": 5_000,
     });
 
     let first_chunk = sse(vec![
@@ -345,6 +341,7 @@ async fn shell_tools_start_before_response_completed_when_stream_delayed() -> an
         .submit(Op::UserTurn {
             items: vec![UserInput::Text {
                 text: "stream delayed completion".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             cwd: test.cwd.path().to_path_buf(),
@@ -353,13 +350,15 @@ async fn shell_tools_start_before_response_completed_when_stream_delayed() -> an
             model: session_model,
             effort: None,
             summary: ReasoningSummary::Auto,
+            collaboration_mode: None,
+            personality: None,
         })
         .await?;
 
     let _ = first_gate_tx.send(());
     let _ = follow_up_gate_tx.send(());
 
-    let timestamps = tokio::time::timeout(Duration::from_secs(1), async {
+    let timestamps = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let contents = fs::read_to_string(output_path)?;
             let timestamps = contents

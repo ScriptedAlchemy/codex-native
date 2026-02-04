@@ -48,6 +48,12 @@ pub(crate) fn should_persist_event_msg(ev: &EventMsg) -> bool {
         | EventMsg::ThreadRolledBack(_)
         | EventMsg::UndoCompleted(_)
         | EventMsg::TurnAborted(_) => true,
+        EventMsg::ItemCompleted(event) => {
+            // Plan items are derived from streaming tags and are not part of the
+            // raw ResponseItem history, so we persist their completion to replay
+            // them on resume without bloating rollouts with every item lifecycle.
+            matches!(event.item, codex_protocol::items::TurnItem::Plan(_))
+        }
         EventMsg::Error(_)
         | EventMsg::Warning(_)
         | EventMsg::TurnStarted(_)
@@ -58,6 +64,7 @@ pub(crate) fn should_persist_event_msg(ev: &EventMsg) -> bool {
         | EventMsg::AgentReasoningSectionBreak(_)
         | EventMsg::RawResponseItem(_)
         | EventMsg::SessionConfigured(_)
+        | EventMsg::ThreadNameUpdated(_)
         | EventMsg::McpToolCallBegin(_)
         | EventMsg::McpToolCallEnd(_)
         | EventMsg::WebSearchBegin(_)
@@ -67,6 +74,8 @@ pub(crate) fn should_persist_event_msg(ev: &EventMsg) -> bool {
         | EventMsg::ExecCommandOutputDelta(_)
         | EventMsg::ExecCommandEnd(_)
         | EventMsg::ExecApprovalRequest(_)
+        | EventMsg::RequestUserInput(_)
+        | EventMsg::DynamicToolCallRequest(_)
         | EventMsg::ElicitationRequest(_)
         | EventMsg::ApplyPatchApprovalRequest(_)
         | EventMsg::BackgroundEvent(_)
@@ -81,15 +90,25 @@ pub(crate) fn should_persist_event_msg(ev: &EventMsg) -> bool {
         | EventMsg::McpStartupComplete(_)
         | EventMsg::ListCustomPromptsResponse(_)
         | EventMsg::ListSkillsResponse(_)
+        | EventMsg::ListRemoteSkillsResponse(_)
+        | EventMsg::RemoteSkillDownloaded(_)
         | EventMsg::PlanUpdate(_)
         | EventMsg::ShutdownComplete
         | EventMsg::ViewImageToolCall(_)
         | EventMsg::DeprecationNotice(_)
         | EventMsg::ItemStarted(_)
-        | EventMsg::ItemCompleted(_)
         | EventMsg::AgentMessageContentDelta(_)
+        | EventMsg::PlanDelta(_)
         | EventMsg::ReasoningContentDelta(_)
         | EventMsg::ReasoningRawContentDelta(_)
-        | EventMsg::SkillsUpdateAvailable => false,
+        | EventMsg::SkillsUpdateAvailable
+        | EventMsg::CollabAgentSpawnBegin(_)
+        | EventMsg::CollabAgentSpawnEnd(_)
+        | EventMsg::CollabAgentInteractionBegin(_)
+        | EventMsg::CollabAgentInteractionEnd(_)
+        | EventMsg::CollabWaitingBegin(_)
+        | EventMsg::CollabWaitingEnd(_)
+        | EventMsg::CollabCloseBegin(_)
+        | EventMsg::CollabCloseEnd(_) => false,
     }
 }

@@ -12,6 +12,7 @@ async fn load_reverie_conversations(
     codex_home,
     page_size,
     None,
+    codex_core::ThreadSortKey::UpdatedAt,
     &[],
     None,
     OLLAMA_OSS_PROVIDER_ID,
@@ -105,4 +106,3 @@ fn fallback_toon_snippet(source: &str) -> String {
     snippet
   }
 }
-

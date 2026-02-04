@@ -2,13 +2,17 @@ use codex_protocol::config_types::Verbosity;
 use codex_protocol::openai_models::ApplyPatchToolType;
 use codex_protocol::openai_models::ConfigShellToolType;
 use codex_protocol::openai_models::ModelInfo;
+use codex_protocol::openai_models::ModelInstructionsVariables;
+use codex_protocol::openai_models::ModelMessages;
 use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::openai_models::ReasoningEffortPreset;
 use codex_protocol::openai_models::TruncationMode;
 use codex_protocol::openai_models::TruncationPolicyConfig;
+use codex_protocol::openai_models::default_input_modalities;
 
 use crate::config::Config;
+use crate::features::Feature;
 use crate::truncate::approx_bytes_for_tokens;
 use tracing::warn;
 
@@ -20,7 +24,15 @@ const GPT_5_CODEX_INSTRUCTIONS: &str = include_str!("../../gpt_5_codex_prompt.md
 const GPT_5_1_INSTRUCTIONS: &str = include_str!("../../gpt_5_1_prompt.md");
 const GPT_5_2_INSTRUCTIONS: &str = include_str!("../../gpt_5_2_prompt.md");
 const GPT_5_1_CODEX_MAX_INSTRUCTIONS: &str = include_str!("../../gpt-5.1-codex-max_prompt.md");
+
 const GPT_5_2_CODEX_INSTRUCTIONS: &str = include_str!("../../gpt-5.2-codex_prompt.md");
+const GPT_5_2_CODEX_INSTRUCTIONS_TEMPLATE: &str =
+    include_str!("../../templates/model_instructions/gpt-5.2-codex_instructions_template.md");
+
+const GPT_5_2_CODEX_PERSONALITY_FRIENDLY: &str =
+    include_str!("../../templates/personalities/gpt-5.2-codex_friendly.md");
+const GPT_5_2_CODEX_PERSONALITY_PRAGMATIC: &str =
+    include_str!("../../templates/personalities/gpt-5.2-codex_pragmatic.md");
 
 pub(crate) const CONTEXT_WINDOW_272K: i64 = 272_000;
 
@@ -44,6 +56,7 @@ macro_rules! model_info {
             priority: 99,
             upgrade: None,
             base_instructions: BASE_INSTRUCTIONS.to_string(),
+            model_messages: None,
             supports_reasoning_summaries: false,
             support_verbosity: false,
             default_verbosity: None,
@@ -54,6 +67,7 @@ macro_rules! model_info {
             auto_compact_token_limit: None,
             effective_context_window_percent: 95,
             experimental_supported_tools: Vec::new(),
+            input_modalities: default_input_modalities(),
         };
 
         $(
@@ -86,6 +100,14 @@ pub(crate) fn with_config_overrides(mut model: ModelInfo, config: &Config) -> Mo
             }
         };
     }
+
+    if let Some(base_instructions) = &config.base_instructions {
+        model.base_instructions = base_instructions.clone();
+        model.model_messages = None;
+    } else if !config.features.enabled(Feature::Personality) {
+        model.model_messages = None;
+    }
+
     model
 }
 
@@ -159,6 +181,14 @@ pub(crate) fn find_model_info_for_slug(slug: &str) -> ModelInfo {
         model_info!(
             slug,
             base_instructions: GPT_5_2_CODEX_INSTRUCTIONS.to_string(),
+            model_messages: Some(ModelMessages {
+                instructions_template: Some(GPT_5_2_CODEX_INSTRUCTIONS_TEMPLATE.to_string()),
+                instructions_variables: Some(ModelInstructionsVariables {
+                    personality_default: Some("".to_string()),
+                    personality_friendly: Some(GPT_5_2_CODEX_PERSONALITY_FRIENDLY.to_string()),
+                    personality_pragmatic: Some(GPT_5_2_CODEX_PERSONALITY_PRAGMATIC.to_string()),
+                }),
+            }),
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
             shell_type: ConfigShellToolType::ShellCommand,
             supports_parallel_tool_calls: true,
@@ -193,6 +223,15 @@ pub(crate) fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             truncation_policy: TruncationPolicyConfig::tokens(10_000),
             context_window: Some(CONTEXT_WINDOW_272K),
             supported_reasoning_levels: supported_reasoning_level_low_medium_high_xhigh(),
+            base_instructions: GPT_5_2_CODEX_INSTRUCTIONS.to_string(),
+            model_messages: Some(ModelMessages {
+                instructions_template: Some(GPT_5_2_CODEX_INSTRUCTIONS_TEMPLATE.to_string()),
+                instructions_variables: Some(ModelInstructionsVariables {
+                    personality_default: Some("".to_string()),
+                    personality_friendly: Some(GPT_5_2_CODEX_PERSONALITY_FRIENDLY.to_string()),
+                    personality_pragmatic: Some(GPT_5_2_CODEX_PERSONALITY_PRAGMATIC.to_string()),
+                }),
+            }),
         )
     } else if slug.starts_with("gpt-5.1-codex-max") {
         model_info!(
@@ -239,9 +278,7 @@ pub(crate) fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             truncation_policy: TruncationPolicyConfig::tokens(10_000),
             context_window: Some(CONTEXT_WINDOW_272K),
         )
-    } else if (slug.starts_with("gpt-5.2") || slug.starts_with("boomslang"))
-        && !slug.contains("codex")
-    {
+    } else if slug.starts_with("gpt-5.2") || slug.starts_with("boomslang") {
         model_info!(
             slug,
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
@@ -256,7 +293,7 @@ pub(crate) fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             context_window: Some(CONTEXT_WINDOW_272K),
             supported_reasoning_levels: supported_reasoning_level_low_medium_high_xhigh_non_codex(),
         )
-    } else if slug.starts_with("gpt-5.1") && !slug.contains("codex") {
+    } else if slug.starts_with("gpt-5.1") {
         model_info!(
             slug,
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
@@ -301,29 +338,6 @@ pub(crate) fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             supported_reasoning_levels: Vec::new(),
             default_reasoning_level: None
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::find_model_info_for_slug;
-
-    #[test]
-    fn gpt_4_1_supports_parallel_tool_calls() {
-        let info = find_model_info_for_slug("gpt-4.1");
-        assert!(
-            info.supports_parallel_tool_calls,
-            "gpt-4.1 must allow parallel tool calls for Chat Completions"
-        );
-    }
-
-    #[test]
-    fn gpt_5_mini_supports_parallel_tool_calls() {
-        let info = find_model_info_for_slug("gpt-5-mini");
-        assert!(
-            info.supports_parallel_tool_calls,
-            "gpt-5-mini must allow parallel tool calls for Responses API"
-        );
     }
 }
 
@@ -401,4 +415,27 @@ fn supported_reasoning_level_low_medium_high_xhigh_non_codex() -> Vec<ReasoningE
             description: "Extra high reasoning for complex problems".to_string(),
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_model_info_for_slug;
+
+    #[test]
+    fn gpt_4_1_supports_parallel_tool_calls() {
+        let info = find_model_info_for_slug("gpt-4.1");
+        assert!(
+            info.supports_parallel_tool_calls,
+            "gpt-4.1 must allow parallel tool calls for Chat Completions"
+        );
+    }
+
+    #[test]
+    fn gpt_5_mini_supports_parallel_tool_calls() {
+        let info = find_model_info_for_slug("gpt-5-mini");
+        assert!(
+            info.supports_parallel_tool_calls,
+            "gpt-5-mini must allow parallel tool calls for Responses API"
+        );
+    }
 }

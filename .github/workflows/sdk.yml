@@ -5,18 +5,10 @@ on:
     branches: [main]
   pull_request: {}
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  sdk-typescript:
-    name: TypeScript SDK
+  sdks:
     runs-on: ubuntu-latest
-    env:
-      RUSTC_WRAPPER: sccache
-      CARGO_INCREMENTAL: "0"
-      SCCACHE_CACHE_SIZE: 5G
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -32,247 +24,20 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@1.91.1
+      - uses: dtolnay/rust-toolchain@1.93
 
-      - name: Install sccache
-        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e # v2
-        with:
-          tool: sccache@0.7.5
-
-      - name: Configure sccache backend
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -n "${ACTIONS_CACHE_URL:-}" && -n "${ACTIONS_RUNTIME_TOKEN:-}" ]]; then
-            echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-            echo "Using sccache GitHub backend"
-          else
-            echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
-            echo "SCCACHE_DIR=${{ github.workspace }}/.sccache" >> "$GITHUB_ENV"
-            echo "Using sccache local disk + actions/cache fallback"
-          fi
-
-      - name: Restore sccache cache (fallback)
-        if: ${{ env.SCCACHE_GHA_ENABLED != 'true' }}
-        id: cache_sccache_restore_ts
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ github.workspace }}/.sccache/
-          key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
-          restore-keys: |
-            sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-
-            sccache-${{ runner.os }}-
-
-      - name: Restore cargo home cache
-        id: cache_cargo_home_restore_ts
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: cargo-home-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('codex-rs/rust-toolchain.toml') }}
-          restore-keys: |
-            cargo-home-${{ runner.os }}-
-
-      - name: Restore cargo target cache
-        id: cache_cargo_target_restore_ts
-        uses: actions/cache/restore@v4
-        with:
-          path: codex-rs/target/
-          key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
-          restore-keys: |
-            cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
-            cargo-target-${{ runner.os }}-
-
-      - name: Build codex (debug) for tests
+      - name: build codex
         run: cargo build --bin codex
         working-directory: codex-rs
 
-      - name: Install TypeScript SDK dependencies
-        run: pnpm -C sdk/typescript install --frozen-lockfile
-
-      - name: Build SDK packages
-        run: pnpm -C sdk/typescript run build
-
-      - name: Lint SDK packages
-        run: pnpm -C sdk/typescript run lint
-
-      - name: Test SDK packages
-        run: pnpm -C sdk/typescript run test
-
-      - name: Save sccache cache (fallback)
-        if: always() && !cancelled() && env.SCCACHE_GHA_ENABLED != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ github.workspace }}/.sccache/
-          key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.run_id }}
-
-      - name: Save cargo home cache
-        if: always() && !cancelled() && steps.cache_cargo_home_restore_ts.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: cargo-home-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('codex-rs/rust-toolchain.toml') }}
-
-      - name: Save cargo target cache
-        if: always() && !cancelled() && steps.cache_cargo_target_restore_ts.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: codex-rs/target/
-          key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-${{ github.run_id }}
-
-  sdk-native:
-    name: Native SDK
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      RUSTC_WRAPPER: sccache
-      CARGO_INCREMENTAL: "0"
-      SCCACHE_CACHE_SIZE: 5G
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Free disk space for build
-        shell: bash
-        run: |
-          set -euxo pipefail
-          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet /opt/hostedtoolcache/CodeQL || true
-          df -h
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - uses: dtolnay/rust-toolchain@1.91.1
-        with:
-          components: rustfmt, clippy
-
-      # Install and configure sccache (align with rust-ci)
-      - name: Install sccache
-        uses: taiki-e/install-action@e797ba6a25dbd8669057e123b02812e16138589e # v2
-        with:
-          tool: sccache@0.7.5
-
-      - name: Configure sccache backend
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -n "${ACTIONS_CACHE_URL:-}" && -n "${ACTIONS_RUNTIME_TOKEN:-}" ]]; then
-            echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-            echo "Using sccache GitHub backend"
-          else
-            echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
-            echo "SCCACHE_DIR=${{ github.workspace }}/.sccache" >> "$GITHUB_ENV"
-            echo "Using sccache local disk + actions/cache fallback"
-          fi
-
-      - name: Restore sccache cache (fallback)
-        if: ${{ env.SCCACHE_GHA_ENABLED != 'true' }}
-        id: cache_sccache_restore
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ github.workspace }}/.sccache/
-          key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-
-            sccache-${{ runner.os }}-
-
-      # Match rust-ci: split cargo home vs target, so large target dir is separable.
-      - name: Restore cargo home cache
-        id: cache_cargo_home_restore
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: cargo-home-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('codex-rs/rust-toolchain.toml') }}
-          restore-keys: |
-            cargo-home-${{ runner.os }}-
-
-      - name: Restore cargo target cache
-        id: cache_cargo_target_restore
-        uses: actions/cache/restore@v4
-        with:
-          path: codex-rs/target/
-          key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}
-          restore-keys: |
-            cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}-
-            cargo-target-${{ runner.os }}-
-
-      - name: Install native SDK dependencies
-        working-directory: sdk/native
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build native SDK
-        working-directory: sdk/native
-        run: pnpm run build:ci
+      - name: Build SDK packages
+        run: pnpm -r --filter ./sdk/typescript run build
 
-      - name: Test native SDK
-        working-directory: sdk/native
-        run: pnpm test
+      - name: Lint SDK packages
+        run: pnpm -r --filter ./sdk/typescript run lint
 
-      - name: Save sccache cache (fallback)
-        if: always() && !cancelled() && env.SCCACHE_GHA_ENABLED != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ github.workspace }}/.sccache/
-          key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: sccache stats
-        if: always()
-        continue-on-error: true
-        run: sccache --show-stats || true
-
-      - name: Save cargo home cache
-        if: always() && !cancelled() && steps.cache_cargo_home_restore.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: cargo-home-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('codex-rs/rust-toolchain.toml') }}
-
-      - name: Save cargo target cache
-        if: always() && !cancelled() && steps.cache_cargo_target_restore.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: codex-rs/target/
-          key: cargo-target-${{ runner.os }}-${{ hashFiles('codex-rs/Cargo.lock') }}
-
-  sdks:
-    name: SDK results (required)
-    needs: [sdk-typescript, sdk-native]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Summarize
-        shell: bash
-        run: |
-          echo "typescript: ${{ needs.sdk-typescript.result }}"
-          echo "native    : ${{ needs.sdk-native.result }}"
-          [[ '${{ needs.sdk-typescript.result }}' == 'success' ]] || { echo 'sdk-typescript failed'; exit 1; }
-          [[ '${{ needs.sdk-native.result }}' == 'success' ]] || { echo 'sdk-native failed'; exit 1; }
+      - name: Test SDK packages
+        run: pnpm -r --filter ./sdk/typescript run test

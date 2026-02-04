@@ -32,7 +32,7 @@ async fn refresh_models_on_models_etag_mismatch_and_avoid_duplicate_models_fetch
     const ETAG_2: &str = "\"models-etag-2\"";
     const CALL_ID: &str = "local-shell-call-1";
 
-    let server = core_test_support::start_mock_server().await;
+    let server = core_test_support::responses::start_mock_server().await;
 
     // 1) On spawn, Codex fetches /models and stores the ETag.
     let spawn_models_mock = responses::mount_models_once_with_etag(
@@ -99,6 +99,7 @@ async fn refresh_models_on_models_etag_mismatch_and_avoid_duplicate_models_fetch
         .submit(Op::UserTurn {
             items: vec![UserInput::Text {
                 text: "please run a tool".into(),
+                text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             cwd: cwd.path().to_path_buf(),
@@ -107,6 +108,8 @@ async fn refresh_models_on_models_etag_mismatch_and_avoid_duplicate_models_fetch
             model: session_model,
             effort: None,
             summary: ReasoningSummary::Auto,
+            collaboration_mode: None,
+            personality: None,
         })
         .await?;
 

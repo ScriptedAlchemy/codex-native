@@ -12,11 +12,13 @@ use tokio::process::ChildStdout;
 
 use anyhow::Context;
 use codex_app_server_protocol::AddConversationListenerParams;
+use codex_app_server_protocol::AppsListParams;
 use codex_app_server_protocol::ArchiveConversationParams;
 use codex_app_server_protocol::CancelLoginAccountParams;
 use codex_app_server_protocol::CancelLoginChatGptParams;
 use codex_app_server_protocol::ClientInfo;
 use codex_app_server_protocol::ClientNotification;
+use codex_app_server_protocol::CollaborationModeListParams;
 use codex_app_server_protocol::ConfigBatchWriteParams;
 use codex_app_server_protocol::ConfigReadParams;
 use codex_app_server_protocol::ConfigValueWriteParams;
@@ -24,15 +26,19 @@ use codex_app_server_protocol::FeedbackUploadParams;
 use codex_app_server_protocol::ForkConversationParams;
 use codex_app_server_protocol::GetAccountParams;
 use codex_app_server_protocol::GetAuthStatusParams;
+use codex_app_server_protocol::InitializeCapabilities;
 use codex_app_server_protocol::InitializeParams;
 use codex_app_server_protocol::InterruptConversationParams;
 use codex_app_server_protocol::JSONRPCError;
+use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::JSONRPCMessage;
 use codex_app_server_protocol::JSONRPCNotification;
 use codex_app_server_protocol::JSONRPCRequest;
 use codex_app_server_protocol::JSONRPCResponse;
 use codex_app_server_protocol::ListConversationsParams;
+use codex_app_server_protocol::LoginAccountParams;
 use codex_app_server_protocol::LoginApiKeyParams;
+use codex_app_server_protocol::MockExperimentalMethodParams;
 use codex_app_server_protocol::ModelListParams;
 use codex_app_server_protocol::NewConversationParams;
 use codex_app_server_protocol::RemoveConversationListenerParams;
@@ -44,14 +50,18 @@ use codex_app_server_protocol::SendUserTurnParams;
 use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::SetDefaultModelParams;
 use codex_app_server_protocol::ThreadArchiveParams;
+use codex_app_server_protocol::ThreadCompactStartParams;
 use codex_app_server_protocol::ThreadForkParams;
 use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadLoadedListParams;
+use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadResumeParams;
 use codex_app_server_protocol::ThreadRollbackParams;
 use codex_app_server_protocol::ThreadStartParams;
+use codex_app_server_protocol::ThreadUnarchiveParams;
 use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnStartParams;
+use codex_core::default_client::CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR;
 use tokio::process::Command;
 
 pub struct McpProcess {
@@ -91,6 +101,7 @@ impl McpProcess {
         cmd.stderr(Stdio::piped());
         cmd.env("CODEX_HOME", codex_home);
         cmd.env("RUST_LOG", "debug");
+        cmd.env_remove(CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR);
 
         for (k, v) in env_overrides {
             match v {
@@ -156,7 +167,32 @@ impl McpProcess {
         &mut self,
         client_info: ClientInfo,
     ) -> anyhow::Result<JSONRPCMessage> {
-        let params = Some(serde_json::to_value(InitializeParams { client_info })?);
+        self.initialize_with_capabilities(
+            client_info,
+            Some(InitializeCapabilities {
+                experimental_api: true,
+            }),
+        )
+        .await
+    }
+
+    pub async fn initialize_with_capabilities(
+        &mut self,
+        client_info: ClientInfo,
+        capabilities: Option<InitializeCapabilities>,
+    ) -> anyhow::Result<JSONRPCMessage> {
+        self.initialize_with_params(InitializeParams {
+            client_info,
+            capabilities,
+        })
+        .await
+    }
+
+    async fn initialize_with_params(
+        &mut self,
+        params: InitializeParams,
+    ) -> anyhow::Result<JSONRPCMessage> {
+        let params = Some(serde_json::to_value(params)?);
         let request_id = self.send_request("initialize", params).await?;
         let message = self.read_jsonrpc_message().await?;
         match message {
@@ -292,6 +328,20 @@ impl McpProcess {
         self.send_request("account/read", params).await
     }
 
+    /// Send an `account/login/start` JSON-RPC request with ChatGPT auth tokens.
+    pub async fn send_chatgpt_auth_tokens_login_request(
+        &mut self,
+        id_token: String,
+        access_token: String,
+    ) -> anyhow::Result<i64> {
+        let params = LoginAccountParams::ChatgptAuthTokens {
+            id_token,
+            access_token,
+        };
+        let params = Some(serde_json::to_value(params)?);
+        self.send_request("account/login/start", params).await
+    }
+
     /// Send a `feedback/upload` JSON-RPC request.
     pub async fn send_feedback_upload_request(
         &mut self,
@@ -360,6 +410,24 @@ impl McpProcess {
         self.send_request("thread/archive", params).await
     }
 
+    /// Send a `thread/unarchive` JSON-RPC request.
+    pub async fn send_thread_unarchive_request(
+        &mut self,
+        params: ThreadUnarchiveParams,
+    ) -> anyhow::Result<i64> {
+        let params = Some(serde_json::to_value(params)?);
+        self.send_request("thread/unarchive", params).await
+    }
+
+    /// Send a `thread/compact/start` JSON-RPC request.
+    pub async fn send_thread_compact_start_request(
+        &mut self,
+        params: ThreadCompactStartParams,
+    ) -> anyhow::Result<i64> {
+        let params = Some(serde_json::to_value(params)?);
+        self.send_request("thread/compact/start", params).await
+    }
+
     /// Send a `thread/rollback` JSON-RPC request.
     pub async fn send_thread_rollback_request(
         &mut self,
@@ -387,6 +455,15 @@ impl McpProcess {
         self.send_request("thread/loaded/list", params).await
     }
 
+    /// Send a `thread/read` JSON-RPC request.
+    pub async fn send_thread_read_request(
+        &mut self,
+        params: ThreadReadParams,
+    ) -> anyhow::Result<i64> {
+        let params = Some(serde_json::to_value(params)?);
+        self.send_request("thread/read", params).await
+    }
+
     /// Send a `model/list` JSON-RPC request.
     pub async fn send_list_models_request(
         &mut self,
@@ -394,6 +471,30 @@ impl McpProcess {
     ) -> anyhow::Result<i64> {
         let params = Some(serde_json::to_value(params)?);
         self.send_request("model/list", params).await
+    }
+
+    /// Send an `app/list` JSON-RPC request.
+    pub async fn send_apps_list_request(&mut self, params: AppsListParams) -> anyhow::Result<i64> {
+        let params = Some(serde_json::to_value(params)?);
+        self.send_request("app/list", params).await
+    }
+
+    /// Send a `collaborationMode/list` JSON-RPC request.
+    pub async fn send_list_collaboration_modes_request(
+        &mut self,
+        params: CollaborationModeListParams,
+    ) -> anyhow::Result<i64> {
+        let params = Some(serde_json::to_value(params)?);
+        self.send_request("collaborationMode/list", params).await
+    }
+
+    /// Send a `mock/experimentalMethod` JSON-RPC request.
+    pub async fn send_mock_experimental_method_request(
+        &mut self,
+        params: MockExperimentalMethodParams,
+    ) -> anyhow::Result<i64> {
+        let params = Some(serde_json::to_value(params)?);
+        self.send_request("mock/experimentalMethod", params).await
     }
 
     /// Send a `resumeConversation` JSON-RPC request.
@@ -569,6 +670,15 @@ impl McpProcess {
             .await
     }
 
+    pub async fn send_error(
+        &mut self,
+        id: RequestId,
+        error: JSONRPCErrorError,
+    ) -> anyhow::Result<()> {
+        self.send_jsonrpc_message(JSONRPCMessage::Error(JSONRPCError { id, error }))
+            .await
+    }
+
     pub async fn send_notification(
         &mut self,
         notification: ClientNotification,
@@ -670,6 +780,10 @@ impl McpProcess {
             unreachable!("expected JSONRPCMessage::Notification, got {message:?}");
         };
         Ok(notification)
+    }
+
+    pub async fn read_next_message(&mut self) -> anyhow::Result<JSONRPCMessage> {
+        self.read_stream_until_message(|_| true).await
     }
 
     /// Clears any buffered messages so future reads only consider new stream items.

@@ -1,12 +1,13 @@
 use crate::codex::TurnContext;
 use crate::context_manager::normalize;
+use crate::instructions::SkillInstructions;
+use crate::instructions::UserInstructions;
+use crate::session_prefix::is_session_prefix;
 use crate::truncate::TruncationPolicy;
 use crate::truncate::approx_token_count;
 use crate::truncate::approx_tokens_from_byte_count;
 use crate::truncate::truncate_function_output_items_with_policy;
 use crate::truncate::truncate_text;
-use crate::user_instructions::SkillInstructions;
-use crate::user_instructions::UserInstructions;
 use crate::user_shell_command::is_user_shell_command_text;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputContentItem;
@@ -85,24 +86,14 @@ impl ContextManager {
     // This is a coarse lower bound, not a tokenizer-accurate count.
     pub(crate) fn estimate_token_count(&self, turn_context: &TurnContext) -> Option<i64> {
         let model_info = turn_context.client.get_model_info();
-        let base_instructions = model_info.base_instructions.as_str();
-        let base_tokens = i64::try_from(approx_token_count(base_instructions)).unwrap_or(i64::MAX);
+        let personality = turn_context
+            .personality
+            .or(turn_context.client.config().personality);
+        let base_instructions = model_info.get_model_instructions(personality);
+        let base_tokens = i64::try_from(approx_token_count(&base_instructions)).unwrap_or(i64::MAX);
 
         let items_tokens = self.items.iter().fold(0i64, |acc, item| {
-            acc + match item {
-                ResponseItem::GhostSnapshot { .. } => 0,
-                ResponseItem::Reasoning {
-                    encrypted_content: Some(content),
-                    ..
-                }
-                | ResponseItem::Compaction {
-                    encrypted_content: content,
-                } => estimate_reasoning_length(content.len()) as i64,
-                item => {
-                    let serialized = serde_json::to_string(item).unwrap_or_default();
-                    i64::try_from(approx_token_count(&serialized)).unwrap_or(i64::MAX)
-                }
-            }
+            acc.saturating_add(estimate_item_token_count(item))
         });
 
         Some(base_tokens.saturating_add(items_tokens))
@@ -120,38 +111,48 @@ impl ContextManager {
         }
     }
 
+    pub(crate) fn remove_last_item(&mut self) -> bool {
+        if let Some(removed) = self.items.pop() {
+            normalize::remove_corresponding_for(&mut self.items, &removed);
+            true
+        } else {
+            false
+        }
+    }
+
     pub(crate) fn replace(&mut self, items: Vec<ResponseItem>) {
         self.items = items;
     }
 
-    pub(crate) fn replace_last_turn_images(&mut self, placeholder: &str) {
-        let Some(last_item) = self.items.last_mut() else {
-            return;
+    /// Replace image content in the last turn if it originated from a tool output.
+    /// Returns true when a tool image was replaced, false otherwise.
+    pub(crate) fn replace_last_turn_images(&mut self, placeholder: &str) -> bool {
+        let Some(index) = self.items.iter().rposition(|item| {
+            matches!(item, ResponseItem::FunctionCallOutput { .. })
+                || matches!(item, ResponseItem::Message { role, .. } if role == "user")
+        }) else {
+            return false;
         };
 
-        match last_item {
-            ResponseItem::Message { role, content, .. } if role == "user" => {
-                for item in content.iter_mut() {
-                    if matches!(item, ContentItem::InputImage { .. }) {
-                        *item = ContentItem::InputText {
-                            text: placeholder.to_string(),
-                        };
-                    }
-                }
-            }
+        match &mut self.items[index] {
             ResponseItem::FunctionCallOutput { output, .. } => {
                 let Some(content_items) = output.content_items.as_mut() else {
-                    return;
+                    return false;
                 };
+                let mut replaced = false;
+                let placeholder = placeholder.to_string();
                 for item in content_items.iter_mut() {
                     if matches!(item, FunctionCallOutputContentItem::InputImage { .. }) {
                         *item = FunctionCallOutputContentItem::InputText {
-                            text: placeholder.to_string(),
+                            text: placeholder.clone(),
                         };
+                        replaced = true;
                     }
                 }
+                replaced
             }
-            _ => {}
+            ResponseItem::Message { role, .. } if role == "user" => false,
+            _ => false,
         }
     }
 
@@ -198,44 +199,60 @@ impl ContextManager {
         );
     }
 
-    fn get_non_last_reasoning_items_tokens(&self) -> usize {
-        // get reasoning items excluding all the ones after the last user message
+    fn get_non_last_reasoning_items_tokens(&self) -> i64 {
+        // Get reasoning items excluding all the ones after the last user message.
         let Some(last_user_index) = self
             .items
             .iter()
             .rposition(|item| matches!(item, ResponseItem::Message { role, .. } if role == "user"))
         else {
-            return 0usize;
+            return 0;
         };
 
-        let total_reasoning_bytes = self
-            .items
+        self.items
             .iter()
             .take(last_user_index)
-            .filter_map(|item| {
-                if let ResponseItem::Reasoning {
-                    encrypted_content: Some(content),
-                    ..
-                } = item
-                {
-                    Some(content.len())
-                } else {
-                    None
-                }
+            .filter(|item| {
+                matches!(
+                    item,
+                    ResponseItem::Reasoning {
+                        encrypted_content: Some(_),
+                        ..
+                    }
+                )
             })
-            .map(estimate_reasoning_length)
-            .fold(0usize, usize::saturating_add);
-
-        let token_estimate = approx_tokens_from_byte_count(total_reasoning_bytes);
-        token_estimate as usize
+            .fold(0i64, |acc, item| {
+                acc.saturating_add(estimate_item_token_count(item))
+            })
     }
 
-    pub(crate) fn get_total_token_usage(&self) -> i64 {
-        self.token_info
+    fn get_trailing_codex_generated_items_tokens(&self) -> i64 {
+        let mut total = 0i64;
+        for item in self.items.iter().rev() {
+            if !is_codex_generated_item(item) {
+                break;
+            }
+            total = total.saturating_add(estimate_item_token_count(item));
+        }
+        total
+    }
+
+    /// When true, the server already accounted for past reasoning tokens and
+    /// the client should not re-estimate them.
+    pub(crate) fn get_total_token_usage(&self, server_reasoning_included: bool) -> i64 {
+        let last_tokens = self
+            .token_info
             .as_ref()
             .map(|info| info.last_token_usage.total_tokens)
-            .unwrap_or(0)
-            .saturating_add(self.get_non_last_reasoning_items_tokens() as i64)
+            .unwrap_or(0);
+        let trailing_codex_generated_tokens = self.get_trailing_codex_generated_items_tokens();
+        if server_reasoning_included {
+            last_tokens.saturating_add(trailing_codex_generated_tokens)
+        } else {
+            last_tokens
+                .saturating_add(self.get_non_last_reasoning_items_tokens())
+                .saturating_add(trailing_codex_generated_tokens)
+        }
     }
 
     /// This function enforces a couple of invariants on the in-memory history:
@@ -253,7 +270,7 @@ impl ContextManager {
     }
 
     fn process_item(&self, item: &ResponseItem, policy: TruncationPolicy) -> ResponseItem {
-        let policy_with_serialization_budget = policy.mul(1.2);
+        let policy_with_serialization_budget = policy * 1.2;
         match item {
             ResponseItem::FunctionCallOutput { call_id, output } => {
                 let truncated =
@@ -319,10 +336,31 @@ fn estimate_reasoning_length(encoded_len: usize) -> usize {
         .saturating_sub(650)
 }
 
-fn is_session_prefix(text: &str) -> bool {
-    let trimmed = text.trim_start();
-    let lowered = trimmed.to_ascii_lowercase();
-    lowered.starts_with("<environment_context>")
+fn estimate_item_token_count(item: &ResponseItem) -> i64 {
+    match item {
+        ResponseItem::GhostSnapshot { .. } => 0,
+        ResponseItem::Reasoning {
+            encrypted_content: Some(content),
+            ..
+        }
+        | ResponseItem::Compaction {
+            encrypted_content: content,
+        } => {
+            let reasoning_bytes = estimate_reasoning_length(content.len());
+            i64::try_from(approx_tokens_from_byte_count(reasoning_bytes)).unwrap_or(i64::MAX)
+        }
+        item => {
+            let serialized = serde_json::to_string(item).unwrap_or_default();
+            i64::try_from(approx_token_count(&serialized)).unwrap_or(i64::MAX)
+        }
+    }
+}
+
+pub(crate) fn is_codex_generated_item(item: &ResponseItem) -> bool {
+    matches!(
+        item,
+        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
+    ) || matches!(item, ResponseItem::Message { role, .. } if role == "developer")
 }
 
 pub(crate) fn is_user_turn_boundary(item: &ResponseItem) -> bool {

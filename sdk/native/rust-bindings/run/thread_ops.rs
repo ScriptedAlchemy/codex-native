@@ -218,6 +218,7 @@ pub async fn list_conversations(req: ListConversationsRequest) -> napi::Result<C
     &config.codex_home,
     page_size,
     cursor.as_ref(),
+    codex_core::ThreadSortKey::UpdatedAt,
     &[],
     provider_slice,
     &config.model_provider_id,
@@ -301,6 +302,10 @@ pub async fn resume_conversation_from_rollout(
   let rollout_path = new_conv
     .session_configured
     .rollout_path
+    .as_ref()
+    .ok_or_else(|| {
+      napi::Error::from_reason("Resume did not return a rollout path".to_string())
+    })?
     .to_string_lossy()
     .to_string();
 
@@ -392,6 +397,10 @@ fn fork_thread_sync(req: InternalForkRequest) -> napi::Result<ForkResult> {
     let rollout_path = new_conv
       .session_configured
       .rollout_path
+      .as_ref()
+      .ok_or_else(|| {
+        napi::Error::from_reason("Fork did not return a rollout path".to_string())
+      })?
       .to_string_lossy()
       .to_string();
 

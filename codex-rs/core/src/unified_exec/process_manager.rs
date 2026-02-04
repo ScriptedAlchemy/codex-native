@@ -10,15 +10,10 @@ use tokio::time::Duration;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::bash::extract_bash_command;
-use crate::codex::Session;
-use crate::codex::TurnContext;
 use crate::exec_env::create_env;
-use crate::protocol::BackgroundEventEvent;
-use crate::protocol::EventMsg;
+use crate::exec_policy::ExecApprovalRequest;
 use crate::protocol::ExecCommandSource;
 use crate::sandboxing::ExecEnv;
-use crate::sandboxing::SandboxPermissions;
 use crate::tools::events::ToolEmitter;
 use crate::tools::events::ToolEventCtx;
 use crate::tools::events::ToolEventStage;
@@ -31,6 +26,8 @@ use crate::truncate::approx_token_count;
 use crate::truncate::formatted_truncate_text;
 use crate::unified_exec::ExecCommandRequest;
 use crate::unified_exec::MAX_UNIFIED_EXEC_PROCESSES;
+use crate::unified_exec::MAX_YIELD_TIME_MS;
+use crate::unified_exec::MIN_EMPTY_YIELD_TIME_MS;
 use crate::unified_exec::ProcessEntry;
 use crate::unified_exec::ProcessStore;
 use crate::unified_exec::UnifiedExecContext;
@@ -50,7 +47,7 @@ use crate::unified_exec::process::OutputHandles;
 use crate::unified_exec::process::UnifiedExecProcess;
 use crate::unified_exec::resolve_max_tokens;
 
-const UNIFIED_EXEC_ENV: [(&str, &str); 9] = [
+const UNIFIED_EXEC_ENV: [(&str, &str); 10] = [
     ("NO_COLOR", "1"),
     ("TERM", "dumb"),
     ("LANG", "C.UTF-8"),
@@ -60,6 +57,7 @@ const UNIFIED_EXEC_ENV: [(&str, &str); 9] = [
     ("PAGER", "cat"),
     ("GIT_PAGER", "cat"),
     ("GH_PAGER", "cat"),
+    ("CODEX_CI", "1"),
 ];
 
 fn apply_unified_exec_env(mut env: HashMap<String, String>) -> HashMap<String, String> {
@@ -74,10 +72,9 @@ struct PreparedProcessHandles {
     output_buffer: OutputBuffer,
     output_notify: Arc<Notify>,
     cancellation_token: CancellationToken,
-    session_ref: Arc<Session>,
-    turn_ref: Arc<TurnContext>,
     command: Vec<String>,
     process_id: String,
+    tty: bool,
 }
 
 impl UnifiedExecProcessManager {
@@ -126,13 +123,7 @@ impl UnifiedExecProcessManager {
             .unwrap_or_else(|| context.turn.cwd.clone());
 
         let process = self
-            .open_session_with_sandbox(
-                &request.command,
-                cwd.clone(),
-                request.sandbox_permissions,
-                request.justification,
-                context,
-            )
+            .open_session_with_sandbox(&request, cwd.clone(), context)
             .await;
 
         let process = match process {
@@ -221,11 +212,10 @@ impl UnifiedExecProcessManager {
                 cwd.clone(),
                 start,
                 process_id,
+                request.tty,
                 Arc::clone(&transcript),
             )
             .await;
-
-            Self::emit_waiting_status(&context.session, &context.turn, &request.command).await;
         };
 
         let original_token_count = approx_token_count(&text);
@@ -259,14 +249,16 @@ impl UnifiedExecProcessManager {
             output_buffer,
             output_notify,
             cancellation_token,
-            session_ref,
-            turn_ref,
             command: session_command,
             process_id,
+            tty,
             ..
         } = self.prepare_process_handles(process_id.as_str()).await?;
 
         if !request.input.is_empty() {
+            if !tty {
+                return Err(UnifiedExecError::StdinClosed);
+            }
             Self::send_input(&writer_tx, request.input.as_bytes()).await?;
             // Give the remote process a brief window to react so that we are
             // more likely to capture its output in the poll below.
@@ -274,7 +266,14 @@ impl UnifiedExecProcessManager {
         }
 
         let max_tokens = resolve_max_tokens(request.max_output_tokens);
-        let yield_time_ms = clamp_yield_time(request.yield_time_ms);
+        let yield_time_ms = {
+            let time_ms = clamp_yield_time(request.yield_time_ms);
+            if request.input.is_empty() {
+                time_ms.clamp(MIN_EMPTY_YIELD_TIME_MS, MAX_YIELD_TIME_MS)
+            } else {
+                time_ms
+            }
+        };
         let start = Instant::now();
         let deadline = start + Duration::from_millis(yield_time_ms);
         let collected = Self::collect_output_until_deadline(
@@ -324,10 +323,6 @@ impl UnifiedExecProcessManager {
             original_token_count: Some(original_token_count),
             session_command: Some(session_command.clone()),
         };
-
-        if response.process_id.is_some() {
-            Self::emit_waiting_status(&session_ref, &turn_ref, &session_command).await;
-        }
 
         Ok(response)
     }
@@ -382,10 +377,9 @@ impl UnifiedExecProcessManager {
             output_buffer,
             output_notify,
             cancellation_token,
-            session_ref: Arc::clone(&entry.session_ref),
-            turn_ref: Arc::clone(&entry.turn_ref),
             command: entry.command.clone(),
             process_id: entry.process_id.clone(),
+            tty: entry.tty,
         })
     }
 
@@ -408,15 +402,15 @@ impl UnifiedExecProcessManager {
         cwd: PathBuf,
         started_at: Instant,
         process_id: String,
+        tty: bool,
         transcript: Arc<tokio::sync::Mutex<HeadTailBuffer>>,
     ) {
         let entry = ProcessEntry {
             process: Arc::clone(&process),
-            session_ref: Arc::clone(&context.session),
-            turn_ref: Arc::clone(&context.turn),
             call_id: context.call_id.clone(),
             process_id: process_id.clone(),
             command: command.to_vec(),
+            tty,
             last_used: started_at,
         };
         let number_processes = {
@@ -449,55 +443,50 @@ impl UnifiedExecProcessManager {
         );
     }
 
-    async fn emit_waiting_status(
-        session: &Arc<Session>,
-        turn: &Arc<TurnContext>,
-        command: &[String],
-    ) {
-        let command_display = if let Some((_, script)) = extract_bash_command(command) {
-            script.to_string()
-        } else {
-            command.join(" ")
-        };
-        let message = format!("Waiting for `{command_display}`");
-        session
-            .send_event(
-                turn.as_ref(),
-                EventMsg::BackgroundEvent(BackgroundEventEvent { message }),
-            )
-            .await;
-    }
-
     pub(crate) async fn open_session_with_exec_env(
         &self,
         env: &ExecEnv,
+        tty: bool,
     ) -> Result<UnifiedExecProcess, UnifiedExecError> {
         let (program, args) = env
             .command
             .split_first()
             .ok_or(UnifiedExecError::MissingCommandLine)?;
 
-        let spawned = codex_utils_pty::spawn_pty_process(
-            program,
-            args,
-            env.cwd.as_path(),
-            &env.env,
-            &env.arg0,
-        )
-        .await
-        .map_err(|err| UnifiedExecError::create_process(err.to_string()))?;
+        let spawn_result = if tty {
+            codex_utils_pty::pty::spawn_process(
+                program,
+                args,
+                env.cwd.as_path(),
+                &env.env,
+                &env.arg0,
+            )
+            .await
+        } else {
+            codex_utils_pty::pipe::spawn_process_no_stdin(
+                program,
+                args,
+                env.cwd.as_path(),
+                &env.env,
+                &env.arg0,
+            )
+            .await
+        };
+        let spawned =
+            spawn_result.map_err(|err| UnifiedExecError::create_process(err.to_string()))?;
         UnifiedExecProcess::from_spawned(spawned, env.sandbox).await
     }
 
     pub(super) async fn open_session_with_sandbox(
         &self,
-        command: &[String],
+        request: &ExecCommandRequest,
         cwd: PathBuf,
-        sandbox_permissions: SandboxPermissions,
-        justification: Option<String>,
         context: &UnifiedExecContext,
     ) -> Result<UnifiedExecProcess, UnifiedExecError> {
-        let env = apply_unified_exec_env(create_env(&context.turn.shell_environment_policy));
+        let env = apply_unified_exec_env(create_env(
+            &context.turn.shell_environment_policy,
+            Some(context.session.conversation_id),
+        ));
         let features = context.session.features();
         let mut orchestrator = ToolOrchestrator::new();
         let mut runtime = UnifiedExecRuntime::new(self);
@@ -505,20 +494,22 @@ impl UnifiedExecProcessManager {
             .session
             .services
             .exec_policy
-            .create_exec_approval_requirement_for_command(
-                &features,
-                command,
-                context.turn.approval_policy,
-                &context.turn.sandbox_policy,
-                sandbox_permissions,
-            )
+            .create_exec_approval_requirement_for_command(ExecApprovalRequest {
+                features: &features,
+                command: &request.command,
+                approval_policy: context.turn.approval_policy,
+                sandbox_policy: &context.turn.sandbox_policy,
+                sandbox_permissions: request.sandbox_permissions,
+                prefix_rule: request.prefix_rule.clone(),
+            })
             .await;
         let req = UnifiedExecToolRequest::new(
-            command.to_vec(),
+            request.command.clone(),
             cwd,
             env,
-            sandbox_permissions,
-            justification,
+            request.tty,
+            request.sandbox_permissions,
+            request.justification.clone(),
             exec_approval_requirement,
         );
         let tool_ctx = ToolCtx {
@@ -701,6 +692,7 @@ mod tests {
             ("PAGER".to_string(), "cat".to_string()),
             ("GIT_PAGER".to_string(), "cat".to_string()),
             ("GH_PAGER".to_string(), "cat".to_string()),
+            ("CODEX_CI".to_string(), "1".to_string()),
         ]);
 
         assert_eq!(env, expected);

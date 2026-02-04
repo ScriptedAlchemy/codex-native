@@ -11,13 +11,18 @@ use codex_app_server_protocol::NewConversationResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::SendUserMessageParams;
 use codex_app_server_protocol::SendUserMessageResponse;
+use codex_execpolicy::Policy;
 use codex_protocol::ThreadId;
 use codex_protocol::models::ContentItem;
+use codex_protocol::models::DeveloperInstructions;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::RawResponseItemEvent;
+use codex_protocol::protocol::SandboxPolicy;
 use core_test_support::responses;
 use pretty_assertions::assert_eq;
 use std::path::Path;
+use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::time::timeout;
 
@@ -97,6 +102,7 @@ async fn send_message(
             conversation_id,
             items: vec![InputItem::Text {
                 text: message.to_string(),
+                text_elements: Vec::new(),
             }],
         })
         .await?;
@@ -190,9 +196,13 @@ async fn test_send_message_raw_notifications_opt_in() -> Result<()> {
             conversation_id,
             items: vec![InputItem::Text {
                 text: "Hello".to_string(),
+                text_elements: Vec::new(),
             }],
         })
         .await?;
+
+    let permissions = read_raw_response_item(&mut mcp, conversation_id).await;
+    assert_permissions_message(&permissions);
 
     let developer = read_raw_response_item(&mut mcp, conversation_id).await;
     assert_developer_message(&developer, "Use the test harness tools.");
@@ -238,6 +248,7 @@ async fn test_send_message_session_not_found() -> Result<()> {
             conversation_id: unknown,
             items: vec![InputItem::Text {
                 text: "ping".to_string(),
+                text_elements: Vec::new(),
             }],
         })
         .await?;
@@ -340,6 +351,29 @@ fn assert_instructions_message(item: &ResponseItem) {
     }
 }
 
+fn assert_permissions_message(item: &ResponseItem) {
+    match item {
+        ResponseItem::Message { role, content, .. } => {
+            assert_eq!(role, "developer");
+            let texts = content_texts(content);
+            let expected = DeveloperInstructions::from_policy(
+                &SandboxPolicy::DangerFullAccess,
+                AskForApproval::Never,
+                &Policy::empty(),
+                false,
+                &PathBuf::from("/tmp"),
+            )
+            .into_text();
+            assert_eq!(
+                texts,
+                vec![expected.as_str()],
+                "expected permissions developer message, got {texts:?}"
+            );
+        }
+        other => panic!("expected permissions message, got {other:?}"),
+    }
+}
+
 fn assert_developer_message(item: &ResponseItem, expected_text: &str) {
     match item {
         ResponseItem::Message { role, content, .. } => {
@@ -397,7 +431,7 @@ fn content_texts(content: &[ContentItem]) -> Vec<&str> {
     content
         .iter()
         .filter_map(|item| match item {
-            ContentItem::InputText { text } | ContentItem::OutputText { text } => {
+            ContentItem::InputText { text, .. } | ContentItem::OutputText { text } => {
                 Some(text.as_str())
             }
             _ => None,

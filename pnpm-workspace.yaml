@@ -10,3 +10,7 @@ packages:
 
 ignoredBuiltDependencies:
   - esbuild
+
+minimumReleaseAge: 10080
+
+blockExoticSubdeps: true

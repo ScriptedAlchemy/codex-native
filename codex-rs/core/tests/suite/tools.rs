@@ -475,6 +475,7 @@ time.sleep(60)
             .submit(Op::UserTurn {
                 items: vec![UserInput::Text {
                     text: "run a command with a detached grandchild".into(),
+                    text_elements: Vec::new(),
                 }],
                 final_output_json_schema: None,
                 cwd: test.cwd.path().to_path_buf(),
@@ -483,6 +484,8 @@ time.sleep(60)
                 model: session_model,
                 effort: None,
                 summary: ReasoningSummary::Auto,
+                collaboration_mode: None,
+                personality: None,
             })
             .await?;
 

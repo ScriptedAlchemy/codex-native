@@ -131,10 +131,10 @@ pub(crate) fn reorder_tool_outputs(items: &mut Vec<ResponseItem>) {
             }
             other => {
                 reordered.push(other);
-                if let Some(call_id) = call_id {
-                    if let Some(outputs) = outputs_by_call.remove(&call_id) {
-                        reordered.extend(outputs);
-                    }
+                if let Some(call_id) = call_id
+                    && let Some(outputs) = outputs_by_call.remove(&call_id)
+                {
+                    reordered.extend(outputs);
                 }
             }
         }
