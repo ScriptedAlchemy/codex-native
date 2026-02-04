@@ -272,14 +272,16 @@ async fn test_reverie_search_semantic_respects_reranker_hook() {
       timestamp: timestamp.clone(),
       item: RolloutItem::SessionMeta(SessionMetaLine {
         meta: SessionMeta {
-          id: ConversationId::from_string(priority_uuid).unwrap(),
+          id: ThreadId::from_string(priority_uuid).unwrap(),
+          forked_from_id: None,
           timestamp: timestamp.clone(),
-          instructions: None,
           cwd: home.path().to_path_buf(),
           originator: "test".to_string(),
           cli_version: "0.0.0".to_string(),
           model_provider: Some("test-provider".to_string()),
           source: SessionSource::VSCode,
+          base_instructions: None,
+          dynamic_tools: None,
         },
         git: None,
       }),
@@ -289,6 +291,8 @@ async fn test_reverie_search_semantic_respects_reranker_hook() {
       item: RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
         message: "Need reverie priority hints for critical migration blockers with schema drift".to_string(),
         images: None,
+        local_images: Vec::new(),
+        text_elements: Vec::new(),
       })),
     },
     RolloutLine {
@@ -300,6 +304,8 @@ async fn test_reverie_search_semantic_respects_reranker_hook() {
           text: "Root-caused the reverie priority migration issue by replaying the hints about rollback order"
             .to_string(),
         }],
+        end_turn: None,
+        phase: None,
       }),
     },
   ];
