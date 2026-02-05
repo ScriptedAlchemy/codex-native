@@ -36,6 +36,7 @@ pub mod features;
 mod file_watcher;
 mod flags;
 pub mod git_info;
+pub mod hooks;
 pub mod instructions;
 pub mod landlock;
 pub mod mcp;
@@ -122,6 +123,7 @@ pub use rollout::SessionMeta;
 pub use rollout::find_archived_thread_path_by_id_str;
 #[deprecated(note = "use find_thread_path_by_id_str")]
 pub use rollout::find_conversation_path_by_id_str;
+pub use rollout::find_thread_name_by_id;
 pub use rollout::find_thread_path_by_id_str;
 pub use rollout::find_thread_path_by_name_str;
 pub use rollout::list::Cursor;
@@ -137,12 +139,10 @@ mod function_tool;
 pub use function_tool::FunctionCallError;
 mod state;
 mod tasks;
-mod user_notification;
 mod user_shell_command;
 pub mod util;
 
 pub use apply_patch::CODEX_APPLY_PATCH_ARG1;
-pub use client::WEB_SEARCH_ELIGIBLE_HEADER;
 pub use client::X_CODEX_TURN_METADATA_HEADER;
 pub use command_safety::is_dangerous_command;
 pub use command_safety::is_safe_command;

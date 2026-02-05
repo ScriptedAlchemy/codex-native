@@ -138,6 +138,7 @@ async fn run_main_with_event_processor(
         cwd,
         skip_git_repo_check,
         add_dir,
+        ephemeral,
         color,
         last_message_file,
         json: json_mode,
@@ -312,7 +313,7 @@ async fn run_main_with_event_processor(
         include_apply_patch_tool: None,
         show_raw_agent_reasoning: oss.then_some(true),
         tools_web_search_request: None,
-        ephemeral: None,
+        ephemeral: ephemeral.then_some(true),
         additional_writable_roots: add_dir,
     };
 

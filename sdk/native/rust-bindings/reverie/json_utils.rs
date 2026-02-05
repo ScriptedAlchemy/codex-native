@@ -181,6 +181,12 @@ fn conversation_matches_project(head_records: &[String], project_root: Option<&P
         .and_then(|meta| meta.get("cwd"))
         .and_then(|cwd| cwd.as_str())
         .or_else(|| json_value.get("cwd").and_then(|cwd| cwd.as_str()))
+        .or_else(|| {
+          json_value
+            .get("payload")
+            .and_then(|payload| payload.get("cwd"))
+            .and_then(|cwd| cwd.as_str())
+        })
     {
       let candidate = normalize_path(cwd);
       if path_starts_with(&candidate, root) {
@@ -240,4 +246,3 @@ fn build_excerpt(text: &str) -> String {
     excerpt
   }
 }
-

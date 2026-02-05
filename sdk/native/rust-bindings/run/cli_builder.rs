@@ -162,6 +162,7 @@ pub fn build_cli(
 	    cwd: options.working_directory.clone(),
 	    skip_git_repo_check: options.skip_git_repo_check,
 	    add_dir,
+	    ephemeral: options.ephemeral.unwrap_or(false),
 	    output_schema: schema_path,
 	    config_overrides: CliConfigOverrides { raw_overrides },
 	    input_items: options.input_items.clone(),

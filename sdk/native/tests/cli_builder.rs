@@ -2,11 +2,11 @@ use codex_common::SandboxModeCliArg;
 use codex_exec::Command;
 use codex_exec::PersonalityCliArg;
 use codex_native::*;
-use pretty_assertions::assert_eq;
-use std::path::PathBuf;
 use codex_protocol::config_types::Personality;
 use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
+use pretty_assertions::assert_eq;
+use std::path::PathBuf;
 
 fn base_internal_request() -> InternalRunRequest {
   InternalRunRequest {
