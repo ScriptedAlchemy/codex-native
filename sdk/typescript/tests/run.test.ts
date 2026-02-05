@@ -747,10 +747,10 @@ describe("Codex", () => {
       ]);
 
       const commandArgs = spawnArgs[0];
-      const inputItemsIndex = commandArgs?.indexOf("--input-items") ?? -1;
+      const inputItemsIndex = commandArgs?.indexOf("--input-items-json") ?? -1;
       expect(inputItemsIndex).toBeGreaterThan(-1);
-      const inputItemsPath = commandArgs?.[inputItemsIndex + 1];
-      expect(typeof inputItemsPath).toBe("string");
+      const inputItemsJson = commandArgs?.[inputItemsIndex + 1];
+      expect(typeof inputItemsJson).toBe("string");
       expect(inputItemsPayloads.length).toBeGreaterThan(0);
       const inputItems = inputItemsPayloads[0] as Array<Record<string, unknown>>;
       expect(inputItems).toEqual([
@@ -863,10 +863,10 @@ describe("Codex", () => {
       const commandArgs = spawnArgs[0];
       expect(commandArgs).toBeDefined();
       expect(commandArgs).not.toContain("--image");
-      const inputItemsIndex = commandArgs?.indexOf("--input-items") ?? -1;
+      const inputItemsIndex = commandArgs?.indexOf("--input-items-json") ?? -1;
       expect(inputItemsIndex).toBeGreaterThan(-1);
-      const inputItemsPath = commandArgs?.[inputItemsIndex + 1];
-      expect(typeof inputItemsPath).toBe("string");
+      const inputItemsJson = commandArgs?.[inputItemsIndex + 1];
+      expect(typeof inputItemsJson).toBe("string");
       expect(inputItemsPayloads.length).toBeGreaterThan(0);
       const inputItems = inputItemsPayloads[0] as Array<Record<string, unknown>>;
       expect(inputItems).toEqual([
@@ -917,10 +917,10 @@ describe("Codex", () => {
       await thread.run("use dynamic tools");
 
       const commandArgs = spawnArgs[0];
-      const dynamicToolsIndex = commandArgs?.indexOf("--dynamic-tools") ?? -1;
+      const dynamicToolsIndex = commandArgs?.indexOf("--dynamic-tools-json") ?? -1;
       expect(dynamicToolsIndex).toBeGreaterThan(-1);
-      const dynamicToolsPath = commandArgs?.[dynamicToolsIndex + 1];
-      expect(typeof dynamicToolsPath).toBe("string");
+      const dynamicToolsJson = commandArgs?.[dynamicToolsIndex + 1];
+      expect(typeof dynamicToolsJson).toBe("string");
       expect(dynamicToolsPayloads.length).toBeGreaterThan(0);
       const payload = dynamicToolsPayloads[0] as Array<Record<string, unknown>>;
       expect(payload).toEqual([

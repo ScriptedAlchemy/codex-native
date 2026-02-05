@@ -147,21 +147,25 @@ async fn run_main_with_event_processor(
         config_overrides,
         input_items,
         input_items_path,
+        input_items_json,
         dynamic_tools,
         dynamic_tools_path,
+        dynamic_tools_json,
         turn_personality,
     } = cli;
 
-    let input_items = match (input_items, input_items_path) {
-        (Some(items), _) => Some(items),
-        (None, Some(path)) => Some(load_json_from_file(&path, "input items")?),
-        (None, None) => None,
+    let input_items = match (input_items, input_items_json, input_items_path) {
+        (Some(items), _, _) => Some(items),
+        (None, Some(json), _) => Some(load_json_from_str(&json, "input items")?),
+        (None, None, Some(path)) => Some(load_json_from_file(&path, "input items")?),
+        (None, None, None) => None,
     };
 
-    let dynamic_tools = match (dynamic_tools, dynamic_tools_path) {
-        (Some(tools), _) => tools,
-        (None, Some(path)) => load_json_from_file(&path, "dynamic tools")?,
-        (None, None) => Vec::new(),
+    let dynamic_tools = match (dynamic_tools, dynamic_tools_json, dynamic_tools_path) {
+        (Some(tools), _, _) => tools,
+        (None, Some(json), _) => load_json_from_str(&json, "dynamic tools")?,
+        (None, None, Some(path)) => load_json_from_file(&path, "dynamic tools")?,
+        (None, None, None) => Vec::new(),
     };
 
     let turn_personality = resolve_turn_personality(turn_personality);
@@ -725,6 +729,14 @@ where
         .map_err(|err| anyhow::anyhow!("Failed to parse {label} file {path_display}: {err}"))
 }
 
+fn load_json_from_str<T>(value: &str, label: &str) -> anyhow::Result<T>
+where
+    T: DeserializeOwned,
+{
+    serde_json::from_str(value)
+        .map_err(|err| anyhow::anyhow!("Failed to parse {label} JSON: {err}"))
+}
+
 fn resolve_turn_personality(
     turn_personality: Option<cli::PersonalityCliArg>,
 ) -> Option<codex_protocol::config_types::Personality> {
@@ -954,6 +966,7 @@ mod user_turn_items_tests {
 mod cli_input_tests {
     use super::ensure_dynamic_tools_allowed_for_resume;
     use super::load_json_from_file;
+    use super::load_json_from_str;
     use super::resolve_turn_personality;
     use crate::cli::PersonalityCliArg;
     use codex_protocol::config_types::Personality;
@@ -992,6 +1005,31 @@ mod cli_input_tests {
 
         let parsed: Vec<DynamicToolSpec> =
             load_json_from_file(file.path(), "dynamic tools").expect("parse dynamic tools");
+        assert_eq!(parsed, tools);
+    }
+
+    #[test]
+    fn load_json_from_str_parses_input_items() {
+        let items = vec![UserInput::Text {
+            text: "hello".to_string(),
+            text_elements: Vec::new(),
+        }];
+        let contents = serde_json::to_string(&items).expect("serialize input items");
+        let parsed: Vec<UserInput> =
+            load_json_from_str(&contents, "input items").expect("parse input items");
+        assert_eq!(parsed, items);
+    }
+
+    #[test]
+    fn load_json_from_str_parses_dynamic_tools() {
+        let tools = vec![DynamicToolSpec {
+            name: "dynamic_tool".to_string(),
+            description: "example".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+        }];
+        let contents = serde_json::to_string(&tools).expect("serialize dynamic tools");
+        let parsed: Vec<DynamicToolSpec> =
+            load_json_from_str(&contents, "dynamic tools").expect("parse dynamic tools");
         assert_eq!(parsed, tools);
     }
 

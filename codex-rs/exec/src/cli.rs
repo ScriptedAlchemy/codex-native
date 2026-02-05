@@ -89,6 +89,14 @@ pub struct Cli {
     #[arg(long = "input-items", value_name = "FILE")]
     pub input_items_path: Option<PathBuf>,
 
+    /// Structured input items for the initial prompt (inline JSON array).
+    #[arg(
+        long = "input-items-json",
+        value_name = "JSON",
+        conflicts_with = "input_items_path"
+    )]
+    pub input_items_json: Option<String>,
+
     /// Dynamic tools for the thread start (for programmatic callers).
     #[clap(skip)]
     pub dynamic_tools: Option<Vec<DynamicToolSpec>>,
@@ -96,6 +104,14 @@ pub struct Cli {
     /// Dynamic tools for the thread start (read from JSON file).
     #[arg(long = "dynamic-tools", value_name = "FILE")]
     pub dynamic_tools_path: Option<PathBuf>,
+
+    /// Dynamic tools for the thread start (inline JSON array).
+    #[arg(
+        long = "dynamic-tools-json",
+        value_name = "JSON",
+        conflicts_with = "dynamic_tools_path"
+    )]
+    pub dynamic_tools_json: Option<String>,
 
     /// Override the personality for this turn.
     #[arg(long = "turn-personality", value_enum, value_name = "PERSONALITY")]

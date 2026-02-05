@@ -1,6 +1,4 @@
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -73,7 +71,6 @@ export class CodexExec {
 
   async *run(args: CodexExecArgs): AsyncGenerator<string> {
     const commandArgs: string[] = ["exec", "--experimental-json"];
-    const cleanupTasks: Array<() => Promise<void>> = [];
 
     if (this.configOverrides) {
       for (const override of serializeConfigOverrides(this.configOverrides)) {
@@ -149,15 +146,11 @@ export class CodexExec {
     }
 
     if (args.inputItems) {
-      const inputItemsFile = await createJsonFile("input-items", args.inputItems);
-      cleanupTasks.push(inputItemsFile.cleanup);
-      commandArgs.push("--input-items", inputItemsFile.path);
+      commandArgs.push("--input-items-json", JSON.stringify(args.inputItems));
     }
 
     if (args.dynamicTools && args.dynamicTools.length > 0) {
-      const dynamicToolsFile = await createJsonFile("dynamic-tools", args.dynamicTools);
-      cleanupTasks.push(dynamicToolsFile.cleanup);
-      commandArgs.push("--dynamic-tools", dynamicToolsFile.path);
+      commandArgs.push("--dynamic-tools-json", JSON.stringify(args.dynamicTools));
     }
 
     if (args.threadId) {
@@ -245,7 +238,6 @@ export class CodexExec {
       } catch {
         // ignore
       }
-      await Promise.allSettled(cleanupTasks.map((task) => task()));
     }
   }
 }

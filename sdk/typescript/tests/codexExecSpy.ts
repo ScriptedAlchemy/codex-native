@@ -1,5 +1,4 @@
 import * as child_process from "node:child_process";
-import fs from "node:fs";
 
 jest.mock("node:child_process", () => {
   const actual = jest.requireActual<typeof import("node:child_process")>("node:child_process");
@@ -29,16 +28,16 @@ export function codexExecSpy(): {
     const options = spawnArgs[2] as child_process.SpawnOptions | undefined;
     envs.push(options?.env as Record<string, string> | undefined);
     if (Array.isArray(commandArgs)) {
-      const inputItemsPath = getFlagValue(commandArgs, "--input-items");
-      if (inputItemsPath) {
-        const payload = readJsonFile(inputItemsPath);
+      const inputItemsJson = getFlagValue(commandArgs, "--input-items-json");
+      if (inputItemsJson) {
+        const payload = readJsonArg(inputItemsJson);
         if (payload !== undefined) {
           inputItemsPayloads.push(payload);
         }
       }
-      const dynamicToolsPath = getFlagValue(commandArgs, "--dynamic-tools");
-      if (dynamicToolsPath) {
-        const payload = readJsonFile(dynamicToolsPath);
+      const dynamicToolsJson = getFlagValue(commandArgs, "--dynamic-tools-json");
+      if (dynamicToolsJson) {
+        const payload = readJsonArg(dynamicToolsJson);
         if (payload !== undefined) {
           dynamicToolsPayloads.push(payload);
         }
@@ -67,10 +66,9 @@ function getFlagValue(args: string[], flag: string): string | undefined {
   return value;
 }
 
-function readJsonFile(path: string): unknown | undefined {
+function readJsonArg(value: string): unknown | undefined {
   try {
-    const contents = fs.readFileSync(path, "utf8");
-    return JSON.parse(contents) as unknown;
+    return JSON.parse(value) as unknown;
   } catch {
     return undefined;
   }

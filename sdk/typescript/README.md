@@ -86,6 +86,7 @@ console.log(turn.finalResponse);
 ### Structured inputs (images, mentions, skills)
 
 Provide structured input entries when you need to include images, mentions, or skill references alongside text. Structured inputs are serialized into `input_items` and preserve ordering exactly.
+The SDK serializes these inputs as inline JSON and passes them to the CLI via `--input-items-json`.
 
 ```typescript
 const turn = await thread.run([
@@ -118,6 +119,7 @@ await thread.run("Summarize the diff", { personality: "pragmatic" });
 ### Dynamic tools
 
 Provide additional tool specs when starting a new thread. These are only honored on the initial `run()`.
+The SDK passes dynamic tool specs inline via `--dynamic-tools-json`.
 
 ```typescript
 const thread = codex.startThread({
