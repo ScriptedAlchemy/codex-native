@@ -264,6 +264,7 @@ export type RepoDiffSummaryOptions = {
 export type ReverieConversation = {
   id: string;
   path: string;
+  cwd?: string;
   createdAt?: string;
   updatedAt?: string;
   headRecords: string[];

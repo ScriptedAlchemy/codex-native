@@ -80,7 +80,22 @@ fn test_run_request_sandbox_mode_conversions() {
     req.sandbox_mode = Some(mode_str.to_string());
 
     let internal = req.into_internal().unwrap();
-    assert_eq!(internal.sandbox_mode, Some(expected));
+    assert!(
+      matches!(
+        (internal.sandbox_mode, expected),
+        (
+          Some(SandboxModeCliArg::ReadOnly),
+          SandboxModeCliArg::ReadOnly
+        ) | (
+          Some(SandboxModeCliArg::WorkspaceWrite),
+          SandboxModeCliArg::WorkspaceWrite
+        ) | (
+          Some(SandboxModeCliArg::DangerFullAccess),
+          SandboxModeCliArg::DangerFullAccess
+        )
+      ),
+      "expected sandbox mode {mode_str} to round-trip"
+    );
   }
 }
 

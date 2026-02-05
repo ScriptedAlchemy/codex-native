@@ -50,6 +50,7 @@ async fn conversation_item_to_reverie(item: codex_core::ThreadItem) -> ReverieCo
   ReverieConversation {
     id,
     path: item.path.to_string_lossy().into_owned(),
+    cwd: item.cwd.map(|value| value.to_string_lossy().into_owned()),
     created_at: item.created_at,
     updated_at: item.updated_at,
     head_records,
@@ -66,11 +67,6 @@ fn record_has_cwd(value: &serde_json::Value) -> bool {
     .and_then(|cwd| cwd.as_str())
     .is_some()
     || value.get("cwd").and_then(|cwd| cwd.as_str()).is_some()
-    || value
-      .get("payload")
-      .and_then(|payload| payload.get("cwd"))
-      .and_then(|cwd| cwd.as_str())
-      .is_some()
 }
 
 fn read_head_records_fallback(path: &Path, limit: usize) -> Vec<serde_json::Value> {

@@ -55,7 +55,10 @@ fn test_build_cli_new_conversation() {
   assert_eq!(cli.prompt, Some("hello".to_string()));
   assert_eq!(cli.images.len(), 1);
   assert_eq!(cli.model, Some("gpt-5-codex".to_string()));
-  assert_eq!(cli.sandbox_mode, Some(SandboxModeCliArg::WorkspaceWrite));
+  assert!(matches!(
+    cli.sandbox_mode,
+    Some(SandboxModeCliArg::WorkspaceWrite)
+  ));
   assert!(!cli.full_auto);
   assert!(cli.skip_git_repo_check);
   assert!(!cli.oss);

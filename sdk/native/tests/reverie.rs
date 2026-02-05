@@ -133,6 +133,10 @@ async fn test_reverie_list_conversations_finds_file() {
   let first = &list[0];
   assert!(first.path.contains("rollout-2025-01-01T12-00-00"));
   assert!(first.path.ends_with(".jsonl"));
+  assert_eq!(
+    first.cwd.as_deref(),
+    Some(home.path().to_string_lossy().as_ref())
+  );
   // created_at is optional; verify head_records parsed
   assert!(!first.head_records.is_empty(), "expected head records");
 }

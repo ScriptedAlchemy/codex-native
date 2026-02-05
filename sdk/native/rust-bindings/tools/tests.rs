@@ -46,8 +46,9 @@ mod tests {
 
       async fn handle(&self, invocation: ToolInvocation) -> Result<ToolOutput, FunctionCallError> {
         Ok(ToolOutput::Function {
-          content: format!("ok:{}", invocation.tool_name),
-          content_items: None,
+          body: codex_protocol::models::FunctionCallOutputBody::Text(
+            format!("ok:{}", invocation.tool_name),
+          ),
           success: Some(true),
         })
       }
@@ -104,4 +105,3 @@ mod tests {
     assert_eq!(messages.as_slice(), &["LSP diagnostics ready"]);
   }
 }
-

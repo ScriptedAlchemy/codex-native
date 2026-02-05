@@ -11,6 +11,7 @@ use codex_core::OLLAMA_OSS_PROVIDER_ID;
 pub struct ReverieConversation {
   pub id: String,
   pub path: String,
+  pub cwd: Option<String>,
   #[napi(js_name = "createdAt")]
   pub created_at: Option<String>,
   #[napi(js_name = "updatedAt")]
@@ -108,4 +109,3 @@ impl SearchQueryContext {
     &self.expanded
   }
 }
-

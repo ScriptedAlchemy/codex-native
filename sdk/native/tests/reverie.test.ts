@@ -111,6 +111,7 @@ describe("Reverie native helpers", () => {
     const first = list[0];
     expect(first.path).toContain("rollout-2025-01-01T12-00-00");
     expect(first.path.endsWith(".jsonl")).toBe(true);
+    expect(first.cwd).toBe(home);
     expect(Array.isArray(first.headRecordsToon)).toBe(true);
     expect(first.headRecordsToon.length).toBe(first.headRecords.length);
     expect(first.headRecordsToon[0]).not.toHaveLength(0);

@@ -194,7 +194,11 @@ pub async fn reverie_search_semantic(
 
   let mut scored_conversations: Vec<(usize, ReverieConversation)> = Vec::new();
   for conversation in raw_conversations {
-    if !conversation_matches_project(&conversation.head_records, normalized_project_root.as_deref()) {
+    if !conversation_matches_project(
+      conversation.cwd.as_deref(),
+      &conversation.head_records,
+      normalized_project_root.as_deref(),
+    ) {
       continue;
     }
 
@@ -340,7 +344,11 @@ pub async fn reverie_index_semantic(
     if conversations_indexed as usize >= conversation_limit {
       break;
     }
-    if !conversation_matches_project(&conversation.head_records, project_root.as_deref()) {
+    if !conversation_matches_project(
+      conversation.cwd.as_deref(),
+      &conversation.head_records,
+      project_root.as_deref(),
+    ) {
       continue;
     }
     let insights = derive_insights_for_semantic(&conversation.head_records_toon, &conversation.tail_records_toon);
@@ -447,4 +455,3 @@ fn build_reranker_config(
     show_download_progress: opts.reranker_show_progress,
   })
 }
-
