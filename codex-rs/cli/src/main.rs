@@ -82,7 +82,7 @@ struct MultitoolCli {
 enum Subcommand {
     /// Run Codex non-interactively.
     #[clap(visible_alias = "e")]
-    Exec(ExecCli),
+    Exec(Box<ExecCli>),
 
     /// Run a code review non-interactively.
     Review(ReviewArgs),
@@ -589,7 +589,7 @@ async fn cli_main(codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()
                 &mut exec_cli.config_overrides,
                 root_config_overrides.clone(),
             );
-            codex_exec::run_main(exec_cli, codex_linux_sandbox_exe).await?;
+            codex_exec::run_main(*exec_cli, codex_linux_sandbox_exe).await?;
         }
         Some(Subcommand::Review(review_args)) => {
             let mut exec_cli = ExecCli::try_parse_from(["codex", "exec"])?;
@@ -1110,6 +1110,7 @@ mod tests {
         let Some(Subcommand::Exec(exec)) = cli.subcommand else {
             panic!("expected exec subcommand");
         };
+        let exec = *exec;
         let Some(codex_exec::Command::Resume(args)) = exec.command else {
             panic!("expected exec resume");
         };
