@@ -28,9 +28,17 @@ fn validate_model_name(
     )));
   }
 
-  // Only validate against Codex-hosted models when using the default OpenAI provider.
-  // For third-party providers (e.g. GitHub Copilot), model names are provider-specific.
   let provider = model_provider.map(str::trim).filter(|v| !v.is_empty());
+  if provider.is_some_and(|name| name.eq_ignore_ascii_case("github"))
+    && trimmed.starts_with("gpt-4.1")
+  {
+    return Err(napi::Error::from_reason(format!(
+      "Invalid model \"{trimmed}\" for model provider \"github\". GitHub provider runs on Responses API; use GPT-5-family models like \"gpt-5-mini\"."
+    )));
+  }
+
+  // Only validate against Codex-hosted models when using the default OpenAI provider.
+  // For other third-party providers, model names remain provider-specific.
   let is_default_provider = provider.is_none() || provider == Some("openai");
   if !oss && is_default_provider && !is_supported_hosted_model(trimmed) {
     return Err(napi::Error::from_reason(format!(
@@ -41,4 +49,3 @@ fn validate_model_name(
 
   Ok(())
 }
-

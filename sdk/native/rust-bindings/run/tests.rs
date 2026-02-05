@@ -68,8 +68,12 @@ mod tests_run {
   }
 
   #[test]
-  fn accepts_gpt_4_1_when_provider_is_non_default() {
-    assert!(validate_model_name(Some("gpt-4.1"), false, Some("github")).is_ok());
+  fn rejects_gpt_4_1_when_provider_is_github() {
+    let error = validate_model_name(Some("gpt-4.1"), false, Some("github"))
+      .expect_err("gpt-4.1 should be rejected for github provider");
+    let message = error.to_string();
+    assert!(message.contains("Invalid model \"gpt-4.1\""));
+    assert!(message.contains("model provider \"github\""));
   }
 
   // MCP Configuration Tests

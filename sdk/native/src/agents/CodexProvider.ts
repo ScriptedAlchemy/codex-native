@@ -74,6 +74,12 @@ export interface CodexProviderOptions extends CodexOptions {
   reasoningSummary?: ThreadOptions["reasoningSummary"];
 
   /**
+   * Web search mode for threads created by this provider.
+   * @default inherited from user config
+   */
+  webSearchMode?: ThreadOptions["webSearchMode"];
+
+  /**
    * Enable LSP diagnostics for threads created by this provider
    * @default true
    */
@@ -264,6 +270,7 @@ class CodexModel implements Model {
       approvalMode: this.options.approvalMode,
       reasoningEffort: this.options.reasoningEffort,
       reasoningSummary: this.options.reasoningSummary,
+      webSearchMode: this.options.webSearchMode,
     };
   }
 

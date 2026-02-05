@@ -6,4 +6,4 @@ See the individual example files for specific usage patterns.
 
 - `background_events.ts` – stream a turn and emit mid-turn background notifications.
 - `skills.ts` – register programmatic skills and reference them via `$<name>` / `@<name>`.
-- `github-provider-models.ts` – GitHub provider smoke test for gpt-5-mini (Responses) and gpt-4.1 (Chat) with tools.
+- `github-provider-models.ts` – GitHub provider smoke test for gpt-5-mini (Responses) with threads + tools.
