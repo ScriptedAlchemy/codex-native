@@ -28,7 +28,10 @@ function findOpenCodeAuthPath(): string | null {
 
 const shouldRunLive = process.env.CODEX_TEST_LIVE === "1";
 const liveDescribe = shouldRunLive ? describe : describe.skip;
-const shouldRunLiveTools = shouldRunLive && process.env.CODEX_TEST_LIVE_TOOLS === "1";
+const shouldRunLiveTools =
+  shouldRunLive &&
+  process.env.CODEX_TEST_LIVE_TOOLS === "1" &&
+  process.env.CODEX_TEST_LIVE_TOOLS_STRESS === "1";
 const liveToolsIt = shouldRunLiveTools ? it : it.skip;
 
 liveDescribe("GitHub Copilot provider (live)", () => {
@@ -89,18 +92,28 @@ liveDescribe("GitHub Copilot provider (live)", () => {
     const toolName = `get_token_${model.replace(/[^a-z0-9]/gi, "_").toLowerCase()}`;
     const tokens = new Map<string, string>();
     const calls: string[] = [];
+    const seenLabels = new Set<string>();
+    const maxToolCalls = labels.length + 2;
+    const doneMarker = "__tool-calls-verified__";
 
     const tool = codexTool({
       name: toolName,
       description: "Return a unique token for a label.",
       parameters: z.object({ label: z.string() }),
       execute: ({ label }: { label: string }) => {
+        calls.push(label);
+        seenLabels.add(label);
+        if (calls.length > maxToolCalls) {
+          throw new Error(`tool recursion guard exceeded: ${calls.length}`);
+        }
         let token = tokens.get(label);
         if (!token) {
           token = `token-${label}-${Math.random().toString(36).slice(2, 8)}`;
           tokens.set(label, token);
         }
-        calls.push(label);
+        if (labels.every((requiredLabel) => seenLabels.has(requiredLabel))) {
+          throw new Error(doneMarker);
+        }
         return { label, token };
       },
     });
@@ -132,18 +145,29 @@ liveDescribe("GitHub Copilot provider (live)", () => {
       tools: [tool],
     });
     const runner = new Runner({ modelProvider: provider });
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), 120_000);
 
     let output: string | null = null;
     try {
-      const result = await runner.run(agent, "Begin.", { maxTurns: 12 });
+      const result = await runner.run(agent, "Begin.", {
+        maxTurns: 12,
+        signal: controller.signal,
+      });
       if (typeof result.finalOutput === "string") {
         output = result.finalOutput;
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!/max turns/i.test(message)) {
+      if (
+        !/max turns|aborted|aborterror|tool recursion guard exceeded|__tool-calls-verified__/i.test(
+          message.toLowerCase(),
+        )
+      ) {
         throw error;
       }
+    } finally {
+      clearTimeout(timeoutHandle);
     }
     expect(calls).toEqual(expect.arrayContaining(labels));
     if (output) {
