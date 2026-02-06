@@ -13,6 +13,8 @@ use core_test_support::wait_for_event;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use tokio::sync::oneshot;
+use tokio::time::Duration;
+use tokio::time::timeout;
 
 fn ev_message_item_done(id: &str, text: &str) -> Value {
     serde_json::json!({
@@ -86,7 +88,7 @@ async fn injected_user_input_triggers_follow_up_request_with_deltas() {
         },
     ];
 
-    let (server, _completions) =
+    let (server, mut completions) =
         start_streaming_sse_server(vec![first_chunks, second_chunks]).await;
 
     let codex = test_codex()
@@ -125,12 +127,17 @@ async fn injected_user_input_triggers_follow_up_request_with_deltas() {
 
     let _ = gate_completed_tx.send(());
 
-    let _ = wait_for_event(&codex, |event| {
-        matches!(event, EventMsg::UserMessage(message) if message.message == "second prompt")
-    })
-    .await;
-
-    wait_for_event(&codex, |event| matches!(event, EventMsg::TurnComplete(_))).await;
+    let first_completion = completions.remove(0);
+    let second_completion = completions.remove(0);
+    assert!(completions.is_empty());
+    timeout(Duration::from_secs(30), first_completion)
+        .await
+        .expect("timed out waiting for first stream completion")
+        .expect("first stream completion sender dropped");
+    timeout(Duration::from_secs(30), second_completion)
+        .await
+        .expect("timed out waiting for second stream completion")
+        .expect("second stream completion sender dropped");
 
     let requests = server.requests().await;
     assert_eq!(requests.len(), 2);

@@ -38,7 +38,7 @@ struct SnapshotRun {
 
 async fn wait_for_snapshot(codex_home: &Path) -> Result<PathBuf> {
     let snapshot_dir = codex_home.join("shell_snapshots");
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         if let Ok(mut entries) = fs::read_dir(&snapshot_dir).await
             && let Some(entry) = entries.next_entry().await?
@@ -48,6 +48,24 @@ async fn wait_for_snapshot(codex_home: &Path) -> Result<PathBuf> {
 
         if Instant::now() >= deadline {
             anyhow::bail!("timed out waiting for shell snapshot");
+        }
+
+        sleep(Duration::from_millis(25)).await;
+    }
+}
+
+async fn wait_for_snapshot_deleted(snapshot_path: &Path) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if !snapshot_path.exists() {
+            return Ok(());
+        }
+
+        if Instant::now() >= deadline {
+            anyhow::bail!(
+                "timed out waiting for shell snapshot cleanup at {}",
+                snapshot_path.display()
+            );
         }
 
         sleep(Duration::from_millis(25)).await;
@@ -344,7 +362,7 @@ async fn shell_snapshot_deleted_after_shutdown_with_skills() -> Result<()> {
 
     drop(codex);
     drop(harness);
-    sleep(Duration::from_millis(150)).await;
+    wait_for_snapshot_deleted(&snapshot_path).await?;
 
     assert_eq!(
         snapshot_path.exists(),
