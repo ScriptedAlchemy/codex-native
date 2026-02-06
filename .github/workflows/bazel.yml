@@ -17,6 +17,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref_name != 'main' }}
 jobs:
   test:
+    if: ${{ github.repository_owner == 'openai' }}
     strategy:
       fail-fast: false
       matrix:

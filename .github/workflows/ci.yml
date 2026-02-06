@@ -4,6 +4,10 @@ on:
   pull_request: {}
   push: { branches: [main] }
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
@@ -31,6 +35,7 @@ jobs:
       - uses: facebook/install-dotslash@v2
 
       - name: Stage npm package
+        if: github.repository == 'openai/codex-native'
         id: stage_npm_package
         env:
           GH_TOKEN: ${{ github.token }}
@@ -47,6 +52,7 @@ jobs:
           echo "pack_output=$PACK_OUTPUT" >> "$GITHUB_OUTPUT"
 
       - name: Upload staged npm package artifact
+        if: github.repository == 'openai/codex-native'
         uses: actions/upload-artifact@v6
         with:
           name: codex-npm-staging
