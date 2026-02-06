@@ -69,8 +69,8 @@
     "vscode-languageserver-types": "^3.17.5"
   },
   "devDependencies": {
-    "@babel/core": "7.25.2",
-    "@babel/preset-env": "7.25.4",
+    "@babel/core": "7.29.0",
+    "@babel/preset-env": "7.29.0",
     "@babel/preset-typescript": "7.28.5",
     "@jest/globals": "^29.7.0",
     "@napi-rs/cli": "^3.4.1",
