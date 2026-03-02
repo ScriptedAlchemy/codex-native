@@ -411,7 +411,7 @@ jobs:
             zstd "${zstd_args[@]}" "$dest/$base"
           done
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
           # Upload the per-binary .zst files as well as the new .tar.gz
