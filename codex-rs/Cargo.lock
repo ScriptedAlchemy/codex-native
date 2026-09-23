@@ -7176,8 +7176,8 @@ dependencies = [
 
 [[package]]
 name = "runfiles"
-version = "0.1.0"
-source = "git+https://github.com/dzbarsky/rules_rust?rev=b56cbaa8465e74127f1ea216f813cd377295ad81#b56cbaa8465e74127f1ea216f813cd377295ad81"
+version = "0.3.0"
+source = "git+https://github.com/dzbarsky/rules_rust?rev=fd521efe16c03e4cd169453eb44fb98d73ebb7aa#fd521efe16c03e4cd169453eb44fb98d73ebb7aa"
 
 [[package]]
 name = "rust-embed"
