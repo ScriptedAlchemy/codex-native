@@ -196,7 +196,7 @@ regex = "1.12.2"
 regex-lite = "0.1.8"
 reqwest = "0.12"
 rmcp = { version = "0.12.0", default-features = false }
-runfiles = { git = "https://github.com/dzbarsky/rules_rust", rev = "b56cbaa8465e74127f1ea216f813cd377295ad81" }
+runfiles = { git = "https://github.com/dzbarsky/rules_rust", rev = "e51ad65d06df05176f2b17b9762be00eb8399deb" }
 schemars = "0.8.22"
 seccompiler = "0.5.0"
 sentry = "0.46.0"
